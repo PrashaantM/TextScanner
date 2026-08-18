@@ -22,6 +22,7 @@
   const resultText = document.getElementById("result-text");
   const copyBtn = document.getElementById("copy-btn");
   const downloadBtn = document.getElementById("download-btn");
+  const downloadImageBtn = document.getElementById("download-image-btn");
   const modeTextBtn = document.getElementById("mode-text-btn");
   const modeImageBtn = document.getElementById("mode-image-btn");
   const modeFullBtn = document.getElementById("mode-full-btn");
@@ -39,14 +40,19 @@
 
   const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15 MB
   const MAX_UNDO_STEPS = 100;
+  // Tesseract's word bbox height (used directly as a CSS font-size) renders visibly
+  // larger than the source text, since a font's em-box is taller than its ink height.
+  const FONT_SIZE_CORRECTION = 0.8;
   let currentFile = null;
   let currentObjectUrl = null;
   let activeMode = "text";
   let imageFormatLines = []; // array of arrays of word span elements, grouped by line
+  let lastNaturalWidth = 0;
+  let lastNaturalHeight = 0;
 
   // Image format / Full image shared state: every word span and the background
   // image are "objects" that can be selected, and (in full editor mode) moved and resized.
-  let editorObjects = []; // { id, type: 'word' | 'image', x, y, w, h, fontSizePct, el }
+  let editorObjects = []; // { id, type: 'word' | 'image', x, y, w, h, fontSizePct, el, ... }
   let objectIdCounter = 0;
   const selectedObjectIds = new Set();
   let fullEditorMode = false;
@@ -107,6 +113,7 @@
     hide(imageFormatView);
     hide(imageFormatHint);
     hide(editorToolbar);
+    hide(downloadImageBtn);
 
     if (mode === "text") {
       show(resultText);
@@ -115,6 +122,7 @@
 
     show(imageFormatView);
     show(imageFormatHint);
+    show(downloadImageBtn);
     imageFormatView.classList.toggle("show-bg", mode === "full");
 
     if (mode === "full") {
@@ -136,7 +144,7 @@
         "Text is positioned where it appeared in the source image. Click a word to edit it, or shift-click and drag to select multiple.";
     } else if (activeMode === "full" && !fullEditorMode) {
       imageFormatHint.textContent =
-        "The full image is shown with editable text on top. Click a word to edit it, or shift-click and drag to select multiple. Enter full editor mode to move and resize.";
+        "The full image is shown with editable text on top. Click a word to edit it, or shift-click and drag to select multiple. Click Move components to move and resize.";
     } else if (activeMode === "full" && fullEditorMode) {
       imageFormatHint.textContent =
         "Drag an item to move it, or drag its corner handle to resize. Shift-click or drag a selection box to move multiple items together.";
@@ -153,7 +161,7 @@
         obj.el.contentEditable = String(!on);
       }
     });
-    editorModeBtn.textContent = on ? "Exit full editor mode" : "Enter full editor mode";
+    editorModeBtn.textContent = on ? "Done moving" : "Move components";
     editorModeBtn.setAttribute("aria-pressed", String(on));
     if (on) {
       show(undoRedoGroup);
@@ -230,6 +238,7 @@
       applyObjectStyle(obj);
     });
     updateResizeHandle();
+    refreshModifiedStates();
   }
 
   function pushUndo(preChangeSnapshot) {
@@ -294,12 +303,14 @@
   }
 
   function clearImageFormatView() {
-    imageFormatView.querySelectorAll(".image-format-word").forEach((el) => el.remove());
+    imageFormatView.querySelectorAll(".image-format-word, .image-format-patch").forEach((el) => el.remove());
     imageFormatBg.removeAttribute("src");
     imageFormatView.style.aspectRatio = "";
     editorObjects = [];
     imageFormatLines = [];
     objectIdCounter = 0;
+    lastNaturalWidth = 0;
+    lastNaturalHeight = 0;
     undoStack = [];
     redoStack = [];
     setFullEditorMode(false);
@@ -307,11 +318,85 @@
     updateUndoRedoButtons();
   }
 
+  // Draws the already-loaded preview image into an offscreen canvas so word
+  // patch colors can be sampled from it. Blob: URLs are same-origin, so this
+  // never taints the canvas.
+  function readImagePixels(naturalWidth, naturalHeight) {
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = naturalWidth;
+      canvas.height = naturalHeight;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(previewImg, 0, 0, naturalWidth, naturalHeight);
+      return ctx.getImageData(0, 0, naturalWidth, naturalHeight);
+    } catch {
+      return null;
+    }
+  }
+
+  // Approximates the local background color around a word by averaging a thin
+  // strip of pixels just outside its bounding box (preferring above, falling
+  // back to below), used to mask leftover original text once a word moves.
+  function sampleNearbyColor(imageData, naturalWidth, naturalHeight, x0, y0, x1, y1) {
+    if (!imageData) return null;
+    const margin = 4;
+    let top = Math.max(0, Math.floor(y0) - margin);
+    let bottom = Math.floor(y0) - 1;
+    if (bottom < top) {
+      top = Math.min(naturalHeight - 1, Math.ceil(y1) + 1);
+      bottom = Math.min(naturalHeight - 1, Math.ceil(y1) + margin);
+    }
+    const left = Math.max(0, Math.floor(x0));
+    const right = Math.min(naturalWidth - 1, Math.ceil(x1));
+    if (bottom < top || right < left) return null;
+
+    const { data, width } = imageData;
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    let count = 0;
+    for (let y = top; y <= bottom; y++) {
+      for (let x = left; x <= right; x += 2) {
+        const idx = (y * width + x) * 4;
+        r += data[idx];
+        g += data[idx + 1];
+        b += data[idx + 2];
+        count++;
+      }
+    }
+    if (!count) return null;
+    return `rgb(${Math.round(r / count)}, ${Math.round(g / count)}, ${Math.round(b / count)})`;
+  }
+
+  function isWordModified(obj) {
+    return (
+      obj.el.textContent !== obj.originalText ||
+      Math.abs(obj.x - obj.originalX) > 0.01 ||
+      Math.abs(obj.y - obj.originalY) > 0.01 ||
+      Math.abs(obj.w - obj.originalW) > 0.01 ||
+      Math.abs(obj.h - obj.originalH) > 0.01
+    );
+  }
+
+  function refreshModifiedStates() {
+    editorObjects.forEach((obj) => {
+      if (obj.type !== "word") return;
+      const modified = isWordModified(obj);
+      obj.modified = modified;
+      obj.el.classList.toggle("is-modified", modified);
+      if (obj.patchEl) {
+        obj.patchEl.style.display = modified && obj.patchColor ? "block" : "none";
+      }
+    });
+  }
+
   function renderImageFormatView(data, naturalWidth, naturalHeight, imageUrl) {
     clearImageFormatView();
 
     if (!naturalWidth || !naturalHeight) return;
 
+    lastNaturalWidth = naturalWidth;
+    lastNaturalHeight = naturalHeight;
     imageFormatView.style.aspectRatio = `${naturalWidth} / ${naturalHeight}`;
     imageFormatBg.src = imageUrl;
 
@@ -320,6 +405,8 @@
     applyObjectStyle(bgObj);
 
     if (!Array.isArray(data.lines)) return;
+
+    const pixels = readImagePixels(naturalWidth, naturalHeight);
 
     data.lines.forEach((line) => {
       if (!Array.isArray(line.words) || line.words.length === 0) return;
@@ -332,6 +419,22 @@
         const width = Math.max(x1 - x0, 1);
         const height = Math.max(y1 - y0, 1);
 
+        const x = (x0 / naturalWidth) * 100;
+        const y = (y0 / naturalHeight) * 100;
+        const w = (width / naturalWidth) * 100;
+        const h = (height / naturalHeight) * 100;
+        const fontSizePct = (height / naturalWidth) * 100 * FONT_SIZE_CORRECTION;
+
+        const patchColor = sampleNearbyColor(pixels, naturalWidth, naturalHeight, x0, y0, x1, y1);
+        const patchEl = document.createElement("div");
+        patchEl.className = "image-format-patch";
+        patchEl.style.left = `${x}%`;
+        patchEl.style.top = `${y}%`;
+        patchEl.style.width = `${w}%`;
+        patchEl.style.height = `${h}%`;
+        if (patchColor) patchEl.style.background = patchColor;
+        imageFormatView.appendChild(patchEl);
+
         const span = document.createElement("span");
         span.className = "image-format-word";
         span.contentEditable = String(!fullEditorMode);
@@ -341,11 +444,19 @@
         const obj = {
           id: `obj-${++objectIdCounter}`,
           type: "word",
-          x: (x0 / naturalWidth) * 100,
-          y: (y0 / naturalHeight) * 100,
-          w: (width / naturalWidth) * 100,
-          h: (height / naturalHeight) * 100,
-          fontSizePct: (height / naturalWidth) * 100,
+          x,
+          y,
+          w,
+          h,
+          fontSizePct,
+          originalX: x,
+          originalY: y,
+          originalW: w,
+          originalH: h,
+          originalText: text,
+          patchColor,
+          patchEl,
+          modified: false,
           el: span,
         };
         editorObjects.push(obj);
@@ -360,6 +471,13 @@
       }
     });
   }
+
+  imageFormatView.addEventListener("input", (e) => {
+    const span = e.target.closest(".image-format-word");
+    if (!span) return;
+    const obj = editorObjects.find((o) => o.el === span);
+    if (obj) refreshModifiedStates();
+  });
 
   function getActiveResultText() {
     if ((activeMode === "image" || activeMode === "full") && imageFormatLines.length) {
@@ -420,6 +538,7 @@
         applyObjectStyle(o);
       });
       updateResizeHandle();
+      refreshModifiedStates();
     }
 
     function onUp() {
@@ -472,6 +591,7 @@
       changed = true;
       applyObjectStyle(obj);
       updateResizeHandle();
+      refreshModifiedStates();
     }
 
     function onUp() {
@@ -753,5 +873,78 @@
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  });
+
+  // Flattens the current Image format or Full image view into a PNG, mirroring
+  // what's on screen: the photo (Full image only) at its current position and
+  // size, patches over any moved/edited words' original spots, then each
+  // word's current text at its current position and size.
+  function buildResultCanvas() {
+    if (!lastNaturalWidth || !lastNaturalHeight) return null;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = lastNaturalWidth;
+    canvas.height = lastNaturalHeight;
+    const ctx = canvas.getContext("2d");
+
+    const surfaceColor = getComputedStyle(imageFormatView).backgroundColor;
+    ctx.fillStyle = surfaceColor || "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (activeMode === "full") {
+      const bgObj = editorObjects.find((o) => o.type === "image");
+      if (bgObj && imageFormatBg.complete && imageFormatBg.naturalWidth) {
+        const bx = (bgObj.x / 100) * canvas.width;
+        const by = (bgObj.y / 100) * canvas.height;
+        const bw = (bgObj.w / 100) * canvas.width;
+        const bh = (bgObj.h / 100) * canvas.height;
+        ctx.drawImage(imageFormatBg, bx, by, bw, bh);
+      }
+
+      editorObjects.forEach((obj) => {
+        if (obj.type !== "word" || !obj.modified || !obj.patchColor) return;
+        const px = (obj.originalX / 100) * canvas.width;
+        const py = (obj.originalY / 100) * canvas.height;
+        const pw = (obj.originalW / 100) * canvas.width;
+        const ph = (obj.originalH / 100) * canvas.height;
+        ctx.fillStyle = obj.patchColor;
+        ctx.fillRect(px, py, pw, ph);
+      });
+    }
+
+    const textColor = getComputedStyle(document.body).color;
+    editorObjects.forEach((obj) => {
+      if (obj.type !== "word") return;
+      // In Full image mode, an untouched word stays invisible on screen (the real
+      // image text underneath already shows it), so skip drawing it here too.
+      if (activeMode === "full" && !obj.modified) return;
+      const text = obj.el.textContent;
+      if (!text) return;
+      const fontPx = (obj.fontSizePct / 100) * canvas.width;
+      ctx.font = `${fontPx}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+      ctx.fillStyle = textColor || "#111111";
+      ctx.textBaseline = "top";
+      const wx = (obj.x / 100) * canvas.width;
+      const wy = (obj.y / 100) * canvas.height;
+      ctx.fillText(text, wx, wy);
+    });
+
+    return canvas;
+  }
+
+  downloadImageBtn.addEventListener("click", () => {
+    const canvas = buildResultCanvas();
+    if (!canvas) return;
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = activeMode === "full" ? "textscanner-full-image.png" : "textscanner-image-format.png";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }, "image/png");
   });
 })();

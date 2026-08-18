@@ -61,10 +61,20 @@ body {
 
 main {
   width: 100%;
-  max-width: 640px;
+  max-width: 1000px;
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1.5rem;
+}
+
+.drop-zone,
+.actions,
+.preview-section,
+.progress-section,
+.status-section {
+  width: 100%;
+  max-width: 640px;
+  align-self: center;
 }
 
 .drop-zone {
@@ -237,35 +247,43 @@ main {
 .result-section {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 1rem;
 }
 
-.result-header {
+.result-toolbar {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 
-.result-header h2 {
+.result-toolbar__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.result-toolbar__actions {
+  justify-content: flex-start;
+}
+
+.result-toolbar h2 {
   margin: 0;
   font-size: 1.1rem;
 }
 
-.result-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
 .mode-toggle {
   display: flex;
+  flex-wrap: wrap;
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 2px;
-  background: var(--surface);
+  background: var(--bg);
 }
 
 .mode-toggle__btn {
@@ -303,6 +321,8 @@ main {
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
 }
 
 .undo-redo-group {
@@ -349,23 +369,30 @@ main {
   outline-offset: -2px;
 }
 
-.image-format-word {
+/* A solid patch sampled from the surrounding image, dropped in behind a word's
+   original spot once that word has been edited, moved, or resized, so the
+   untouched source pixels don't keep showing through next to the new value. */
+.image-format-patch {
+  display: none;
   position: absolute;
   z-index: 1;
+  pointer-events: none;
+}
+
+.image-format-word {
+  position: absolute;
+  z-index: 2;
   display: inline-block;
   white-space: pre;
+  line-height: 1.15;
   color: var(--text);
   background: transparent;
   border: none;
   border-radius: 3px;
-  padding: 0 1px;
+  padding: 1px 2px;
   outline: none;
   cursor: text;
   transform-origin: top left;
-}
-
-.image-format-view.show-bg .image-format-word {
-  background: color-mix(in srgb, var(--surface) 82%, transparent);
 }
 
 .image-format-view.editor-mode .image-format-word {
@@ -381,8 +408,33 @@ main {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
-.image-format-word.is-selected,
+.image-format-word.is-selected {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* Full image mode: an untouched word stays invisible against the real photo
+   underneath it, so it doesn't read as a duplicate of the actual text. It
+   reveals itself on hover/focus, when selected, or permanently once it has
+   actually been edited, moved, or resized (so the edit stays visible). */
+.image-format-view.show-bg .image-format-word {
+  color: transparent;
+}
+
+.image-format-view.show-bg .image-format-word:hover,
+.image-format-view.show-bg .image-format-word.is-modified {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+}
+
+.image-format-view.show-bg .image-format-word:focus {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
 .image-format-view.show-bg .image-format-word.is-selected {
+  color: var(--text);
   background: color-mix(in srgb, var(--accent) 30%, transparent);
   box-shadow: 0 0 0 1px var(--accent);
 }
@@ -397,7 +449,7 @@ main {
   border-radius: 3px;
   transform: translate(-50%, -50%);
   cursor: nwse-resize;
-  z-index: 3;
+  z-index: 4;
 }
 
 .marquee-box {
@@ -406,7 +458,7 @@ main {
   border: 1px dashed var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   pointer-events: none;
-  z-index: 4;
+  z-index: 5;
 }
 
 .image-format-hint {

@@ -50,24 +50,28 @@
     <section id="status-section" class="status-section hidden" role="status"></section>
 
     <section id="result-section" class="result-section hidden">
-      <div class="result-header">
-        <h2>Extracted text</h2>
-        <div class="result-actions">
+      <div class="result-toolbar">
+        <div class="result-toolbar__row">
+          <h2>Extracted text</h2>
           <div class="mode-toggle" role="group" aria-label="Result view">
             <button id="mode-text-btn" class="mode-toggle__btn is-active" type="button" data-mode="text" aria-pressed="true">Text</button>
             <button id="mode-image-btn" class="mode-toggle__btn" type="button" data-mode="image" aria-pressed="false">Image format</button>
             <button id="mode-full-btn" class="mode-toggle__btn" type="button" data-mode="full" aria-pressed="false">Full image</button>
           </div>
+        </div>
+
+        <div class="result-toolbar__row result-toolbar__actions">
           <button id="copy-btn" class="btn btn--secondary" type="button">Copy</button>
           <button id="download-btn" class="btn btn--secondary" type="button">Download .txt</button>
+          <button id="download-image-btn" class="btn btn--secondary hidden" type="button">Download image</button>
         </div>
-      </div>
 
-      <div id="editor-toolbar" class="editor-toolbar hidden">
-        <button id="editor-mode-btn" class="btn btn--secondary" type="button" aria-pressed="false">Enter full editor mode</button>
-        <div id="undo-redo-group" class="undo-redo-group hidden">
-          <button id="undo-btn" class="btn btn--ghost" type="button" disabled>Undo</button>
-          <button id="redo-btn" class="btn btn--ghost" type="button" disabled>Redo</button>
+        <div id="editor-toolbar" class="editor-toolbar hidden">
+          <button id="editor-mode-btn" class="btn btn--secondary" type="button" aria-pressed="false">Move components</button>
+          <div id="undo-redo-group" class="undo-redo-group hidden">
+            <button id="undo-btn" class="btn btn--ghost" type="button" disabled>Undo</button>
+            <button id="redo-btn" class="btn btn--ghost" type="button" disabled>Redo</button>
+          </div>
         </div>
       </div>
 
