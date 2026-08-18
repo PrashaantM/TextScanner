@@ -24,14 +24,43 @@
   const downloadBtn = document.getElementById("download-btn");
   const modeTextBtn = document.getElementById("mode-text-btn");
   const modeImageBtn = document.getElementById("mode-image-btn");
+  const modeFullBtn = document.getElementById("mode-full-btn");
+  const modeButtons = [modeTextBtn, modeImageBtn, modeFullBtn];
   const imageFormatView = document.getElementById("image-format-view");
+  const imageFormatBg = document.getElementById("image-format-bg");
+  const resizeHandle = document.getElementById("resize-handle");
+  const marqueeBox = document.getElementById("marquee-box");
   const imageFormatHint = document.getElementById("image-format-hint");
+  const editorToolbar = document.getElementById("editor-toolbar");
+  const editorModeBtn = document.getElementById("editor-mode-btn");
+  const undoRedoGroup = document.getElementById("undo-redo-group");
+  const undoBtn = document.getElementById("undo-btn");
+  const redoBtn = document.getElementById("redo-btn");
 
   const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15 MB
+  const MAX_UNDO_STEPS = 100;
   let currentFile = null;
   let currentObjectUrl = null;
   let activeMode = "text";
   let imageFormatLines = []; // array of arrays of word span elements, grouped by line
+
+  // Image format / Full image shared state: every word span and the background
+  // image are "objects" that can be selected, and (in full editor mode) moved and resized.
+  let editorObjects = []; // { id, type: 'word' | 'image', x, y, w, h, fontSizePct, el }
+  let objectIdCounter = 0;
+  const selectedObjectIds = new Set();
+  let fullEditorMode = false;
+  let undoStack = [];
+  let redoStack = [];
+
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+  // Keep at least a sliver of an object within the container while dragging, without
+  // pinning full-bleed objects (like a background image at 100% size) in place.
+  const MIN_VISIBLE_PCT = 5;
+  function clampPosition(value, size) {
+    return clamp(value, MIN_VISIBLE_PCT - size, 100 - MIN_VISIBLE_PCT);
+  }
 
   function show(el) {
     el.classList.remove("hidden");
@@ -60,41 +89,237 @@
     setStatus("");
     hide(progressSection);
     progressFill.style.width = "0%";
-    imageFormatView.innerHTML = "";
-    imageFormatLines = [];
+    clearImageFormatView();
     setMode("text");
   }
 
+  // ---- Mode switching (Text / Image format / Full image) ----
+
   function setMode(mode) {
     activeMode = mode;
-    modeTextBtn.classList.toggle("is-active", mode === "text");
-    modeTextBtn.setAttribute("aria-pressed", String(mode === "text"));
-    modeImageBtn.classList.toggle("is-active", mode === "image");
-    modeImageBtn.setAttribute("aria-pressed", String(mode === "image"));
+    modeButtons.forEach((btn) => {
+      const isActive = btn.dataset.mode === mode;
+      btn.classList.toggle("is-active", isActive);
+      btn.setAttribute("aria-pressed", String(isActive));
+    });
+
+    hide(resultText);
+    hide(imageFormatView);
+    hide(imageFormatHint);
+    hide(editorToolbar);
 
     if (mode === "text") {
       show(resultText);
-      hide(imageFormatView);
-      hide(imageFormatHint);
-    } else {
-      hide(resultText);
-      show(imageFormatView);
-      show(imageFormatHint);
+      return;
     }
+
+    show(imageFormatView);
+    show(imageFormatHint);
+    imageFormatView.classList.toggle("show-bg", mode === "full");
+
+    if (mode === "full") {
+      show(editorToolbar);
+    } else if (fullEditorMode) {
+      setFullEditorMode(false);
+    }
+
+    updateImageFormatHint();
   }
 
   modeTextBtn.addEventListener("click", () => setMode("text"));
   modeImageBtn.addEventListener("click", () => setMode("image"));
+  modeFullBtn.addEventListener("click", () => setMode("full"));
 
-  function renderImageFormatView(data, naturalWidth, naturalHeight) {
-    imageFormatView.innerHTML = "";
-    imageFormatLines = [];
+  function updateImageFormatHint() {
+    if (activeMode === "image") {
+      imageFormatHint.textContent =
+        "Text is positioned where it appeared in the source image. Click a word to edit it, or shift-click and drag to select multiple.";
+    } else if (activeMode === "full" && !fullEditorMode) {
+      imageFormatHint.textContent =
+        "The full image is shown with editable text on top. Click a word to edit it, or shift-click and drag to select multiple. Enter full editor mode to move and resize.";
+    } else if (activeMode === "full" && fullEditorMode) {
+      imageFormatHint.textContent =
+        "Drag an item to move it, or drag its corner handle to resize. Shift-click or drag a selection box to move multiple items together.";
+    }
+  }
 
-    if (!naturalWidth || !naturalHeight || !Array.isArray(data.lines)) {
+  // ---- Full editor mode ----
+
+  function setFullEditorMode(on) {
+    fullEditorMode = on;
+    imageFormatView.classList.toggle("editor-mode", on);
+    editorObjects.forEach((obj) => {
+      if (obj.type === "word") {
+        obj.el.contentEditable = String(!on);
+      }
+    });
+    editorModeBtn.textContent = on ? "Exit full editor mode" : "Enter full editor mode";
+    editorModeBtn.setAttribute("aria-pressed", String(on));
+    if (on) {
+      show(undoRedoGroup);
+    } else {
+      hide(undoRedoGroup);
+    }
+    updateUndoRedoButtons();
+    updateImageFormatHint();
+    updateResizeHandle();
+  }
+
+  editorModeBtn.addEventListener("click", () => setFullEditorMode(!fullEditorMode));
+
+  // ---- Selection ----
+
+  function clearSelection() {
+    selectedObjectIds.clear();
+    updateSelectionVisuals();
+  }
+
+  function toggleSelection(id) {
+    if (selectedObjectIds.has(id)) {
+      selectedObjectIds.delete(id);
+    } else {
+      selectedObjectIds.add(id);
+    }
+    updateSelectionVisuals();
+  }
+
+  function updateSelectionVisuals() {
+    editorObjects.forEach((obj) => {
+      obj.el.classList.toggle("is-selected", selectedObjectIds.has(obj.id));
+    });
+    updateResizeHandle();
+  }
+
+  function objectsFromSelection() {
+    return editorObjects.filter((obj) => selectedObjectIds.has(obj.id));
+  }
+
+  function updateResizeHandle() {
+    if (fullEditorMode && selectedObjectIds.size === 1) {
+      const obj = editorObjects.find((o) => selectedObjectIds.has(o.id));
+      resizeHandle.style.left = `${obj.x + obj.w}%`;
+      resizeHandle.style.top = `${obj.y + obj.h}%`;
+      resizeHandle.style.display = "block";
+    } else {
+      resizeHandle.style.display = "none";
+    }
+  }
+
+  // ---- Undo / redo ----
+
+  function snapshotState() {
+    return editorObjects.map((obj) => ({
+      id: obj.id,
+      x: obj.x,
+      y: obj.y,
+      w: obj.w,
+      h: obj.h,
+      fontSizePct: obj.fontSizePct,
+    }));
+  }
+
+  function restoreSnapshot(snapshot) {
+    snapshot.forEach((s) => {
+      const obj = editorObjects.find((o) => o.id === s.id);
+      if (!obj) return;
+      obj.x = s.x;
+      obj.y = s.y;
+      obj.w = s.w;
+      obj.h = s.h;
+      if (s.fontSizePct != null) obj.fontSizePct = s.fontSizePct;
+      applyObjectStyle(obj);
+    });
+    updateResizeHandle();
+  }
+
+  function pushUndo(preChangeSnapshot) {
+    undoStack.push(preChangeSnapshot);
+    if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
+    redoStack = [];
+    updateUndoRedoButtons();
+  }
+
+  function updateUndoRedoButtons() {
+    undoBtn.disabled = undoStack.length === 0;
+    redoBtn.disabled = redoStack.length === 0;
+  }
+
+  undoBtn.addEventListener("click", () => {
+    if (!undoStack.length) return;
+    const current = snapshotState();
+    const previous = undoStack.pop();
+    redoStack.push(current);
+    restoreSnapshot(previous);
+    updateUndoRedoButtons();
+  });
+
+  redoBtn.addEventListener("click", () => {
+    if (!redoStack.length) return;
+    const current = snapshotState();
+    const next = redoStack.pop();
+    undoStack.push(current);
+    restoreSnapshot(next);
+    updateUndoRedoButtons();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if ((activeMode === "image" || activeMode === "full") && e.key === "Escape") {
+      clearSelection();
       return;
     }
+    if (!fullEditorMode) return;
+    const key = e.key.toLowerCase();
+    const withMeta = e.ctrlKey || e.metaKey;
+    if (withMeta && key === "z" && !e.shiftKey) {
+      e.preventDefault();
+      undoBtn.click();
+    } else if (withMeta && (key === "y" || (key === "z" && e.shiftKey))) {
+      e.preventDefault();
+      redoBtn.click();
+    }
+  });
+
+  // ---- Rendering objects (words + background image) ----
+
+  function applyObjectStyle(obj) {
+    obj.el.style.left = `${obj.x}%`;
+    obj.el.style.top = `${obj.y}%`;
+    if (obj.type === "word") {
+      obj.el.style.fontSize = `${obj.fontSizePct}cqw`;
+      obj.el.style.minWidth = `${obj.w}%`;
+    } else {
+      obj.el.style.width = `${obj.w}%`;
+      obj.el.style.height = `${obj.h}%`;
+    }
+  }
+
+  function clearImageFormatView() {
+    imageFormatView.querySelectorAll(".image-format-word").forEach((el) => el.remove());
+    imageFormatBg.removeAttribute("src");
+    imageFormatView.style.aspectRatio = "";
+    editorObjects = [];
+    imageFormatLines = [];
+    objectIdCounter = 0;
+    undoStack = [];
+    redoStack = [];
+    setFullEditorMode(false);
+    clearSelection();
+    updateUndoRedoButtons();
+  }
+
+  function renderImageFormatView(data, naturalWidth, naturalHeight, imageUrl) {
+    clearImageFormatView();
+
+    if (!naturalWidth || !naturalHeight) return;
 
     imageFormatView.style.aspectRatio = `${naturalWidth} / ${naturalHeight}`;
+    imageFormatBg.src = imageUrl;
+
+    const bgObj = { id: "obj-bg", type: "image", x: 0, y: 0, w: 100, h: 100, el: imageFormatBg };
+    editorObjects.push(bgObj);
+    applyObjectStyle(bgObj);
+
+    if (!Array.isArray(data.lines)) return;
 
     data.lines.forEach((line) => {
       if (!Array.isArray(line.words) || line.words.length === 0) return;
@@ -109,13 +334,22 @@
 
         const span = document.createElement("span");
         span.className = "image-format-word";
-        span.contentEditable = "true";
+        span.contentEditable = String(!fullEditorMode);
         span.spellcheck = false;
         span.textContent = text;
-        span.style.left = `${(x0 / naturalWidth) * 100}%`;
-        span.style.top = `${(y0 / naturalHeight) * 100}%`;
-        span.style.fontSize = `${(height / naturalWidth) * 100}cqw`;
-        span.style.minWidth = `${(width / naturalWidth) * 100}%`;
+
+        const obj = {
+          id: `obj-${++objectIdCounter}`,
+          type: "word",
+          x: (x0 / naturalWidth) * 100,
+          y: (y0 / naturalHeight) * 100,
+          w: (width / naturalWidth) * 100,
+          h: (height / naturalHeight) * 100,
+          fontSizePct: (height / naturalWidth) * 100,
+          el: span,
+        };
+        editorObjects.push(obj);
+        applyObjectStyle(obj);
 
         imageFormatView.appendChild(span);
         lineSpans.push(span);
@@ -128,14 +362,201 @@
   }
 
   function getActiveResultText() {
-    if (activeMode === "image" && imageFormatLines.length) {
-      return imageFormatLines
-        .map((spans) => spans.map((s) => s.textContent).join(" ").trim())
-        .join("\n")
-        .trim();
+    if ((activeMode === "image" || activeMode === "full") && imageFormatLines.length) {
+      const selectedWordEls = selectedObjectIds.size
+        ? new Set(
+            editorObjects
+              .filter((obj) => obj.type === "word" && selectedObjectIds.has(obj.id))
+              .map((obj) => obj.el)
+          )
+        : null;
+
+      const lines = imageFormatLines
+        .map((spans) => {
+          const relevant = selectedWordEls ? spans.filter((s) => selectedWordEls.has(s)) : spans;
+          return relevant
+            .map((s) => s.textContent)
+            .join(" ")
+            .trim();
+        })
+        .filter((line) => line.length > 0);
+
+      return lines.join("\n").trim();
     }
     return resultText.value;
   }
+
+  // ---- Pointer interactions: select, drag, resize, marquee ----
+
+  function beginObjectDrag(e, obj, additive) {
+    let selectionChangedAtDown = false;
+    if (!selectedObjectIds.has(obj.id)) {
+      if (!additive) selectedObjectIds.clear();
+      selectedObjectIds.add(obj.id);
+      updateSelectionVisuals();
+      selectionChangedAtDown = true;
+    }
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const rect = imageFormatView.getBoundingClientRect();
+    const starts = new Map();
+    objectsFromSelection().forEach((o) => starts.set(o.id, { x: o.x, y: o.y }));
+    const preSnapshot = snapshotState();
+    let moved = false;
+
+    function onMove(ev) {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!moved && Math.hypot(dx, dy) > 3) moved = true;
+      if (!moved) return;
+      const dxPct = (dx / rect.width) * 100;
+      const dyPct = (dy / rect.height) * 100;
+      objectsFromSelection().forEach((o) => {
+        const s = starts.get(o.id);
+        if (!s) return;
+        o.x = clampPosition(s.x + dxPct, o.w);
+        o.y = clampPosition(s.y + dyPct, o.h);
+        applyObjectStyle(o);
+      });
+      updateResizeHandle();
+    }
+
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      if (moved) {
+        pushUndo(preSnapshot);
+      } else if (!selectionChangedAtDown) {
+        if (additive) {
+          selectedObjectIds.delete(obj.id);
+          updateSelectionVisuals();
+        } else if (selectedObjectIds.size > 1) {
+          selectedObjectIds.clear();
+          selectedObjectIds.add(obj.id);
+          updateSelectionVisuals();
+        }
+      }
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
+  function beginResize(e) {
+    const obj = editorObjects.find((o) => selectedObjectIds.has(o.id));
+    if (!obj) return;
+
+    const rect = imageFormatView.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startW = obj.w;
+    const startH = obj.h;
+    const startFontSizePct = obj.fontSizePct;
+    const preSnapshot = snapshotState();
+    const minSize = 1.5;
+    let changed = false;
+
+    function onMove(ev) {
+      const dxPct = ((ev.clientX - startX) / rect.width) * 100;
+      const dyPct = ((ev.clientY - startY) / rect.height) * 100;
+      const scaleX = (startW + dxPct) / startW;
+      const scaleY = (startH + dyPct) / startH;
+      let scale = clamp((scaleX + scaleY) / 2, 0.2, 6);
+
+      obj.w = clamp(startW * scale, minSize, 400);
+      obj.h = clamp(startH * scale, minSize, 400);
+      if (obj.type === "word") {
+        obj.fontSizePct = Math.max(startFontSizePct * scale, 0.5);
+      }
+      changed = true;
+      applyObjectStyle(obj);
+      updateResizeHandle();
+    }
+
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      if (changed) pushUndo(preSnapshot);
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
+  function beginMarquee(e, additive) {
+    if (!additive) clearSelection();
+
+    const rect = imageFormatView.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    marqueeBox.style.display = "block";
+
+    function onMove(ev) {
+      const x1 = Math.min(startX, ev.clientX);
+      const x2 = Math.max(startX, ev.clientX);
+      const y1 = Math.min(startY, ev.clientY);
+      const y2 = Math.max(startY, ev.clientY);
+      marqueeBox.style.left = `${x1 - rect.left}px`;
+      marqueeBox.style.top = `${y1 - rect.top}px`;
+      marqueeBox.style.width = `${x2 - x1}px`;
+      marqueeBox.style.height = `${y2 - y1}px`;
+
+      editorObjects.forEach((obj) => {
+        if (obj.type === "image" && !fullEditorMode) return;
+        const r = obj.el.getBoundingClientRect();
+        const intersects = !(r.right < x1 || r.left > x2 || r.bottom < y1 || r.top > y2);
+        if (intersects) {
+          selectedObjectIds.add(obj.id);
+        } else if (!additive) {
+          selectedObjectIds.delete(obj.id);
+        }
+      });
+      updateSelectionVisuals();
+    }
+
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      marqueeBox.style.display = "none";
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
+  imageFormatView.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+
+    const handleEl = e.target.closest(".resize-handle");
+    if (handleEl && fullEditorMode) {
+      e.preventDefault();
+      beginResize(e);
+      return;
+    }
+
+    const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+    const objEl = e.target.closest(".image-format-word, .image-format-bg");
+
+    if (objEl) {
+      const obj = editorObjects.find((o) => o.el === objEl);
+      if (!obj) return;
+
+      if (fullEditorMode) {
+        e.preventDefault();
+        beginObjectDrag(e, obj, additive);
+      } else if (additive) {
+        e.preventDefault();
+        toggleSelection(obj.id);
+      } else if (obj.type === "word") {
+        clearSelection();
+        // No preventDefault: let the browser place a text caret for normal editing.
+      }
+      return;
+    }
+
+    beginMarquee(e, additive);
+  });
 
   function loadFile(file) {
     if (!file) return;
@@ -280,7 +701,7 @@
         setStatus("No text was detected in this image. Try a clearer or higher-contrast image.", "error");
       } else {
         resultText.value = text;
-        renderImageFormatView(data, previewImg.naturalWidth, previewImg.naturalHeight);
+        renderImageFormatView(data, previewImg.naturalWidth, previewImg.naturalHeight, currentObjectUrl);
         setMode("text");
         show(resultSection);
         setStatus("Text extracted successfully.", "success");

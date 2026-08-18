@@ -8,9 +8,14 @@ Extract text from any image, right in your browser. Drag in a photo, screenshot,
 
 - Drag and drop, click to browse, paste from clipboard, or capture a photo on mobile
 - Optical character recognition powered by [Tesseract.js](https://github.com/naptha/tesseract.js), running fully client-side via WebAssembly
-- Two result views: a plain **Text** view, and an **Image format** view that places each word in the same position it appeared in the source image, as editable, copyable text on a plain background instead of the image itself
+- Three result views:
+  - **Text**: the extracted text in a plain, copyable box
+  - **Image format**: each word placed where it appeared in the source image, as editable and copyable text on a plain background instead of the image itself
+  - **Full image**: the actual image shown as is, with the same editable, copyable text laid over it
+- Select multiple words at once in either image-based view, by shift-clicking or dragging a selection box, so Copy and Download work on just the words you pick
+- A **full editor mode**, available from Full image, for moving and resizing the text and the image itself, freely and independently, with Undo and Redo for every move and resize
 - Live progress feedback while the OCR engine loads and processes the image
-- Copy the extracted text to your clipboard or download it as a `.txt` file, from either view
+- Copy the extracted text to your clipboard or download it as a `.txt` file, from any view
 - A built-in sample image so you can try it out with no image of your own
 - Works entirely offline after the first load, since your images never leave the browser
 - Responsive layout with automatic light and dark themes
@@ -19,7 +24,8 @@ Extract text from any image, right in your browser. Drag in a photo, screenshot,
 
 1. Choose or drop an image containing text.
 2. Click **Scan text**. Tesseract.js downloads its OCR engine and language data the first time, then recognizes text directly in your browser.
-3. Read the result in the **Text** view, or switch to **Image format** to see and edit each word laid out where it originally appeared, then copy or download it.
+3. Read the result in **Text**, reposition-edit each word over a plain background in **Image format**, or work directly on the photo in **Full image**. In any of the two image-based views, shift-click or drag to select several words, then copy or download just that selection.
+4. From **Full image**, click **Enter full editor mode** to drag and resize the text and the image freely. Undo and Redo step back and forward through those changes.
 
 No image data is ever sent to a server. Everything happens locally in the tab.
 
