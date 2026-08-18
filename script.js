@@ -22,10 +22,16 @@
   const resultText = document.getElementById("result-text");
   const copyBtn = document.getElementById("copy-btn");
   const downloadBtn = document.getElementById("download-btn");
+  const modeTextBtn = document.getElementById("mode-text-btn");
+  const modeImageBtn = document.getElementById("mode-image-btn");
+  const imageFormatView = document.getElementById("image-format-view");
+  const imageFormatHint = document.getElementById("image-format-hint");
 
   const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15 MB
   let currentFile = null;
   let currentObjectUrl = null;
+  let activeMode = "text";
+  let imageFormatLines = []; // array of arrays of word span elements, grouped by line
 
   function show(el) {
     el.classList.remove("hidden");
@@ -54,6 +60,81 @@
     setStatus("");
     hide(progressSection);
     progressFill.style.width = "0%";
+    imageFormatView.innerHTML = "";
+    imageFormatLines = [];
+    setMode("text");
+  }
+
+  function setMode(mode) {
+    activeMode = mode;
+    modeTextBtn.classList.toggle("is-active", mode === "text");
+    modeTextBtn.setAttribute("aria-pressed", String(mode === "text"));
+    modeImageBtn.classList.toggle("is-active", mode === "image");
+    modeImageBtn.setAttribute("aria-pressed", String(mode === "image"));
+
+    if (mode === "text") {
+      show(resultText);
+      hide(imageFormatView);
+      hide(imageFormatHint);
+    } else {
+      hide(resultText);
+      show(imageFormatView);
+      show(imageFormatHint);
+    }
+  }
+
+  modeTextBtn.addEventListener("click", () => setMode("text"));
+  modeImageBtn.addEventListener("click", () => setMode("image"));
+
+  function renderImageFormatView(data, naturalWidth, naturalHeight) {
+    imageFormatView.innerHTML = "";
+    imageFormatLines = [];
+
+    if (!naturalWidth || !naturalHeight || !Array.isArray(data.lines)) {
+      return;
+    }
+
+    imageFormatView.style.aspectRatio = `${naturalWidth} / ${naturalHeight}`;
+
+    data.lines.forEach((line) => {
+      if (!Array.isArray(line.words) || line.words.length === 0) return;
+      const lineSpans = [];
+
+      line.words.forEach((word) => {
+        const text = (word.text || "").trim();
+        if (!text) return;
+        const { x0, y0, x1, y1 } = word.bbox;
+        const width = Math.max(x1 - x0, 1);
+        const height = Math.max(y1 - y0, 1);
+
+        const span = document.createElement("span");
+        span.className = "image-format-word";
+        span.contentEditable = "true";
+        span.spellcheck = false;
+        span.textContent = text;
+        span.style.left = `${(x0 / naturalWidth) * 100}%`;
+        span.style.top = `${(y0 / naturalHeight) * 100}%`;
+        span.style.fontSize = `${(height / naturalWidth) * 100}cqw`;
+        span.style.minWidth = `${(width / naturalWidth) * 100}%`;
+
+        imageFormatView.appendChild(span);
+        lineSpans.push(span);
+      });
+
+      if (lineSpans.length) {
+        imageFormatLines.push(lineSpans);
+      }
+    });
+  }
+
+  function getActiveResultText() {
+    if (activeMode === "image" && imageFormatLines.length) {
+      return imageFormatLines
+        .map((spans) => spans.map((s) => s.textContent).join(" ").trim())
+        .join("\n")
+        .trim();
+    }
+    return resultText.value;
   }
 
   function loadFile(file) {
@@ -199,6 +280,8 @@
         setStatus("No text was detected in this image. Try a clearer or higher-contrast image.", "error");
       } else {
         resultText.value = text;
+        renderImageFormatView(data, previewImg.naturalWidth, previewImg.naturalHeight);
+        setMode("text");
         show(resultSection);
         setStatus("Text extracted successfully.", "success");
       }
@@ -216,23 +299,31 @@
   }
 
   copyBtn.addEventListener("click", async () => {
-    if (!resultText.value) return;
+    const text = getActiveResultText();
+    if (!text) return;
     try {
-      await navigator.clipboard.writeText(resultText.value);
+      await navigator.clipboard.writeText(text);
       const original = copyBtn.textContent;
       copyBtn.textContent = "Copied!";
       setTimeout(() => {
         copyBtn.textContent = original;
       }, 1500);
     } catch {
-      resultText.select();
+      const temp = document.createElement("textarea");
+      temp.value = text;
+      temp.style.position = "fixed";
+      temp.style.opacity = "0";
+      document.body.appendChild(temp);
+      temp.select();
       document.execCommand("copy");
+      temp.remove();
     }
   });
 
   downloadBtn.addEventListener("click", () => {
-    if (!resultText.value) return;
-    const blob = new Blob([resultText.value], { type: "text/plain" });
+    const text = getActiveResultText();
+    if (!text) return;
+    const blob = new Blob([text], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

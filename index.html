@@ -53,11 +53,21 @@
       <div class="result-header">
         <h2>Extracted text</h2>
         <div class="result-actions">
+          <div class="mode-toggle" role="group" aria-label="Result view">
+            <button id="mode-text-btn" class="mode-toggle__btn is-active" type="button" aria-pressed="true">Text</button>
+            <button id="mode-image-btn" class="mode-toggle__btn" type="button" aria-pressed="false">Image format</button>
+          </div>
           <button id="copy-btn" class="btn btn--secondary" type="button">Copy</button>
           <button id="download-btn" class="btn btn--secondary" type="button">Download .txt</button>
         </div>
       </div>
+
       <textarea id="result-text" readonly placeholder="Extracted text will appear here..."></textarea>
+
+      <div id="image-format-view" class="image-format-view hidden"></div>
+      <p class="image-format-hint hidden" id="image-format-hint">
+        Text is positioned where it appeared in the source image. Click any word to edit it.
+      </p>
     </section>
   </main>
 
