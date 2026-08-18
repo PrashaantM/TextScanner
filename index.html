@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TextScanner</title>
+  <meta name="description" content="Extract text from any image, right in your browser. No upload, no server, no account." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔎</text></svg>" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <h1>TextScanner</h1>
+    <p class="tagline">Extract text from any image, right in your browser.</p>
+  </header>
+
+  <main>
+    <section id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Choose or drop an image to scan">
+      <div class="drop-zone__content">
+        <p class="drop-zone__icon" aria-hidden="true">&#128247;</p>
+        <p class="drop-zone__text">Drag &amp; drop an image here, or click to choose one</p>
+        <p class="drop-zone__hint">JPG, PNG, WEBP, or BMP</p>
+      </div>
+      <input type="file" id="file-input" accept="image/*" hidden />
+    </section>
+
+    <div class="actions">
+      <button id="camera-btn" class="btn btn--secondary" type="button">Use camera</button>
+      <input type="file" id="camera-input" accept="image/*" capture="environment" hidden />
+      <button id="sample-btn" class="btn btn--secondary" type="button">Try a sample image</button>
+    </div>
+
+    <section id="preview-section" class="preview-section hidden">
+      <div class="preview-card">
+        <img id="preview-img" alt="Selected image preview" />
+      </div>
+      <div class="preview-actions">
+        <button id="scan-btn" class="btn btn--primary" type="button">Scan text</button>
+        <button id="reset-btn" class="btn btn--ghost" type="button">Choose a different image</button>
+      </div>
+    </section>
+
+    <section id="progress-section" class="progress-section hidden" aria-live="polite">
+      <div class="progress-bar">
+        <div id="progress-fill" class="progress-fill"></div>
+      </div>
+      <p id="progress-label" class="progress-label">Preparing...</p>
+    </section>
+
+    <section id="status-section" class="status-section hidden" role="status"></section>
+
+    <section id="result-section" class="result-section hidden">
+      <div class="result-header">
+        <h2>Extracted text</h2>
+        <div class="result-actions">
+          <button id="copy-btn" class="btn btn--secondary" type="button">Copy</button>
+          <button id="download-btn" class="btn btn--secondary" type="button">Download .txt</button>
+        </div>
+      </div>
+      <textarea id="result-text" readonly placeholder="Extracted text will appear here..."></textarea>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      Runs entirely client-side with <a href="https://github.com/naptha/tesseract.js" target="_blank" rel="noopener noreferrer">Tesseract.js</a>.
+      Your images never leave your browser.
+      &middot;
+      <a href="https://github.com/PrashaantM/TextScanner" target="_blank" rel="noopener noreferrer">View source</a>
+    </p>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
