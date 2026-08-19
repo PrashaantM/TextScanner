@@ -1,3 +1,10 @@
+<!--
+  index.html: markup and static structure for TextScanner.
+  Loads Tesseract.js from a CDN (see the script tag near the end of body) followed by
+  script.js, which looks up the ids and classes defined below, wires up their event
+  listeners, and drives all interaction (drag/drop input, OCR, results, and the
+  image editor). style.css provides the visual styling for these same elements.
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,6 +22,9 @@
   </header>
 
   <main>
+    <!-- Drop zone: click, drag-and-drop, or paste target for choosing an image.
+         script.js binds click/keydown/dragover/drop/paste handlers to this section
+         and the hidden file-input below it. -->
     <section id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Choose or drop an image to scan">
       <div class="drop-zone__content">
         <p class="drop-zone__icon" aria-hidden="true">&#128247;</p>
@@ -24,12 +34,16 @@
       <input type="file" id="file-input" accept="image/*" hidden />
     </section>
 
+    <!-- Alternate ways to supply an image: capture via device camera, or generate a
+         built-in sample image (script.js draws the sample on a canvas, no network call). -->
     <div class="actions">
       <button id="camera-btn" class="btn btn--secondary" type="button">Use camera</button>
       <input type="file" id="camera-input" accept="image/*" capture="environment" hidden />
       <button id="sample-btn" class="btn btn--secondary" type="button">Try a sample image</button>
     </div>
 
+    <!-- Shown once a file is chosen: displays the image and lets the user trigger the
+         OCR scan or go back and pick a different image. -->
     <section id="preview-section" class="preview-section hidden">
       <div class="preview-card">
         <img id="preview-img" alt="Selected image preview" />
@@ -40,6 +54,8 @@
       </div>
     </section>
 
+    <!-- Progress bar shown while Tesseract.js is loading/recognizing; script.js updates
+         progress-fill's width and progress-label's text from the recognizer's logger callback. -->
     <section id="progress-section" class="progress-section hidden" aria-live="polite">
       <div class="progress-bar">
         <div id="progress-fill" class="progress-fill"></div>
@@ -47,8 +63,14 @@
       <p id="progress-label" class="progress-label">Preparing...</p>
     </section>
 
+    <!-- Generic status message area (errors, success confirmations); script.js sets its
+         text and a status--error/status--success class via setStatus(). -->
     <section id="status-section" class="status-section hidden" role="status"></section>
 
+    <!-- OCR results, with three view modes toggled by the buttons below:
+         Text (plain textarea), Image format (words laid out on a blank canvas at their
+         original position), and Full image (words overlaid on the actual image, editable
+         and, in "Move components" mode, draggable/resizable with undo/redo). -->
     <section id="result-section" class="result-section hidden">
       <div class="result-toolbar">
         <div class="result-toolbar__row">
@@ -66,6 +88,8 @@
           <button id="download-image-btn" class="btn btn--secondary hidden" type="button">Download image</button>
         </div>
 
+        <!-- Only relevant to Full image mode: toggles the drag/resize editor and exposes
+             undo/redo for word position, size, and text edits. -->
         <div id="editor-toolbar" class="editor-toolbar hidden">
           <button id="editor-mode-btn" class="btn btn--secondary" type="button" aria-pressed="false">Move components</button>
           <div id="undo-redo-group" class="undo-redo-group hidden">
@@ -75,8 +99,14 @@
         </div>
       </div>
 
+      <!-- Text mode: read-only textarea filled with the raw recognized text. -->
       <textarea id="result-text" readonly placeholder="Extracted text will appear here..."></textarea>
 
+      <!-- Image format / Full image modes: script.js populates this container at scan time
+           with one absolutely-positioned, contenteditable span per recognized word (plus a
+           background <img> for Full image mode), reproducing each word's original position
+           in the source image. resize-handle and marquee-box are editor-mode overlays for
+           resizing a selected word and rubber-band selecting multiple words. -->
       <div id="image-format-view" class="image-format-view hidden">
         <img id="image-format-bg" class="image-format-bg" alt="Scanned image" />
         <div id="resize-handle" class="resize-handle"></div>
@@ -97,6 +127,8 @@
     </p>
   </footer>
 
+  <!-- Tesseract.js is loaded from the jsDelivr CDN before script.js so the global
+       Tesseract object it exposes is available when script.js calls Tesseract.recognize(). -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
   <script src="script.js"></script>
 </body>

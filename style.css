@@ -1,3 +1,13 @@
+/*
+  style.css: visual styling for index.html's elements, matched up by id/class with the
+  DOM nodes script.js queries and manipulates. Layout is a single centered column
+  (body is a flex column, main caps out at max-width) holding the drop zone, action
+  buttons, preview, progress bar, status message, and results toolbar/panel in
+  document order. Colors are defined as CSS custom properties on :root and swapped
+  for a dark palette under prefers-color-scheme, so components below just reference
+  the variables rather than hardcoding colors.
+*/
+
 :root {
   --bg: #f7f7f9;
   --surface: #ffffff;
@@ -12,6 +22,7 @@
   --radius: 12px;
 }
 
+/* Dark-mode overrides for the same custom properties defined on :root above. */
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #14141a;
@@ -77,6 +88,8 @@ main {
   align-self: center;
 }
 
+/* ---- Drop zone (id="drop-zone" in index.html) ---- */
+
 .drop-zone {
   border: 2px dashed var(--border);
   border-radius: var(--radius);
@@ -120,6 +133,9 @@ main {
   gap: 0.75rem;
   flex-wrap: wrap;
 }
+
+/* ---- Shared button variants (used across the drop zone actions, preview,
+   and result toolbar) ---- */
 
 .btn {
   border: none;
@@ -169,6 +185,8 @@ main {
   color: var(--text);
 }
 
+/* ---- Image preview (id="preview-section") ---- */
+
 .preview-section {
   display: flex;
   flex-direction: column;
@@ -200,6 +218,8 @@ main {
   justify-content: center;
 }
 
+/* ---- Scan progress bar (id="progress-section"), driven by Tesseract's logger callback ---- */
+
 .progress-section {
   display: flex;
   flex-direction: column;
@@ -227,6 +247,8 @@ main {
   text-align: center;
 }
 
+/* ---- Status message (id="status-section"), toggled between error/success tints ---- */
+
 .status-section {
   border-radius: var(--radius);
   padding: 0.75rem 1rem;
@@ -243,6 +265,9 @@ main {
   background: color-mix(in srgb, var(--success) 12%, var(--surface));
   color: var(--success);
 }
+
+/* ---- Results panel (id="result-section"): toolbar, mode toggle, and the
+   Text/Image format/Full image view modes ---- */
 
 .result-section {
   display: flex;
@@ -329,6 +354,11 @@ main {
   display: flex;
   gap: 0.4rem;
 }
+
+/* ---- Image format / Full image editor surface (id="image-format-view"): an
+   inline-size container that positions word spans and the background image with
+   percentage-based left/top/width/height so they line up with script.js's
+   coordinates, which are computed as percentages of the source image's natural size. ---- */
 
 .image-format-view {
   position: relative;
@@ -467,6 +497,8 @@ main {
   color: var(--text-muted);
   text-align: center;
 }
+
+/* ---- Footer ---- */
 
 .site-footer {
   margin-top: auto;

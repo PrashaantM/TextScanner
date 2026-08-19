@@ -1,5 +1,17 @@
+// script.js: all client-side behavior for TextScanner.
+// Looks up the DOM elements defined in index.html, wires up their event listeners
+// (file input, drag-and-drop, paste, camera capture, buttons), runs OCR on the chosen
+// image via the Tesseract.js worker (loaded globally by the CDN <script> tag in
+// index.html before this file), and renders the recognized text into the results
+// panel in three modes: a plain text view, an "Image format" view that lays each
+// recognized word out at its original position on a blank surface, and a "Full
+// image" view that overlays editable words on the source image with drag/resize
+// and undo/redo support. style.css supplies the appearance for everything this
+// file creates or toggles.
 (() => {
   "use strict";
+
+  // ---- Element references, matched to the ids/classes in index.html ----
 
   const dropZone = document.getElementById("drop-zone");
   const fileInput = document.getElementById("file-input");
@@ -38,6 +50,8 @@
   const undoBtn = document.getElementById("undo-btn");
   const redoBtn = document.getElementById("redo-btn");
 
+  // ---- Constants and shared mutable state ----
+
   const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15 MB
   const MAX_UNDO_STEPS = 100;
   // Tesseract's word bbox height (used directly as a CSS font-size) renders visibly
@@ -68,14 +82,19 @@
     return clamp(value, MIN_VISIBLE_PCT - size, 100 - MIN_VISIBLE_PCT);
   }
 
+  // Removes the shared "hidden" utility class (see style.css) from an element.
   function show(el) {
     el.classList.remove("hidden");
   }
 
+  // Adds the shared "hidden" utility class to an element.
   function hide(el) {
     el.classList.add("hidden");
   }
 
+  // Writes a message into status-section and toggles its error/success styling.
+  // Called throughout for user-facing feedback (bad file, scan errors, scan success).
+  // Passing an empty message hides the section instead.
   function setStatus(message, kind) {
     statusSection.textContent = message;
     statusSection.classList.remove("status--error", "status--success");
@@ -89,6 +108,8 @@
     show(statusSection);
   }
 
+  // Clears any previous OCR output and returns the results UI to its initial state.
+  // Called when a new image is loaded or the user resets, before a new scan runs.
   function resetResult() {
     resultText.value = "";
     hide(resultSection);
@@ -101,6 +122,9 @@
 
   // ---- Mode switching (Text / Image format / Full image) ----
 
+  // Switches between the "text", "image" (Image format), and "full" (Full image)
+  // result views. Triggered by the three mode-toggle buttons; updates their active
+  // state, shows/hides the relevant result elements, and updates activeMode.
   function setMode(mode) {
     activeMode = mode;
     modeButtons.forEach((btn) => {
@@ -138,6 +162,9 @@
   modeImageBtn.addEventListener("click", () => setMode("image"));
   modeFullBtn.addEventListener("click", () => setMode("full"));
 
+  // Updates the hint text below the image editor to match the current mode and
+  // whether the full-image drag/resize editor is active. Called from setMode() and
+  // setFullEditorMode() whenever either changes.
   function updateImageFormatHint() {
     if (activeMode === "image") {
       imageFormatHint.textContent =
@@ -153,6 +180,9 @@
 
   // ---- Full editor mode ----
 
+  // Toggles "Move components" mode in the Full image view: makes word spans
+  // draggable/resizable instead of directly text-editable, and shows/hides the
+  // undo/redo controls. Triggered by clicking the editor-mode-btn button.
   function setFullEditorMode(on) {
     fullEditorMode = on;
     imageFormatView.classList.toggle("editor-mode", on);
@@ -177,11 +207,15 @@
 
   // ---- Selection ----
 
+  // Deselects every editor object (word span or background image). Called on
+  // Escape, when starting a non-additive marquee, and whenever the editor view resets.
   function clearSelection() {
     selectedObjectIds.clear();
     updateSelectionVisuals();
   }
 
+  // Adds or removes one object id from selectedObjectIds. Called for shift/cmd-click
+  // selection of individual words or the background image.
   function toggleSelection(id) {
     if (selectedObjectIds.has(id)) {
       selectedObjectIds.delete(id);
@@ -191,6 +225,8 @@
     updateSelectionVisuals();
   }
 
+  // Syncs each editor object's "is-selected" CSS class with selectedObjectIds and
+  // repositions the resize handle. Called after any change to the selection set.
   function updateSelectionVisuals() {
     editorObjects.forEach((obj) => {
       obj.el.classList.toggle("is-selected", selectedObjectIds.has(obj.id));
@@ -198,10 +234,13 @@
     updateResizeHandle();
   }
 
+  // Returns the editorObjects entries that are currently selected.
   function objectsFromSelection() {
     return editorObjects.filter((obj) => selectedObjectIds.has(obj.id));
   }
 
+  // Shows the resize handle at the bottom-right corner of the single selected
+  // object (only meaningful in full editor mode), or hides it otherwise.
   function updateResizeHandle() {
     if (fullEditorMode && selectedObjectIds.size === 1) {
       const obj = editorObjects.find((o) => selectedObjectIds.has(o.id));
@@ -215,6 +254,9 @@
 
   // ---- Undo / redo ----
 
+  // Captures the position/size/font-size of every editor object, for use as an
+  // undo/redo checkpoint. Called before a drag or resize starts, and by the
+  // undo/redo button handlers to save the current state before restoring another.
   function snapshotState() {
     return editorObjects.map((obj) => ({
       id: obj.id,
@@ -226,6 +268,8 @@
     }));
   }
 
+  // Applies a previously captured snapshotState() result back onto editorObjects
+  // and re-renders their styles. Called by the undo and redo button handlers.
   function restoreSnapshot(snapshot) {
     snapshot.forEach((s) => {
       const obj = editorObjects.find((o) => o.id === s.id);
@@ -241,6 +285,9 @@
     refreshModifiedStates();
   }
 
+  // Records a pre-change snapshot onto the undo stack (capping it at MAX_UNDO_STEPS)
+  // and clears the redo stack, since a new change invalidates any prior redo history.
+  // Called at the end of a completed drag or resize.
   function pushUndo(preChangeSnapshot) {
     undoStack.push(preChangeSnapshot);
     if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
@@ -248,11 +295,14 @@
     updateUndoRedoButtons();
   }
 
+  // Enables/disables the undo and redo buttons based on whether their stacks have entries.
   function updateUndoRedoButtons() {
     undoBtn.disabled = undoStack.length === 0;
     redoBtn.disabled = redoStack.length === 0;
   }
 
+  // Undo button click: pops the last snapshot off undoStack, pushes the current
+  // state onto redoStack, and restores the popped snapshot.
   undoBtn.addEventListener("click", () => {
     if (!undoStack.length) return;
     const current = snapshotState();
@@ -262,6 +312,8 @@
     updateUndoRedoButtons();
   });
 
+  // Redo button click: the inverse of the undo handler, replaying a change that was
+  // previously undone.
   redoBtn.addEventListener("click", () => {
     if (!redoStack.length) return;
     const current = snapshotState();
@@ -271,6 +323,9 @@
     updateUndoRedoButtons();
   });
 
+  // Global keyboard shortcuts for the image editor: Escape clears the selection,
+  // and (only while full editor mode is on) Ctrl/Cmd+Z undoes and Ctrl/Cmd+Shift+Z
+  // or Ctrl/Cmd+Y redoes.
   document.addEventListener("keydown", (e) => {
     if ((activeMode === "image" || activeMode === "full") && e.key === "Escape") {
       clearSelection();
@@ -290,6 +345,9 @@
 
   // ---- Rendering objects (words + background image) ----
 
+  // Writes one editor object's current x/y/w/h (and, for words, font size) onto its
+  // DOM element's inline style. Called after any change to an object's geometry
+  // (initial render, drag, resize, undo/redo).
   function applyObjectStyle(obj) {
     obj.el.style.left = `${obj.x}%`;
     obj.el.style.top = `${obj.y}%`;
@@ -302,6 +360,9 @@
     }
   }
 
+  // Removes all generated word/patch elements from image-format-view and resets the
+  // editor's in-memory state (editorObjects, undo/redo stacks, selection, editor mode).
+  // Called before rendering a fresh scan result and when the user resets the image.
   function clearImageFormatView() {
     imageFormatView.querySelectorAll(".image-format-word, .image-format-patch").forEach((el) => el.remove());
     imageFormatBg.removeAttribute("src");
@@ -368,6 +429,8 @@
     return `rgb(${Math.round(r / count)}, ${Math.round(g / count)}, ${Math.round(b / count)})`;
   }
 
+  // Returns true if a word object's text or geometry differs from the values it was
+  // originally rendered with (obj.originalText/X/Y/W/H).
   function isWordModified(obj) {
     return (
       obj.el.textContent !== obj.originalText ||
@@ -378,6 +441,9 @@
     );
   }
 
+  // Recomputes each word's "modified" flag via isWordModified(), toggles its
+  // "is-modified" class, and shows/hides its background patch accordingly. Called
+  // after text edits, drags, resizes, and undo/redo.
   function refreshModifiedStates() {
     editorObjects.forEach((obj) => {
       if (obj.type !== "word") return;
@@ -390,6 +456,11 @@
     });
   }
 
+  // Builds the Image format / Full image view from Tesseract's recognition result.
+  // Called once after a successful scan (data is Tesseract's `data` object, with
+  // per-line/per-word bounding boxes). Sets the background image, creates one
+  // absolutely-positioned word span and background patch per recognized word inside
+  // image-format-view, and populates editorObjects and imageFormatLines for later use.
   function renderImageFormatView(data, naturalWidth, naturalHeight, imageUrl) {
     clearImageFormatView();
 
@@ -472,6 +543,8 @@
     });
   }
 
+  // Fires as the user directly types into a contenteditable word span (outside full
+  // editor mode). Refreshes the modified-state styling so the edited word is marked.
   imageFormatView.addEventListener("input", (e) => {
     const span = e.target.closest(".image-format-word");
     if (!span) return;
@@ -479,6 +552,10 @@
     if (obj) refreshModifiedStates();
   });
 
+  // Returns the text to copy/download: in Image format or Full image mode, rebuilds
+  // it line-by-line from the (possibly edited) word spans, restricted to the current
+  // selection if any words are selected; otherwise returns the plain result-text value.
+  // Called by the Copy and Download .txt button handlers.
   function getActiveResultText() {
     if ((activeMode === "image" || activeMode === "full") && imageFormatLines.length) {
       const selectedWordEls = selectedObjectIds.size
@@ -506,6 +583,12 @@
 
   // ---- Pointer interactions: select, drag, resize, marquee ----
 
+  // Starts a drag on one or more selected editor objects. Called from the
+  // image-format-view mousedown handler when the pointer goes down on a word or the
+  // background image while in full editor mode. Tracks mouse movement to update each
+  // selected object's x/y (writing to editorObjects and re-applying styles via
+  // applyObjectStyle), and on mouseup either commits the move to the undo stack or,
+  // if the pointer never moved, treats it as a selection click.
   function beginObjectDrag(e, obj, additive) {
     let selectionChangedAtDown = false;
     if (!selectedObjectIds.has(obj.id)) {
@@ -562,6 +645,10 @@
     document.addEventListener("mouseup", onUp);
   }
 
+  // Starts a resize drag on the single selected object via the resize handle.
+  // Called from the image-format-view mousedown handler when the pointer goes down
+  // on resize-handle. Scales the object's w/h (and, for words, fontSizePct)
+  // proportionally to pointer movement, and commits the change to the undo stack on mouseup.
   function beginResize(e) {
     const obj = editorObjects.find((o) => selectedObjectIds.has(o.id));
     if (!obj) return;
@@ -604,6 +691,9 @@
     document.addEventListener("mouseup", onUp);
   }
 
+  // Starts a rubber-band (marquee) selection drag. Called from the image-format-view
+  // mousedown handler when the pointer goes down on empty space. Draws marquee-box
+  // and adds/removes any object whose bounding rect intersects it to/from selectedObjectIds.
   function beginMarquee(e, additive) {
     if (!additive) clearSelection();
 
@@ -645,6 +735,9 @@
     document.addEventListener("mouseup", onUp);
   }
 
+  // Dispatches a mousedown inside image-format-view to the appropriate interaction:
+  // resizing (if the handle was hit), dragging or toggling selection on a word/image
+  // object, or starting a marquee selection on empty space.
   imageFormatView.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
 
@@ -678,6 +771,11 @@
     beginMarquee(e, additive);
   });
 
+  // Validates and accepts a chosen image file, whatever its source (file picker,
+  // camera, drag-and-drop, paste, or the generated sample). Called by all of those
+  // input paths. Rejects non-images and oversized files via setStatus(), otherwise
+  // stores it as currentFile, points previewImg at a fresh object URL, and reveals
+  // the preview section.
   function loadFile(file) {
     if (!file) return;
 
@@ -703,7 +801,7 @@
     previewSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
-  // Drop zone: click to open file picker
+  // Drop zone: click or Enter/Space opens the hidden file picker (file-input).
   dropZone.addEventListener("click", () => fileInput.click());
   dropZone.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -712,18 +810,21 @@
     }
   });
 
+  // Fires once the user picks a file from the file picker; hands it to loadFile().
   fileInput.addEventListener("change", () => {
     loadFile(fileInput.files[0]);
     fileInput.value = "";
   });
 
+  // "Use camera" button opens the hidden camera-input (capture="environment").
   cameraBtn.addEventListener("click", () => cameraInput.click());
+  // Fires once a photo is captured from camera-input; hands it to loadFile().
   cameraInput.addEventListener("change", () => {
     loadFile(cameraInput.files[0]);
     cameraInput.value = "";
   });
 
-  // Drag and drop
+  // Drag and drop: toggles the "dragover" hover styling on the drop zone.
   ["dragenter", "dragover"].forEach((evt) => {
     dropZone.addEventListener(evt, (e) => {
       e.preventDefault();
@@ -738,12 +839,14 @@
     });
   });
 
+  // Handles a file actually dropped onto the drop zone, passing it to loadFile().
   dropZone.addEventListener("drop", (e) => {
     const file = e.dataTransfer.files && e.dataTransfer.files[0];
     loadFile(file);
   });
 
-  // Paste from clipboard
+  // Paste from clipboard: if the clipboard contains an image (pasted anywhere on
+  // the page), loads it the same way as a picked or dropped file.
   window.addEventListener("paste", (e) => {
     const items = e.clipboardData && e.clipboardData.items;
     if (!items) return;
@@ -755,6 +858,8 @@
     }
   });
 
+  // "Choose a different image" button: clears the current file/preview/object URL
+  // and hides the preview and result sections.
   resetBtn.addEventListener("click", () => {
     currentFile = null;
     if (currentObjectUrl) {
@@ -766,6 +871,9 @@
     resetResult();
   });
 
+  // Draws a small canvas of sample text and converts it to a PNG File, so "Try a
+  // sample image" works without fetching an external asset. Called by the
+  // sample-btn click handler.
   function generateSampleImage() {
     const canvas = document.createElement("canvas");
     canvas.width = 640;
@@ -789,11 +897,17 @@
     });
   }
 
+  // "Try a sample image" button: generates the sample image and loads it as if picked.
   sampleBtn.addEventListener("click", async () => {
     const file = await generateSampleImage();
     loadFile(file);
   });
 
+  // "Scan text" button: runs Tesseract.js OCR on currentFile. Disables the
+  // scan/reset buttons and shows the progress bar (updated live from Tesseract's
+  // logger callback), then on success writes the recognized text into resultText,
+  // builds the Image format / Full image view via renderImageFormatView(), and
+  // reveals the results section; on failure or empty result, reports via setStatus().
   scanBtn.addEventListener("click", async () => {
     if (!currentFile) return;
 
@@ -835,10 +949,15 @@
     }
   });
 
+  // Capitalizes the first letter of a Tesseract logger status string (e.g.
+  // "recognizing text" to "Recognizing text") for display in the progress label.
   function formatStatus(status) {
     return status.charAt(0).toUpperCase() + status.slice(1);
   }
 
+  // "Copy" button: copies getActiveResultText() to the clipboard via the async
+  // Clipboard API, falling back to a hidden textarea + execCommand("copy") if that
+  // API is unavailable or denied. Briefly shows "Copied!" as feedback.
   copyBtn.addEventListener("click", async () => {
     const text = getActiveResultText();
     if (!text) return;
@@ -861,6 +980,8 @@
     }
   });
 
+  // "Download .txt" button: saves getActiveResultText() as a downloaded text file
+  // via a temporary Blob URL and a clicked, then discarded, anchor element.
   downloadBtn.addEventListener("click", () => {
     const text = getActiveResultText();
     if (!text) return;
@@ -932,6 +1053,8 @@
     return canvas;
   }
 
+  // "Download image" button (Image format / Full image modes): builds the flattened
+  // canvas via buildResultCanvas() and saves it as a PNG through a temporary Blob URL.
   downloadImageBtn.addEventListener("click", () => {
     const canvas = buildResultCanvas();
     if (!canvas) return;
