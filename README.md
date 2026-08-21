@@ -8,6 +8,8 @@ Extract text from any image, right in your browser. Drag in a photo, screenshot,
 
 - Drag and drop, click to browse, paste from clipboard, or capture a photo on mobile
 - Optical character recognition powered by [Tesseract.js](https://github.com/naptha/tesseract.js), running fully client-side via WebAssembly
+- Before recognition, each image is auto-deskewed and, when it looks like it would help (low OCR confidence on the raw image), also run through contrast-normalizing preprocessing, to cut down on the garbled/junk characters that plain OCR produces on low-contrast, uneven-lighting, skewed, or busy-background photos. Preprocessing is only kept when it actually scores better than the raw image, so it never makes a clean image worse
+- Words Tesseract recognizes with low confidence are flagged with a subtle underline in Image format / Full image, rather than silently trusted or hidden, so you know what to double-check
 - Three result views:
   - **Text**: the extracted text in a plain, copyable box
   - **Image format**: each word placed where it appeared in the source image, as editable and copyable text on a plain background instead of the image itself
@@ -43,9 +45,18 @@ Then open `http://localhost:8000` in your browser.
 ## Project structure
 
 ```
-index.html   Markup and layout
-style.css    Styling, including light/dark themes
-script.js    File handling, drag and drop, and the Tesseract.js OCR pipeline
+index.html           Markup and layout
+style.css            Styling, including light/dark themes
+js/main.js           Bootstrap: file handling, drag and drop, Scan/Copy/Download wiring
+js/dom.js            Every DOM element reference, looked up once and shared
+js/state.js          Shared app/editor state and tunable constants
+js/editor.js         The Image format / Full image editing surface: render, select,
+                      drag/resize, undo/redo, PNG export
+js/ocrEngine.js       Tesseract.js worker lifecycle, page segmentation, auto-deskew,
+                      confidence-based raw-vs-preprocessed selection
+js/preprocess.js      Canvas-based image preprocessing before OCR (grayscale, local
+                      contrast normalization, upscale)
+js/textUtil.js        Shared OCR-word-list -> plain-text helper
 legacy-opencv-scripts/   Early OpenCV exploration scripts from this project's origins
 ```
 

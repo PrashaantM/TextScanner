@@ -1,6 +1,6 @@
 /*
   style.css: visual styling for index.html's elements, matched up by id/class with the
-  DOM nodes script.js queries and manipulates. Layout is a single centered column
+  DOM nodes the js/ modules query and manipulate. Layout is a single centered column
   (body is a flex column, main caps out at max-width) holding the drop zone, action
   buttons, preview, progress bar, status message, and results toolbar/panel in
   document order. Colors are defined as CSS custom properties on :root and swapped
@@ -357,7 +357,7 @@ main {
 
 /* ---- Image format / Full image editor surface (id="image-format-view"): an
    inline-size container that positions word spans and the background image with
-   percentage-based left/top/width/height so they line up with script.js's
+   percentage-based left/top/width/height so they line up with js/editor.js's
    coordinates, which are computed as percentages of the source image's natural size. ---- */
 
 .image-format-view {
@@ -441,6 +441,15 @@ main {
 .image-format-word.is-selected {
   background: color-mix(in srgb, var(--accent) 30%, transparent);
   box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* A word Tesseract recognized with low confidence (see LOW_CONFIDENCE_THRESHOLD in
+   js/state.js): flagged for the user to double-check, never hidden or silently
+   dropped - see js/editor.js's createWordObject(). */
+.image-format-word.is-low-confidence {
+  text-decoration: underline dotted color-mix(in srgb, var(--error) 70%, var(--text-muted));
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
 }
 
 /* Full image mode: an untouched word stays invisible against the real photo

@@ -1,9 +1,10 @@
 <!--
   index.html: markup and static structure for TextScanner.
-  Loads Tesseract.js from a CDN (see the script tag near the end of body) followed by
-  script.js, which looks up the ids and classes defined below, wires up their event
-  listeners, and drives all interaction (drag/drop input, OCR, results, and the
-  image editor). style.css provides the visual styling for these same elements.
+  Loads Tesseract.js from a CDN (see the script tags near the end of body) followed
+  by js/main.js (an ES module; see js/dom.js for the full set of element ids/classes
+  it and its sibling modules look up), which wires up all interaction (drag/drop
+  input, OCR, results, and the image editor). style.css provides the visual styling
+  for these same elements.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -23,7 +24,7 @@
 
   <main>
     <!-- Drop zone: click, drag-and-drop, or paste target for choosing an image.
-         script.js binds click/keydown/dragover/drop/paste handlers to this section
+         js/main.js binds click/keydown/dragover/drop/paste handlers to this section
          and the hidden file-input below it. -->
     <section id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Choose or drop an image to scan">
       <div class="drop-zone__content">
@@ -35,7 +36,7 @@
     </section>
 
     <!-- Alternate ways to supply an image: capture via device camera, or generate a
-         built-in sample image (script.js draws the sample on a canvas, no network call). -->
+         built-in sample image (js/main.js draws the sample on a canvas, no network call). -->
     <div class="actions">
       <button id="camera-btn" class="btn btn--secondary" type="button">Use camera</button>
       <input type="file" id="camera-input" accept="image/*" capture="environment" hidden />
@@ -54,7 +55,7 @@
       </div>
     </section>
 
-    <!-- Progress bar shown while Tesseract.js is loading/recognizing; script.js updates
+    <!-- Progress bar shown while Tesseract.js is loading/recognizing; js/main.js updates
          progress-fill's width and progress-label's text from the recognizer's logger callback. -->
     <section id="progress-section" class="progress-section hidden" aria-live="polite">
       <div class="progress-bar">
@@ -63,7 +64,7 @@
       <p id="progress-label" class="progress-label">Preparing...</p>
     </section>
 
-    <!-- Generic status message area (errors, success confirmations); script.js sets its
+    <!-- Generic status message area (errors, success confirmations); js/main.js sets its
          text and a status--error/status--success class via setStatus(). -->
     <section id="status-section" class="status-section hidden" role="status"></section>
 
@@ -102,8 +103,8 @@
       <!-- Text mode: read-only textarea filled with the raw recognized text. -->
       <textarea id="result-text" readonly placeholder="Extracted text will appear here..."></textarea>
 
-      <!-- Image format / Full image modes: script.js populates this container at scan time
-           with one absolutely-positioned, contenteditable span per recognized word (plus a
+      <!-- Image format / Full image modes: js/editor.js populates this container at scan
+           time with one absolutely-positioned, contenteditable span per recognized word (plus a
            background <img> for Full image mode), reproducing each word's original position
            in the source image. resize-handle and marquee-box are editor-mode overlays for
            resizing a selected word and rubber-band selecting multiple words. -->
@@ -127,9 +128,9 @@
     </p>
   </footer>
 
-  <!-- Tesseract.js is loaded from the jsDelivr CDN before script.js so the global
-       Tesseract object it exposes is available when script.js calls Tesseract.recognize(). -->
+  <!-- Tesseract.js is loaded from the jsDelivr CDN before js/main.js so the global
+       Tesseract object it exposes is available when js/ocrEngine.js calls it. -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
-  <script src="script.js"></script>
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>
