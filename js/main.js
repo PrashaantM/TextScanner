@@ -22,6 +22,7 @@ import {
   downloadBtn,
   downloadImageBtn,
   filterButtons,
+  newTextBtn,
 } from "./dom.js";
 import { state, MAX_FILE_BYTES } from "./state.js";
 import {
@@ -38,6 +39,13 @@ import {
   refreshModifiedStates,
   clearSelection,
   setFilterTextHook,
+  setFullEditorMode,
+  setAddTextMode,
+  setAddTextClickHandler,
+  addUserTextObject,
+  removeUserWordObject,
+  createWordObject,
+  configureUndoHooks,
 } from "./editor.js";
 import { recognizeImage } from "./ocrEngine.js";
 import { wordsToText } from "./textUtil.js";
@@ -353,21 +361,59 @@ setPatchProvider((obj) => {
 
 setPatchCanvasProvider((obj) => getOrComputePatch(obj));
 
-// ---- Delete selection (Phase 2: clears an OCR word's text and reveals its
-// inpainted patch; Phase 4 will extend this to remove user-added components). ----
+// So undo/redo (see editor.js's restoreSnapshot) can recreate a user-added word
+// that was fully removed (Delete, or redo-of-add) and clean up after one that's
+// gone for good (redo-of-delete, or undo-of-add) - without editor.js needing to
+// know about the patch cache it's cleaning up here.
+configureUndoHooks({
+  createFromSnapshot: (s) =>
+    createWordObject({
+      text: s.text || "",
+      x: s.x,
+      y: s.y,
+      w: s.w,
+      h: s.h,
+      fontSizePct: s.fontSizePct,
+      origin: s.origin,
+      confidence: null,
+      bbox: null,
+    }),
+  onRemoved: (obj) => patchCache.delete(obj.id),
+});
+
+// ---- Delete selection (Phase 2/4): 'ocr' words clear their text and reveal an
+// inpainted patch; 'user' words (Phase 4's "New text" tool) have no underlying
+// image content to reveal, so they're removed outright instead. ----
 
 setDeleteHandler((selectedObjects) => {
   if (!selectedObjects.length) return;
   const preSnapshot = snapshotState();
   let changed = false;
   selectedObjects.forEach((obj) => {
-    if (obj.type !== "word" || obj.origin !== "ocr") return;
-    if (obj.el.textContent === "") return;
-    obj.el.textContent = "";
-    changed = true;
+    if (obj.type !== "word") return;
+    if (obj.origin === "user") {
+      removeUserWordObject(obj);
+      changed = true;
+    } else if (obj.origin === "ocr") {
+      if (obj.el.textContent === "") return;
+      obj.el.textContent = "";
+      changed = true;
+    }
   });
   if (!changed) return;
   pushUndo(preSnapshot);
   refreshModifiedStates();
   clearSelection();
 });
+
+// ---- New text (Phase 4): arms add-mode; the next click on the image surface
+// places a new user-added word there (see editor.js's addUserTextObject). ----
+
+if (newTextBtn) {
+  newTextBtn.addEventListener("click", () => {
+    if (!state.fullEditorMode) setFullEditorMode(true);
+    setAddTextMode(!state.addTextMode);
+  });
+}
+
+setAddTextClickHandler((xPct, yPct) => addUserTextObject(xPct, yPct));

@@ -101,10 +101,12 @@
           <button id="download-image-btn" class="btn btn--secondary hidden" type="button">Download image</button>
         </div>
 
-        <!-- Only relevant to Full image mode: toggles the drag/resize editor and exposes
-             delete, undo, and redo for the current selection. -->
+        <!-- Only relevant to Full image mode: toggles the drag/resize editor, arms
+             placing a new user-added text box, and exposes delete, undo, and redo
+             for the current selection. -->
         <div id="editor-toolbar" class="editor-toolbar hidden">
           <button id="editor-mode-btn" class="btn btn--secondary" type="button" aria-pressed="false">Move components</button>
+          <button id="new-text-btn" class="btn btn--secondary" type="button" aria-pressed="false">New text</button>
           <div id="undo-redo-group" class="undo-redo-group hidden">
             <button id="delete-btn" class="btn btn--ghost" type="button" disabled>Delete</button>
             <button id="undo-btn" class="btn btn--ghost" type="button" disabled>Undo</button>

@@ -22,6 +22,7 @@ import {
   undoBtn,
   redoBtn,
   deleteBtn,
+  newTextBtn,
 } from "./dom.js";
 import { state, MAX_UNDO_STEPS, FONT_SIZE_CORRECTION, LOW_CONFIDENCE_THRESHOLD } from "./state.js";
 import { wordPasses } from "./filter.js";
@@ -127,6 +128,10 @@ editorModeBtn.addEventListener("click", () => setFullEditorMode(!state.fullEdito
 export function setAddTextMode(on) {
   state.addTextMode = on;
   imageFormatView.classList.toggle("add-text-mode", on);
+  if (newTextBtn) {
+    newTextBtn.textContent = on ? "Cancel" : "New text";
+    newTextBtn.setAttribute("aria-pressed", String(on));
+  }
   updateImageFormatHint();
 }
 
@@ -395,6 +400,94 @@ export function createWordObject({ text, x, y, w, h, fontSizePct, origin, confid
   return obj;
 }
 
+// A brand-new word has no OCR bbox to size itself against, so it borrows the
+// median font size of the existing OCR words (typical body-text size, robust
+// to a few oddly large headings/tiny captions) - or a fixed fallback if this
+// image had none. h is derived from that font size via the image's aspect
+// ratio (fontSizePct is expressed as %-of-width, h as %-of-height) so the
+// resize handle starts at a proportionate box instead of a default square.
+function computeDefaultGeometry() {
+  const ocrFontSizes = state.editorObjects
+    .filter((o) => o.type === "word" && o.origin === "ocr")
+    .map((o) => o.fontSizePct)
+    .sort((a, b) => a - b);
+
+  let fontSizePct = 3;
+  if (ocrFontSizes.length) {
+    const mid = Math.floor(ocrFontSizes.length / 2);
+    fontSizePct = ocrFontSizes.length % 2 ? ocrFontSizes[mid] : (ocrFontSizes[mid - 1] + ocrFontSizes[mid]) / 2;
+  }
+
+  const w = 12;
+  const h =
+    state.lastNaturalWidth && state.lastNaturalHeight
+      ? (fontSizePct * state.lastNaturalWidth) / state.lastNaturalHeight / FONT_SIZE_CORRECTION
+      : 4;
+  return { fontSizePct, w, h };
+}
+
+// Phase 4's "New text" tool: places a new origin:'user' word at the clicked
+// point, selects it, and focuses it for immediate typing (contentEditable is
+// normally false for every word while in Move mode, so this temporarily
+// overrides that for just this new span until the user clicks away). If the
+// user clicks away without typing anything, the placement is silently undone
+// instead of leaving an invisible empty box in editorObjects/undo history.
+export function addUserTextObject(xPct, yPct) {
+  const preSnapshot = snapshotState();
+  const { fontSizePct, w, h } = computeDefaultGeometry();
+
+  const obj = createWordObject({
+    text: "",
+    x: clampPosition(xPct, w),
+    y: clampPosition(yPct, h),
+    w,
+    h,
+    fontSizePct,
+    origin: "user",
+    confidence: null,
+    bbox: null,
+  });
+  state.editorObjects.push(obj);
+  applyObjectStyle(obj);
+
+  pushUndo(preSnapshot);
+  state.selectedObjectIds.clear();
+  state.selectedObjectIds.add(obj.id);
+  updateSelectionVisuals();
+  refreshModifiedStates();
+  setAddTextMode(false);
+
+  obj.el.contentEditable = "true";
+  obj.el.focus();
+
+  const onBlur = () => {
+    obj.el.removeEventListener("blur", onBlur);
+    if (obj.el.textContent.trim() !== "") {
+      obj.el.contentEditable = String(!state.fullEditorMode);
+      return;
+    }
+    if (state.undoStack[state.undoStack.length - 1] === preSnapshot) {
+      state.undoStack.pop();
+      updateUndoRedoButtons();
+    }
+    removeUserWordObject(obj);
+  };
+  obj.el.addEventListener("blur", onBlur);
+
+  return obj;
+}
+
+// Fully removes a user-added word (unlike deleting an OCR word, which just
+// clears its text and reveals an inpainted patch - a user word has no
+// underlying image content to reveal, so there's nothing to keep around).
+export function removeUserWordObject(obj) {
+  obj.el.remove();
+  if (obj.patchEl) obj.patchEl.remove();
+  state.editorObjects = state.editorObjects.filter((o) => o.id !== obj.id);
+  state.selectedObjectIds.delete(obj.id);
+  updateSelectionVisuals();
+}
+
 // Draws the already-loaded preview image into an offscreen canvas so word
 // patch colors can be sampled from it. Blob: URLs are same-origin, so this
 // never taints the canvas.
@@ -600,22 +693,28 @@ imageFormatView.addEventListener("focusout", (e) => {
 // word the active filter level dimmed via is-filtered-out - restricted to the
 // current selection if any words are selected; otherwise defers to the
 // filterTextHook (wired by main.js to filter.js, keyed off the same ocrWords/level
-// that drove the Text view textarea) so Text mode gets the same filtering.
+// that drove the Text view textarea) so Text mode gets the same filtering. Either
+// way, any Phase 4 user-added words are appended as trailing lines in creation
+// order (they live outside ocrWords/imageFormatLines entirely, so no other path
+// would otherwise surface them) - restricted to the selection too, if one exists.
 let filterTextHook = null;
 export function setFilterTextHook(fn) {
   filterTextHook = fn;
 }
 
 export function getActiveResultText() {
-  if ((state.activeMode === "image" || state.activeMode === "full") && state.imageFormatLines.length) {
-    const selectedWordEls = state.selectedObjectIds.size
-      ? new Set(
-          state.editorObjects
-            .filter((obj) => obj.type === "word" && state.selectedObjectIds.has(obj.id))
-            .map((obj) => obj.el)
-        )
-      : null;
+  // Only a selection that actually includes a word should restrict the output -
+  // the background image is itself a selectable/draggable object (e.g. while
+  // resizing it in Full image mode), and selecting only that has nothing to do
+  // with which text the user wants, so it must fall back to "no restriction"
+  // rather than making Copy/Download return nothing.
+  const selectedWordObjs = state.editorObjects.filter(
+    (obj) => obj.type === "word" && state.selectedObjectIds.has(obj.id)
+  );
+  const selectedWordEls = selectedWordObjs.length ? new Set(selectedWordObjs.map((obj) => obj.el)) : null;
 
+  let baseText;
+  if ((state.activeMode === "image" || state.activeMode === "full") && state.imageFormatLines.length) {
     const lines = state.imageFormatLines
       .map((spans) => {
         const relevant = (selectedWordEls ? spans.filter((s) => selectedWordEls.has(s)) : spans).filter(
@@ -627,11 +726,20 @@ export function getActiveResultText() {
           .trim();
       })
       .filter((line) => line.length > 0);
-
-    return lines.join("\n").trim();
+    baseText = lines.join("\n").trim();
+  } else if (filterTextHook) {
+    baseText = filterTextHook(resultText.value);
+  } else {
+    baseText = resultText.value;
   }
-  if (filterTextHook) return filterTextHook(resultText.value);
-  return resultText.value;
+
+  const userWordEls = state.editorObjects
+    .filter((obj) => obj.type === "word" && obj.origin === "user")
+    .map((obj) => obj.el);
+  const relevantUserEls = selectedWordEls ? userWordEls.filter((el) => selectedWordEls.has(el)) : userWordEls;
+  const userLines = relevantUserEls.map((el) => el.textContent.trim()).filter((t) => t.length > 0);
+
+  return [baseText, ...userLines].filter((t) => t.length > 0).join("\n").trim();
 }
 
 // ---- Pointer interactions: select, drag, resize, marquee ----
@@ -782,6 +890,15 @@ export function setAddTextClickHandler(fn) {
 
 imageFormatView.addEventListener("mousedown", (e) => {
   if (e.button !== 0) return;
+
+  // Every branch below that acts on an object (drag/resize/add-placement) calls
+  // preventDefault() to stop native text selection/drag - which has the side
+  // effect of also suppressing the browser's normal focus-blur transfer. Without
+  // this, clicking away from an actively-edited contentEditable word (e.g. a
+  // freshly-placed Phase 4 word still being typed into) would never blur it.
+  if (document.activeElement && document.activeElement !== e.target && document.activeElement.isContentEditable) {
+    document.activeElement.blur();
+  }
 
   const handleEl = e.target.closest(".resize-handle");
   if (handleEl && state.fullEditorMode) {
