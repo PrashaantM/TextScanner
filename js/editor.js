@@ -551,6 +551,32 @@ imageFormatView.addEventListener("input", (e) => {
   if (obj) refreshModifiedStates();
 });
 
+// Direct contenteditable text edits (typing into a word, outside full editor mode)
+// aren't covered by the drag/resize undo pushes above. Capture a snapshot on focus
+// and push it on blur, but only if the text actually changed during that session -
+// otherwise every stray click into a word would pollute the undo stack.
+let editingSpan = null;
+let editingOriginalText = null;
+let editingPreSnapshot = null;
+
+imageFormatView.addEventListener("focusin", (e) => {
+  const span = e.target.closest(".image-format-word");
+  if (!span || state.fullEditorMode) return;
+  editingSpan = span;
+  editingOriginalText = span.textContent;
+  editingPreSnapshot = snapshotState();
+});
+
+imageFormatView.addEventListener("focusout", (e) => {
+  if (e.target !== editingSpan) return;
+  if (editingSpan.textContent !== editingOriginalText && editingPreSnapshot) {
+    pushUndo(editingPreSnapshot);
+  }
+  editingSpan = null;
+  editingOriginalText = null;
+  editingPreSnapshot = null;
+});
+
 // Returns the text to copy/download/read aloud: in Image format or Full image mode,
 // rebuilds it line-by-line from the (possibly edited) word spans, restricted to the
 // current selection if any words are selected; otherwise returns the plain

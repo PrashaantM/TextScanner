@@ -461,7 +461,7 @@ main {
 }
 
 .image-format-view.show-bg .image-format-word:hover,
-.image-format-view.show-bg .image-format-word.is-modified {
+.image-format-view.show-bg .image-format-word.is-modified:not(:empty) {
   color: var(--text);
   background: color-mix(in srgb, var(--surface) 90%, transparent);
 }

@@ -23,9 +23,23 @@ import {
   downloadImageBtn,
 } from "./dom.js";
 import { state, MAX_FILE_BYTES } from "./state.js";
-import { setMode, clearImageFormatView, renderImageFormatView, getActiveResultText, buildResultCanvas } from "./editor.js";
+import {
+  setMode,
+  clearImageFormatView,
+  renderImageFormatView,
+  getActiveResultText,
+  buildResultCanvas,
+  setPatchProvider,
+  setPatchCanvasProvider,
+  setDeleteHandler,
+  snapshotState,
+  pushUndo,
+  refreshModifiedStates,
+  clearSelection,
+} from "./editor.js";
 import { recognizeImage } from "./ocrEngine.js";
 import { wordsToText } from "./textUtil.js";
+import { computeInpaintedPatch } from "./inpaint.js";
 
 function show(el) {
   el.classList.remove("hidden");
@@ -46,7 +60,14 @@ function setStatus(message, kind) {
   show(statusSection);
 }
 
+// A word's inpainted patch only ever needs computing once per scan (it depends
+// only on the source image and the word's original bbox), so it's cached by
+// object id here rather than recomputed on every modified-state refresh. Cleared
+// whenever a fresh scan replaces the current result.
+const patchCache = new Map();
+
 function resetResult() {
+  patchCache.clear();
   resultText.value = "";
   hide(resultSection);
   setStatus("");
@@ -278,4 +299,46 @@ downloadImageBtn.addEventListener("click", () => {
     a.remove();
     URL.revokeObjectURL(url);
   }, "image/png");
+});
+
+// ---- Inpainted patches (Phase 2) ----
+
+function getOrComputePatch(obj) {
+  if (patchCache.has(obj.id)) return patchCache.get(obj.id);
+  const canvas = obj.originalBbox
+    ? computeInpaintedPatch(previewImg, state.lastNaturalWidth, state.lastNaturalHeight, obj.originalBbox)
+    : null;
+  patchCache.set(obj.id, canvas);
+  return canvas;
+}
+
+setPatchProvider((obj) => {
+  const canvas = getOrComputePatch(obj);
+  if (canvas) {
+    obj.patchEl.style.backgroundImage = `url(${canvas.toDataURL()})`;
+    obj.patchEl.style.backgroundSize = "100% 100%";
+  } else if (obj.patchColor) {
+    obj.patchEl.style.background = obj.patchColor;
+  }
+});
+
+setPatchCanvasProvider((obj) => getOrComputePatch(obj));
+
+// ---- Delete selection (Phase 2: clears an OCR word's text and reveals its
+// inpainted patch; Phase 4 will extend this to remove user-added components). ----
+
+setDeleteHandler((selectedObjects) => {
+  if (!selectedObjects.length) return;
+  const preSnapshot = snapshotState();
+  let changed = false;
+  selectedObjects.forEach((obj) => {
+    if (obj.type !== "word" || obj.origin !== "ocr") return;
+    if (obj.el.textContent === "") return;
+    obj.el.textContent = "";
+    changed = true;
+  });
+  if (!changed) return;
+  pushUndo(preSnapshot);
+  refreshModifiedStates();
+  clearSelection();
 });

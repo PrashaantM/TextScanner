@@ -90,10 +90,11 @@
         </div>
 
         <!-- Only relevant to Full image mode: toggles the drag/resize editor and exposes
-             undo/redo for word position, size, and text edits. -->
+             delete, undo, and redo for the current selection. -->
         <div id="editor-toolbar" class="editor-toolbar hidden">
           <button id="editor-mode-btn" class="btn btn--secondary" type="button" aria-pressed="false">Move components</button>
           <div id="undo-redo-group" class="undo-redo-group hidden">
+            <button id="delete-btn" class="btn btn--ghost" type="button" disabled>Delete</button>
             <button id="undo-btn" class="btn btn--ghost" type="button" disabled>Undo</button>
             <button id="redo-btn" class="btn btn--ghost" type="button" disabled>Redo</button>
           </div>
