@@ -101,6 +101,15 @@
           <button id="download-image-btn" class="btn btn--secondary hidden" type="button">Download image</button>
         </div>
 
+        <!-- Text-to-speech (Phase 5): reads getActiveResultText() aloud via the
+             browser's SpeechSynthesis API (js/tts.js). js/main.js hides this
+             entirely if the browser has no usable TTS, and only in Text/Image
+             format modes even when it does, per spec. -->
+        <div id="tts-controls" class="result-toolbar__row result-toolbar__actions hidden">
+          <button id="tts-play-btn" class="btn btn--secondary" type="button">Play</button>
+          <button id="tts-stop-btn" class="btn btn--ghost" type="button" disabled>Stop</button>
+        </div>
+
         <!-- Only relevant to Full image mode: toggles the drag/resize editor, arms
              placing a new user-added text box, and exposes delete, undo, and redo
              for the current selection. -->

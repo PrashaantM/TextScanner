@@ -23,6 +23,9 @@ import {
   downloadImageBtn,
   filterButtons,
   newTextBtn,
+  ttsControls,
+  ttsPlayBtn,
+  ttsStopBtn,
 } from "./dom.js";
 import { state, MAX_FILE_BYTES } from "./state.js";
 import {
@@ -51,6 +54,17 @@ import { recognizeImage } from "./ocrEngine.js";
 import { wordsToText } from "./textUtil.js";
 import { computeInpaintedPatch } from "./inpaint.js";
 import { wordsToFilteredText } from "./filter.js";
+import {
+  isTTSSupported,
+  waitForVoices,
+  speak,
+  pause as pauseTTS,
+  resume as resumeTTS,
+  stop as stopTTS,
+  getTTSState,
+  setTTSStateChangeHandler,
+  TTS_STATE,
+} from "./tts.js";
 
 function show(el) {
   el.classList.remove("hidden");
@@ -79,6 +93,7 @@ const patchCache = new Map();
 
 function resetResult() {
   patchCache.clear();
+  stopTTS();
   resultText.value = "";
   hide(resultSection);
   setStatus("");
@@ -273,6 +288,7 @@ function applyFilterLevel(level) {
   });
   resultText.value = wordsToFilteredText(state.ocrWords, level);
   refreshModifiedStates();
+  if (ttsSupported) updateTTSButtons();
 }
 
 filterButtons.forEach((btn) => {
@@ -417,3 +433,61 @@ if (newTextBtn) {
 }
 
 setAddTextClickHandler((xPct, yPct) => addUserTextObject(xPct, yPct));
+
+// ---- Text-to-speech (Phase 5) ----
+//
+// Reuses getActiveResultText() directly as the text source, so TTS gets mode,
+// selection, and filter-level resolution for free instead of reimplementing
+// any of it. Feature-detected once at startup: if speechSynthesis is absent,
+// or supported but no voices are ever available, ttsControls stays hidden for
+// the rest of the session rather than exposing controls that can't work.
+
+let ttsSupported = false;
+
+function updateTTSButtons() {
+  const ttsState = getTTSState();
+  ttsPlayBtn.textContent = ttsState === TTS_STATE.SPEAKING ? "Pause" : "Play";
+  ttsPlayBtn.disabled = ttsState === TTS_STATE.IDLE && !getActiveResultText();
+  ttsStopBtn.disabled = ttsState === TTS_STATE.IDLE;
+}
+
+// Per spec, TTS is scoped to Text/Image format - not Full image, which has its
+// own editor toolbar already. Switching into Full image stops any in-progress
+// speech too, since its controls are about to disappear with nothing left to
+// stop it otherwise.
+function updateTTSVisibility() {
+  if (!ttsSupported) return;
+  const visible = state.activeMode === "text" || state.activeMode === "image";
+  if (visible) {
+    show(ttsControls);
+  } else {
+    hide(ttsControls);
+    stopTTS();
+  }
+  updateTTSButtons();
+}
+
+document.addEventListener("mode-changed", updateTTSVisibility);
+
+ttsPlayBtn.addEventListener("click", () => {
+  const ttsState = getTTSState();
+  if (ttsState === TTS_STATE.IDLE) {
+    const text = getActiveResultText();
+    if (text) speak(text);
+  } else if (ttsState === TTS_STATE.SPEAKING) {
+    pauseTTS();
+  } else if (ttsState === TTS_STATE.PAUSED) {
+    resumeTTS();
+  }
+});
+
+ttsStopBtn.addEventListener("click", () => stopTTS());
+
+(async () => {
+  if (!isTTSSupported()) return;
+  const voices = await waitForVoices();
+  if (!voices.length) return;
+  ttsSupported = true;
+  setTTSStateChangeHandler(updateTTSButtons);
+  updateTTSVisibility();
+})();
