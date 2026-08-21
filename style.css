@@ -327,6 +327,37 @@ main {
   color: var(--accent-contrast);
 }
 
+.filter-toggle__label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.filter-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px;
+  background: var(--bg);
+}
+
+.filter-toggle__btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.filter-toggle__btn.is-active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
 #result-text {
   width: 100%;
   min-height: 180px;
@@ -450,6 +481,13 @@ main {
   text-decoration: underline dotted color-mix(in srgb, var(--error) 70%, var(--text-muted));
   text-decoration-thickness: 1.5px;
   text-underline-offset: 2px;
+}
+
+/* A word the active filter level (js/filter.js) excludes from Text/Copy/Download -
+   dimmed rather than hidden, since filtering is non-destructive and the user can
+   always switch back to Raw to see it at full strength. */
+.image-format-word.is-filtered-out {
+  opacity: 0.35;
 }
 
 /* Full image mode: an untouched word stays invisible against the real photo

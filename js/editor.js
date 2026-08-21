@@ -24,6 +24,7 @@ import {
   deleteBtn,
 } from "./dom.js";
 import { state, MAX_UNDO_STEPS, FONT_SIZE_CORRECTION, LOW_CONFIDENCE_THRESHOLD } from "./state.js";
+import { wordPasses } from "./filter.js";
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
@@ -456,6 +457,14 @@ export function isWordModified(obj) {
   );
 }
 
+// Narrower than isWordModified: only true for an actual text change (or a
+// Phase 4 user-added word, which has no OCR text to compare against). Used to
+// let filter.js's wordPasses always keep a word the user explicitly edited,
+// regardless of a move/resize that isWordModified would also flag.
+function isWordTextEdited(obj) {
+  return obj.origin === "user" || obj.el.textContent !== obj.originalText;
+}
+
 let onPatchNeeded = null;
 // Wired by main.js (Phase 2) so editor.js can ask for an up-to-date patch fill
 // (inpainted, if available) without owning any OpenCV/inpainting logic itself.
@@ -469,6 +478,14 @@ export function refreshModifiedStates() {
     const modified = isWordModified(obj);
     obj.modified = modified;
     obj.el.classList.toggle("is-modified", modified);
+
+    const passesFilter = wordPasses(
+      { text: obj.el.textContent, confidence: obj.confidence },
+      state.activeFilterLevel,
+      isWordTextEdited(obj)
+    );
+    obj.el.classList.toggle("is-filtered-out", !passesFilter);
+
     if (!obj.patchEl) return;
     if (modified && obj.origin === "ocr") {
       obj.patchEl.style.display = "block";
@@ -542,6 +559,7 @@ export function renderImageFormatView(previewImg, ocrWords, naturalWidth, natura
   });
 
   if (lineSpans.length) state.imageFormatLines.push(lineSpans);
+  refreshModifiedStates(); // sets initial is-filtered-out at the default filter level
 }
 
 imageFormatView.addEventListener("input", (e) => {
@@ -578,10 +596,11 @@ imageFormatView.addEventListener("focusout", (e) => {
 });
 
 // Returns the text to copy/download/read aloud: in Image format or Full image mode,
-// rebuilds it line-by-line from the (possibly edited) word spans, restricted to the
-// current selection if any words are selected; otherwise returns the plain
-// result-text value. filter.js's applyFilterToText hook (wired by main.js) narrows
-// this further to the active filter level.
+// rebuilds it line-by-line from the (possibly edited) word spans - skipping any
+// word the active filter level dimmed via is-filtered-out - restricted to the
+// current selection if any words are selected; otherwise defers to the
+// filterTextHook (wired by main.js to filter.js, keyed off the same ocrWords/level
+// that drove the Text view textarea) so Text mode gets the same filtering.
 let filterTextHook = null;
 export function setFilterTextHook(fn) {
   filterTextHook = fn;
@@ -599,7 +618,9 @@ export function getActiveResultText() {
 
     const lines = state.imageFormatLines
       .map((spans) => {
-        const relevant = selectedWordEls ? spans.filter((s) => selectedWordEls.has(s)) : spans;
+        const relevant = (selectedWordEls ? spans.filter((s) => selectedWordEls.has(s)) : spans).filter(
+          (s) => !s.classList.contains("is-filtered-out")
+        );
         return relevant
           .map((s) => s.textContent)
           .join(" ")

@@ -21,6 +21,7 @@ import {
   copyBtn,
   downloadBtn,
   downloadImageBtn,
+  filterButtons,
 } from "./dom.js";
 import { state, MAX_FILE_BYTES } from "./state.js";
 import {
@@ -36,10 +37,12 @@ import {
   pushUndo,
   refreshModifiedStates,
   clearSelection,
+  setFilterTextHook,
 } from "./editor.js";
 import { recognizeImage } from "./ocrEngine.js";
 import { wordsToText } from "./textUtil.js";
 import { computeInpaintedPatch } from "./inpaint.js";
+import { wordsToFilteredText } from "./filter.js";
 
 function show(el) {
   el.classList.remove("hidden");
@@ -232,8 +235,8 @@ scanBtn.addEventListener("click", async () => {
     if (!plainText) {
       setStatus("No text was detected in this image. Try a clearer or higher-contrast image.", "error");
     } else {
-      resultText.value = plainText;
       renderImageFormatView(previewImg, words, previewImg.naturalWidth, previewImg.naturalHeight, state.currentObjectUrl);
+      applyFilterLevel(state.activeFilterLevel);
       setMode("text");
       show(resultSection);
       setStatus("Text extracted successfully.", "success");
@@ -246,6 +249,32 @@ scanBtn.addEventListener("click", async () => {
     resetBtn.disabled = false;
   }
 });
+
+// ---- Filter level (Phase 3) ----
+
+// The single place that applies a filter level change: rebuilds the Text view
+// textarea from state.ocrWords (the source of truth) and refreshes Image
+// format/Full image's per-word is-filtered-out dimming, so both views and
+// Copy/Download/TTS stay in sync with whichever level is active.
+function applyFilterLevel(level) {
+  state.activeFilterLevel = level;
+  filterButtons.forEach((btn) => {
+    const isActive = btn.dataset.level === level;
+    btn.classList.toggle("is-active", isActive);
+    btn.setAttribute("aria-pressed", String(isActive));
+  });
+  resultText.value = wordsToFilteredText(state.ocrWords, level);
+  refreshModifiedStates();
+}
+
+filterButtons.forEach((btn) => {
+  btn.addEventListener("click", () => applyFilterLevel(btn.dataset.level));
+});
+
+// Text view's Copy/Download path (see editor.js's getActiveResultText): always
+// recompute from ocrWords + the active level rather than trusting resultText.value
+// to still be in sync, so it can't go stale under some future code path.
+setFilterTextHook(() => wordsToFilteredText(state.ocrWords, state.activeFilterLevel));
 
 // ---- Copy / Download ----
 

@@ -83,6 +83,18 @@
           </div>
         </div>
 
+        <!-- Three-level noise filter (js/filter.js), visible in all three view modes:
+             it drives what's shown in the Text textarea, which words are dimmed (not
+             removed) in Image format/Full image, and what Copy/Download/TTS read. -->
+        <div class="result-toolbar__row result-toolbar__actions">
+          <span class="filter-toggle__label">Filter</span>
+          <div id="filter-toggle" class="filter-toggle" role="group" aria-label="Text filter level">
+            <button id="filter-raw-btn" class="filter-toggle__btn" type="button" data-level="raw" aria-pressed="false">Raw</button>
+            <button id="filter-symbol-btn" class="filter-toggle__btn is-active" type="button" data-level="symbol" aria-pressed="true">Symbol</button>
+            <button id="filter-coherence-btn" class="filter-toggle__btn" type="button" data-level="coherence" aria-pressed="false">Coherence</button>
+          </div>
+        </div>
+
         <div class="result-toolbar__row result-toolbar__actions">
           <button id="copy-btn" class="btn btn--secondary" type="button">Copy</button>
           <button id="download-btn" class="btn btn--secondary" type="button">Download .txt</button>
