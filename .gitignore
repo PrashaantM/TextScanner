@@ -1,7 +1,16 @@
-# Node (test/ harness only — this app itself has no build step/dependencies).
-# No trailing slash: test/node_modules is a symlink to a borrowed Playwright
-# install, and a directory-only pattern (trailing slash) doesn't match a symlink.
+# Node. No trailing slash on node_modules: test/node_modules is a symlink to a
+# borrowed Playwright install, and a directory-only pattern (trailing slash)
+# doesn't match a symlink. The root package-lock.json (Capacitor/ML Kit
+# tooling deps) IS committed for reproducible installs - not listed here.
 node_modules
+
+# Capacitor (Android native shell). www/ is a disposable, regenerated copy of
+# index.html/style.css/js/ (see scripts/sync-web-assets.sh) - the real source
+# of truth stays at the repo root, unchanged, for the existing GitHub Pages
+# deployment. android/ IS committed (standard Capacitor practice - it has its
+# own nested .gitignore for Gradle build artifacts/local.properties/copied
+# web assets, scaffolded by `cap add android`).
+/www/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
