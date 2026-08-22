@@ -1,5 +1,5 @@
 // main.js: application bootstrap. Wires file input (drag/drop, paste, camera,
-// sample image), the Scan text button (preprocessing + OCR via ocrEngine.js), and
+// sample image), the Scan text button (preprocessing + OCR via recognize.js), and
 // Copy/Download, on top of the editor surface (editor.js) that renders and manages
 // the OCR result.
 import {
@@ -58,7 +58,7 @@ import {
   createWordObject,
   configureUndoHooks,
 } from "./editor.js";
-import { recognizeImage } from "./ocrEngine.js";
+import { recognizeImage } from "./recognize.js";
 import { wordsToText } from "./textUtil.js";
 import { computeInpaintedPatch } from "./inpaint.js";
 import { wordsToFilteredText } from "./filter.js";
