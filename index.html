@@ -31,6 +31,7 @@
         <p class="drop-zone__icon" aria-hidden="true">&#128247;</p>
         <p class="drop-zone__text">Drag &amp; drop an image here, or click to choose one</p>
         <p class="drop-zone__hint">JPG, PNG, WEBP, or BMP</p>
+        <p class="drop-zone__hint">Works best on printed text; handwriting, especially cursive, is not reliably recognized</p>
       </div>
       <input type="file" id="file-input" accept="image/*" hidden />
     </section>
@@ -83,15 +84,36 @@
           </div>
         </div>
 
-        <!-- Three-level noise filter (js/filter.js), visible in all three view modes:
-             it drives what's shown in the Text textarea, which words are dimmed (not
-             removed) in Image format/Full image, and what Copy/Download/TTS read. -->
+        <!-- Three-level filter (js/filter.js for Raw/Filtered Text, js/coherence.js for
+             Coherence Filter), visible in all three view modes: it drives what's shown in
+             the Text textarea, which words are dimmed (not removed) in Image format/Full
+             image, and what Copy/Download/TTS read. -->
         <div class="result-toolbar__row result-toolbar__actions">
           <span class="filter-toggle__label">Filter</span>
           <div id="filter-toggle" class="filter-toggle" role="group" aria-label="Text filter level">
             <button id="filter-raw-btn" class="filter-toggle__btn" type="button" data-level="raw" aria-pressed="false">Raw</button>
-            <button id="filter-symbol-btn" class="filter-toggle__btn is-active" type="button" data-level="symbol" aria-pressed="true">Symbol</button>
-            <button id="filter-coherence-btn" class="filter-toggle__btn" type="button" data-level="coherence" aria-pressed="false">Coherence</button>
+            <button id="filter-filtered-btn" class="filter-toggle__btn is-active" type="button" data-level="filtered" aria-pressed="true">Filtered Text</button>
+            <button id="filter-coherence-btn" class="filter-toggle__btn" type="button" data-level="coherence" aria-pressed="false">Coherence Filter</button>
+          </div>
+        </div>
+
+        <!-- Coherence Filter (js/coherence.js): the only feature in TextScanner that
+             sends data off-device (a Claude API call to rewrite Filtered Text as prose).
+             Shown only while that level is selected; js/main.js switches its inner rows
+             between "no key saved yet" and "key saved, ready to generate". -->
+        <div id="coherence-panel" class="coherence-panel hidden">
+          <p class="coherence-panel__disclosure">
+            Coherence Filter sends your extracted text to Anthropic's Claude API to rewrite it as prose &mdash;
+            the only thing in TextScanner that leaves your device. Your API key is stored only in this browser.
+          </p>
+          <div id="coherence-key-row" class="coherence-panel__row">
+            <input id="coherence-api-key" class="coherence-panel__key-input" type="password" placeholder="Anthropic API key (sk-ant-...)" autocomplete="off" />
+            <button id="coherence-save-key-btn" class="btn btn--secondary" type="button">Save key</button>
+          </div>
+          <div id="coherence-generate-row" class="coherence-panel__row hidden">
+            <button id="coherence-generate-btn" class="btn btn--primary" type="button">Generate</button>
+            <button id="coherence-change-key-btn" class="btn btn--ghost" type="button">Change key</button>
+            <span id="coherence-status" class="coherence-panel__status" role="status"></span>
           </div>
         </div>
 

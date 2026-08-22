@@ -1,0 +1,377 @@
+1. Login Page
+MCQ Exam Management
+Welcome back!
+Email
+instructor@example.com
+Password
+Remember me
+Forgot password?
+Log In
+
+2. Home (No Course Selected)
+Courses
+Create Course
+Search Courses
+Active
+Archived
+COSC 111
+Introduction to Programming
+Fall 2026
+MATH 200
+Calculus I
+Fall 2026
+STAT 230
+Statistics for Data Science
+Fall 2026
+COSC 304
+Software Engineering
+Winter 2026
+COSC 305
+Web Development
+Winter 2026
+Select a course to get started
+Choose a course from the list on the left to view details, manage exams, students, and more.
+
+3. Home (Course Selected) – Exams Tab (Default)
+Courses
+Create Course
+Search Courses
+Active
+Archived
+COSC 111
+Introduction to Programming
+Fall 2026
+MATH 200
+Calculus I
+Fall 2026
+STAT 230
+Statistics for Data Science
+Fall 2026
+COSC 304
+Software Engineering
+Winter 2026
+COSC 305
+Web Development
+Winter 2026
+Course Details
+Student Roster
+Student Reports
+Analytics
+COSC 111 – Introduction to Programming
+Fall 2026
+Collaborators
+Add Collaborator
+John Smith Instructor
+Jane Doe Co-instructor
+Michael Brown TA
+Emily Johnson TA
+Read more...
+Exams
+Midterm 1
+Draft
+Oct 10, 2026
+30 Questions 2 Variants
+Avg. Score: --
+Open Exam
+Quiz 3
+Finalized
+Oct 24, 2026
+20 Questions 1 Variant
+Avg. Score: --
+Open Exam
+Midterm 2
+Completed
+Nov 14, 2026
+30 Questions 2 Variants
+Avg. Score: 72%
+Open Exam
+Final Exam
+Analytics Available
+Dec 20, 2026
+40 Questions 2 Variants
+Avg. Score: --
+Open Exam
+View all exams
+
+4. Top Right (Header)
+Courses
+Profile
+Exams
+Question Banks
+Exports
+Help & Onboarding
+Contact Support
+
+5. Onboarding Guide (Example Step)
+Courses
+This is your courses list.
+Select a course to manage exams, students, and reports.
+Skip
+Next
+
+6. Student Roster (Inside Dashboard)
+Courses
+Create Course
+Search Courses
+Active
+Archived
+COSC 111
+Introduction to Programming
+Fall 2026
+MATH 200
+Calculus I
+Fall 2026
+STAT 300
+Software Engineering
+Winter 2026
+COSC 305
+Web Development
+Winter 2026
+Course Details
+Student Roster
+Student Reports
+Analytics
+COSC 111 – Introduction to Programming
+Fall 2026
+Collaborators
+John Smith Instructor
+Jane Doe Co-Instructor
+Michael Brown TA
+Emily Johnson TA
+Read more...
+Student Roster (42)
+Add Student
+Import CSV
+Export
+Student Number
+Name
+Email
+Section
+Actions
+12345678
+Alex Johnson
+alex.johnson@ubc.ca
+001
+12345679
+Sarah Lee
+sarah.lee@ubc.ca
+001
+12345680
+David Kim
+david.kim@ubc.ca
+002
+12345681
+Priya Patel
+priya.patel@ubc.ca
+002
+
+7. Student Reports (Inside Dashboard)
+Courses
+Create Course
+Search Courses
+Active
+Archived
+COSC 111
+Introduction to Programming
+Fall 2026
+MATH 200
+Calculus I
+Fall 2026
+COSC 304
+Software Engineering
+Winter 2026
+COSC 305
+Web Development
+Winter 2026
+Course Details
+Student Roster
+Student Reports
+Analytics
+COSC 111 – Introduction to Programming
+Fall 2026
+Student Reports & Export
+Exam: All Exams
+Section: All Sections
+Generate Report
+Score Report
+Item Analysis
+Export
+Student Number
+Name
+Average Score
+Midterm 1
+Quiz 3
+Midterm 2
+Final Exam
+12345678
+Alex Johnson
+85%
+88%
+80%
+87%
+90%
+12345679
+Sarah Lee
+92%
+95%
+90%
+91%
+94%
+12345680
+David Kim
+70%
+72%
+70%
+79%
+78%
+12345681
+Priya Patel
+70%
+72%
+68%
+71%
+69%
+1 2 3 4
+
+8. Analytics (Inside Dashboard)
+Courses
+Create Course
+Search Courses
+Active
+Archived
+COSC 111
+Introduction to Programming
+Fall 2026
+MATH 200
+Calculus I
+Fall 2026
+STAT 304
+Software Engineering
+Winter 2026
+COSC 305
+Web Development
+Winter 2026
+Course Details
+Student Roster
+Student Reports
+Analytics
+COSC 111 – Introduction to Programming
+Fall 2026
+Course Analytics
+Not Implemented Feature
+This page will eventually provide course-level analytics, including trends across quizzes, midterms, and final exams.
+Exams in this course
+Midterm 1
+Oct 10, 2026
+Quiz 3
+Oct 24, 2026
+Midterm 2
+Nov 14, 2026
+Final Exam
+Dec 20, 2026
+
+9. Exam Details Page (Opened from Exam Card)
+Courses
+COSC 111
+Midterm 1
+Midterm 1
+Completed
+Oct 10, 2026
+30 Questions
+2 Variants
+Overview
+Questions
+Variants
+Results
+Settings
+Exam Information
+Type
+Midterm
+Status
+Completed
+Duration
+60 minutes
+Total Questions
+30
+Total Variants
+2
+Date
+Oct 10, 2026
+Average Score
+72%
+Actions
+View Results
+Download Report
+Edit Exam
+Duplicate Exam
+
+DESIGN & IMPLEMENTATION SPECIFICATIONS
+1. Global Header (All Pages)
+Left: Logo (existing)
+Right (order): Courses | Profile | Hamburger Menu | Logout
+Hamburger contains: Exams, Question Banks, Exports, Help & Onboarding, Contact Support
+2. Home (Courses Dashboard)
+Left sidebar (25-30% width)
+Title "Courses" left, "Create Course" right
+Search bar with placeholder "Search Courses"
+Toggle: Active (primary) / Archived (secondary)
+Course cards: ID (large), course name, offering
+Selected course shows purple outline + background
+Right content area (70-75% width)
+If no course selected: empty state with icon + message
+If course selected: show Section 1 (Course Details) and Section 2 (Workspace)
+3. Section 1 – Course Details (Top Right Panel)
+Header: "Course Details" with info icon (hover: "Select a course to view details")
+Right buttons: Student Roster | Student Reports | Analytics
+Collaborators row (existing UI):
+Add Collaborator input on same line
+Added users shown below in one or more lines
+If overflow: show "read more..." → expand to show all with "show less"
+4. Section 2 – Workspace (Bottom Right Panel)
+Default = Exams list (existing implementation)
+Shows exam cards with REAL statuses:
+Draft (gray)
+Finalized (blue)
+Completed (green)
+Analytics Available (purple)
+Each card shows: title, date, question count, variants, avg score, status badge, and "Open Exam" button
+"View all exams" link at bottom (existing behavior)
+5. Workspace Tabs Behavior
+Student Roster: show existing roster UI (add/import/export visible in this panel)
+Student Reports: embed existing "Student Reports & Export" page as-is (this panel only)
+Analytics: show exams list and placeholder message exactly as shown
+Switching tabs retains left sidebar selection and top collaborator section
+6. Navigation Behavior
+Clicking an Exam card opens the existing Exam Details page in a new route
+Browser back returns to the same course dashboard with the same tab
+All existing permissions/RBAC must continue to apply
+7. Authentication Improvements
+Add "Remember me" on login (persist session/refresh token as implemented)
+Add show/hide password toggle (eye icon)
+8. Onboarding
+Show on first login after account creation
+Step-based tour highlighting:
+Courses list
+Top header (navigation)
+Course details section
+Workspace tabs
+Where to manage exams, students, reports
+Skip / Next / Back / Done
+Replay from Help & Onboarding (hamburger menu)
+Store completion in user profile
+
+DEVELOPMENT PLAN (BRANCHES & PRs)
+PR 1 auth-improvements (Remember me, password visibility)
+PR 2 header-navigation (New header, hamburger, routing updates)
+PR 3 courses-dashboard-shell (Sidebar + 2-section layout + empty state)
+PR 4 workspace-tabs (Exams, Roster, Reports, Analytics panels)
+PR 5 exam-authoring-answers (A-E options, allow blanks)
+PR 6 onboarding-guide (Tour + help center entry)
+PR 7 canvas-integration (Import courses & students)
+
+CLAUDE SKILLS & PROMPTS (STEP-BY-STEP WORKFLOW)
+Prompt 1 – Project Analysis: Understand current code, files, deps, plan.
+Prompt 2 – Architecture Review: Review plan for quality & improvements.
+Prompt 3 – Incremental Implementation: Implement 1-3 steps at a time.
+Prompt 4 – Self-Review: Claude reviews & fixes issues.
+Prompt 5 – Regression Check: Verify behavior changes & test checklist.

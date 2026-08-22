@@ -37,5 +37,11 @@ export const state = {
   // source of truth filter.js reads from; editorObjects/imageFormatLines are the
   // editable DOM-backed view built from the same scan.
   ocrWords: [],
-  activeFilterLevel: "symbol", // 'raw' | 'symbol' | 'coherence'
+  activeFilterLevel: "filtered", // 'raw' | 'filtered' | 'coherence'
+
+  // Coherence Filter's last generated reconstruction for the current scan (see
+  // js/coherence.js), or null if it hasn't been generated yet (or the scan
+  // changed since). Cached here rather than regenerated on every level switch
+  // so tabbing back to Coherence Filter doesn't re-fire a billed API call.
+  coherentText: null,
 };

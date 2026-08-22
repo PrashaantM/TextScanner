@@ -22,6 +22,14 @@ import {
   downloadBtn,
   downloadImageBtn,
   filterButtons,
+  coherencePanel,
+  coherenceKeyRow,
+  coherenceApiKeyInput,
+  coherenceSaveKeyBtn,
+  coherenceGenerateRow,
+  coherenceGenerateBtn,
+  coherenceChangeKeyBtn,
+  coherenceStatus,
   newTextBtn,
   ttsControls,
   ttsPlayBtn,
@@ -54,6 +62,7 @@ import { recognizeImage } from "./ocrEngine.js";
 import { wordsToText } from "./textUtil.js";
 import { computeInpaintedPatch } from "./inpaint.js";
 import { wordsToFilteredText } from "./filter.js";
+import { getStoredApiKey, setStoredApiKey, clearStoredApiKey, reconstructCoherentText } from "./coherence.js";
 import {
   isTTSSupported,
   waitForVoices,
@@ -101,6 +110,7 @@ function resetResult() {
   progressFill.style.width = "0%";
   clearImageFormatView();
   setMode("text");
+  state.coherentText = null;
 }
 
 // ---- File loading (file picker, camera, drag-and-drop, paste, sample) ----
@@ -273,12 +283,18 @@ scanBtn.addEventListener("click", async () => {
   }
 });
 
-// ---- Filter level (Phase 3) ----
+// ---- Filter level (Raw / Filtered Text / Coherence Filter) ----
 
 // The single place that applies a filter level change: rebuilds the Text view
-// textarea from state.ocrWords (the source of truth) and refreshes Image
-// format/Full image's per-word is-filtered-out dimming, so both views and
-// Copy/Download/TTS stay in sync with whichever level is active.
+// textarea and refreshes Image format/Full image's per-word is-filtered-out
+// dimming, so both views and Copy/Download/TTS stay in sync with whichever
+// level is active. Coherence Filter is a special case: its output is a
+// generative LLM reconstruction, not a selection over ocrWords (see
+// filter.js's header comment), so Text view shows either the cached
+// reconstruction or the coherence panel's controls to generate one, while
+// Image format/Full image dimming falls back to Filtered Text's word-level
+// view since a freely-paraphrased reconstruction can't be mapped back onto
+// individual source words.
 function applyFilterLevel(level) {
   state.activeFilterLevel = level;
   filterButtons.forEach((btn) => {
@@ -286,7 +302,14 @@ function applyFilterLevel(level) {
     btn.classList.toggle("is-active", isActive);
     btn.setAttribute("aria-pressed", String(isActive));
   });
-  resultText.value = wordsToFilteredText(state.ocrWords, level);
+
+  if (level === "coherence") {
+    resultText.value = state.coherentText || "";
+    updateCoherencePanel();
+  } else {
+    hide(coherencePanel);
+    resultText.value = wordsToFilteredText(state.ocrWords, level);
+  }
   refreshModifiedStates();
   if (ttsSupported) updateTTSButtons();
 }
@@ -295,10 +318,59 @@ filterButtons.forEach((btn) => {
   btn.addEventListener("click", () => applyFilterLevel(btn.dataset.level));
 });
 
+// Shows the coherence panel in whichever state matches reality: no key saved
+// yet (key-entry row), or a key saved and ready to (re)generate.
+function updateCoherencePanel() {
+  show(coherencePanel);
+  const hasKey = !!getStoredApiKey();
+  coherenceKeyRow.classList.toggle("hidden", hasKey);
+  coherenceGenerateRow.classList.toggle("hidden", !hasKey);
+  coherenceGenerateBtn.textContent = state.coherentText ? "Regenerate" : "Generate";
+}
+
+coherenceSaveKeyBtn.addEventListener("click", () => {
+  const key = coherenceApiKeyInput.value.trim();
+  if (!key) return;
+  setStoredApiKey(key);
+  coherenceApiKeyInput.value = "";
+  coherenceStatus.textContent = "";
+  updateCoherencePanel();
+});
+
+coherenceChangeKeyBtn.addEventListener("click", () => {
+  clearStoredApiKey();
+  coherenceStatus.textContent = "";
+  updateCoherencePanel();
+});
+
+coherenceGenerateBtn.addEventListener("click", async () => {
+  const filteredText = wordsToFilteredText(state.ocrWords, "filtered");
+  coherenceGenerateBtn.disabled = true;
+  coherenceChangeKeyBtn.disabled = true;
+  coherenceStatus.textContent = "Generating…";
+  try {
+    const text = await reconstructCoherentText(filteredText);
+    state.coherentText = text;
+    resultText.value = text;
+    coherenceStatus.textContent = "";
+    refreshModifiedStates();
+    if (ttsSupported) updateTTSButtons();
+  } catch (err) {
+    coherenceStatus.textContent = err.message || "Something went wrong.";
+  } finally {
+    coherenceGenerateBtn.disabled = false;
+    coherenceChangeKeyBtn.disabled = false;
+    coherenceGenerateBtn.textContent = state.coherentText ? "Regenerate" : "Generate";
+  }
+});
+
 // Text view's Copy/Download path (see editor.js's getActiveResultText): always
 // recompute from ocrWords + the active level rather than trusting resultText.value
-// to still be in sync, so it can't go stale under some future code path.
-setFilterTextHook(() => wordsToFilteredText(state.ocrWords, state.activeFilterLevel));
+// to still be in sync, so it can't go stale under some future code path. Coherence
+// Filter has no ocrWords-derived text at all, so it reads the cached reconstruction.
+setFilterTextHook(() =>
+  state.activeFilterLevel === "coherence" ? state.coherentText || "" : wordsToFilteredText(state.ocrWords, state.activeFilterLevel)
+);
 
 // ---- Copy / Download ----
 

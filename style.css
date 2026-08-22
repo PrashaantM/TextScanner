@@ -358,6 +358,49 @@ main {
   color: var(--accent-contrast);
 }
 
+/* ---- Coherence Filter panel (id="coherence-panel"): the disclosure + API key /
+   generate controls shown only while that filter level is active ---- */
+
+.coherence-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.coherence-panel__disclosure {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.coherence-panel__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.coherence-panel__key-input {
+  flex: 1 1 240px;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.coherence-panel__status {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 #result-text {
   width: 100%;
   min-height: 180px;

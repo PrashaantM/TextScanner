@@ -43,9 +43,18 @@ export const redoBtn = document.getElementById("redo-btn");
 
 export const filterToggle = document.getElementById("filter-toggle");
 export const filterRawBtn = document.getElementById("filter-raw-btn");
-export const filterSymbolBtn = document.getElementById("filter-symbol-btn");
+export const filterFilteredBtn = document.getElementById("filter-filtered-btn");
 export const filterCoherenceBtn = document.getElementById("filter-coherence-btn");
-export const filterButtons = [filterRawBtn, filterSymbolBtn, filterCoherenceBtn];
+export const filterButtons = [filterRawBtn, filterFilteredBtn, filterCoherenceBtn];
+
+export const coherencePanel = document.getElementById("coherence-panel");
+export const coherenceKeyRow = document.getElementById("coherence-key-row");
+export const coherenceApiKeyInput = document.getElementById("coherence-api-key");
+export const coherenceSaveKeyBtn = document.getElementById("coherence-save-key-btn");
+export const coherenceGenerateRow = document.getElementById("coherence-generate-row");
+export const coherenceGenerateBtn = document.getElementById("coherence-generate-btn");
+export const coherenceChangeKeyBtn = document.getElementById("coherence-change-key-btn");
+export const coherenceStatus = document.getElementById("coherence-status");
 
 export const ttsControls = document.getElementById("tts-controls");
 export const ttsPlayBtn = document.getElementById("tts-play-btn");
