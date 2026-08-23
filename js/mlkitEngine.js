@@ -1,17 +1,18 @@
 // mlkitEngine.js: native recognition path via Capacitor + Google ML Kit Text
-// Recognition v2 (Android only for now - see js/recognize.js for the
-// web/Tesseract.js fallback and why iOS isn't wired up yet). Writes the
-// current image to native cache storage (ML Kit's processImage needs a real
-// filesystem path, not a Blob/canvas), runs recognition, and normalizes ML
-// Kit's block/line/element hierarchy into the same flat
+// Recognition v2 (iOS - the only native platform this project targets; see
+// js/recognize.js for the web/Tesseract.js fallback used everywhere else).
+// Writes the current image to native cache storage (ML Kit's processImage
+// needs a real filesystem path, not a Blob/canvas), runs recognition, and
+// normalizes ML Kit's block/line/element hierarchy into the same flat
 // { lineIndex, text, confidence, bbox } word list js/ocrEngine.js produces,
 // so editor.js/filter.js/main.js need no changes regardless of which engine
 // actually ran.
 //
 // No bundler is used anywhere in this app (index.html loads plain
-// <script type="module"> files), and Capacitor's native BridgeActivity
+// <script type="module"> files), and Capacitor's native CAPBridgeViewController
+// (the root view controller in ios/App/App/Base.lproj/Main.storyboard)
 // auto-injects window.Capacitor and window.Capacitor.Plugins.* directly into
-// the WebView before any page JS runs - there's no ES import path to
+// the WKWebView before any page JS runs - there's no ES import path to
 // @capacitor/filesystem's Directory/Encoding enums or
 // @capacitor-mlkit/text-recognition's Script enum available here. Their
 // runtime string values (confirmed against the installed packages'
@@ -20,11 +21,12 @@
 // treats `data` as base64 whenever `encoding` is omitted (its documented
 // default for binary writes).
 //
-// UNVERIFIED (no Android device/emulator available in the environment this
-// was written in): whether processImage's `path` option accepts the
-// file:// URI Filesystem.writeFile returns as-is, or needs the scheme
-// stripped first. If recognition fails with a "file not found"-shaped error
-// on a real device, try stripping the `file://` prefix from `uri` first.
+// UNVERIFIED (no iOS device run has happened yet as of this writing - the
+// project synced/built the Xcode workspace successfully, but nobody has
+// pressed Run): whether processImage's `path` option accepts the file://
+// URI Filesystem.writeFile returns as-is, or needs the scheme stripped
+// first. If recognition fails with a "file not found"-shaped error on a
+// real device, try stripping the `file://` prefix from `uri` first.
 //
 // KNOWN LIMITATION, intentionally not fixed in this pass: `script` is
 // hardcoded to Latin. ML Kit needs a separate bundled model per script

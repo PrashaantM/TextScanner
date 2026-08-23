@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">TextScanner</string>
-    <string name="title_activity_main">TextScanner</string>
-    <string name="package_name">com.prashaantm.textscanner</string>
-    <string name="custom_url_scheme">com.prashaantm.textscanner</string>
-</resources>

@@ -4,18 +4,16 @@
 # tooling deps) IS committed for reproducible installs - not listed here.
 node_modules
 
-# Capacitor (Android + iOS native shells). www/ is a disposable, regenerated
-# copy of index.html/style.css/js/ (see scripts/sync-web-assets.sh) - the real
-# source of truth stays at the repo root, unchanged, for the existing GitHub
-# Pages deployment. android/ IS committed (standard Capacitor practice - it
-# has its own nested .gitignore for Gradle build artifacts/local.properties/
-# copied web assets, scaffolded by `cap add android`).
+# Capacitor (iOS native shell - the only native platform this project
+# targets, iPhone being the only test device). www/ is a disposable,
+# regenerated copy of index.html/style.css/js/ (see
+# scripts/sync-web-assets.sh) - the real source of truth stays at the repo
+# root, unchanged, for the existing GitHub Pages deployment. ios/ IS
+# committed (standard Capacitor practice - it has its own nested .gitignore
+# for Pods/, DerivedData/, xcuserdata, and copied web assets, scaffolded by
+# `cap add ios`). Podfile/Podfile.lock are committed as part of that -
+# Podfile.lock pins exact pod versions for reproducible installs.
 /www/
-
-# ios/ IS committed too (same practice as android/ - it has its own nested
-# .gitignore for Pods/, DerivedData/, xcuserdata, and copied web assets,
-# scaffolded by `cap add ios`). Podfile/Podfile.lock are committed as part of
-# that - Podfile.lock pins exact pod versions for reproducible installs.
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

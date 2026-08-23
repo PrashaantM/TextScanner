@@ -2,15 +2,13 @@
   "name": "textscanner",
   "private": true,
   "version": "1.0.0",
-  "description": "Capacitor tooling for TextScanner's native Android and iOS builds. The web app itself (index.html/style.css/js/) has no build step and keeps deploying to GitHub Pages exactly as before - this package.json exists only to drive `npx cap` commands.",
+  "description": "Capacitor tooling for TextScanner's native iOS build. The web app itself (index.html/style.css/js/) has no build step and keeps deploying to GitHub Pages exactly as before - this package.json exists only to drive `npx cap` commands.",
   "scripts": {
     "sync-web": "sh scripts/sync-web-assets.sh",
-    "sync:android": "npm run sync-web && cap sync android",
     "sync:ios": "npm run sync-web && cap sync ios",
     "cap": "cap"
   },
   "dependencies": {
-    "@capacitor/android": "8.5.0",
     "@capacitor/core": "8.5.0",
     "@capacitor/ios": "8.5.0",
     "@capacitor/filesystem": "8.1.3",
