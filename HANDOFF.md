@@ -1,6 +1,6 @@
 # TextScanner handoff — 2026-08-27 (Phase 1 complete)
 
-Supersedes the earlier 2026-08-27 handoff written mid-session, before the on-device run actually succeeded. Sections 1-2 below are stable background, Section 3 restates the full agreed phase plan (previously only in a local Claude Code plan file, not the repo), and Section 4 has the real Phase 1 results — that's where a new session should start.
+Supersedes the earlier 2026-08-27 handoff written mid-session, before the on-device run actually succeeded. Sections 1-2 are stable background, Section 3 restates the full agreed phase plan (previously only in a local Claude Code plan file, not the repo), and Section 4 has the real Phase 1 results. Sections 5-7 were added by a later same-day session that took the positioning bug apart offline and fixed pinch-to-zoom — **a new session should start at Section 5 and Next action.**
 
 ## 1. Stable background (unchanged from earlier handoffs)
 
@@ -67,21 +67,65 @@ Your per-image notes on Image format / Full image (not measured by CER/WER, sinc
 - complexPic9: "recognize about 40% of the text correctly but fail to recognize 'Best Buy'... some other text is only partially recognized."
 - complexPic10: "good." complexPic11: "okay."
 
-This is a **word-positioning bug**, not a text-recognition-accuracy problem — the underlying Raw text for those same images (1, 2, 6, 7) actually scored fine-to-good above. The words are being recognized; they're landing in the wrong place when overlaid on the image.
-
-**Leading hypothesis, not yet confirmed** — checked the code, not guessing: `js/ocrEngine.js` (Tesseract path) always runs every bbox through `buildBboxMapper`/`transformBboxCorners` (`ocrEngine.js:96-131`) to map from recognition-time coordinate space back to the original image's pixel space, undoing rotation and scale. `js/mlkitEngine.js`'s `flattenBlocks` (`mlkitEngine.js:64-87`) does **no such correction at all** — it takes ML Kit's `boundingBox.left/top/right/bottom` and uses them completely as-is. If ML Kit's bounding boxes come back in a coordinate space that doesn't exactly match `previewImg.naturalWidth/naturalHeight` (which is what `editor.js`'s `renderImageFormatView` positions words against, as a percentage), every word lands in the wrong spot.
-
-What doesn't explain it: checked EXIF orientation on the "gibberish" images (1, 2, 6, 7) vs. the "good" ones (4, 5, 8, 10) via `sips` — none of the 11 source JPEGs carry EXIF orientation metadata, and complexPic4/complexPic6 have identical pixel dimensions (1536×2048) despite landing in opposite buckets. So it's not a simple orientation or aspect-ratio correlation — the actual cause needs real on-device debugging (log ML Kit's raw `boundingBox` values next to what `renderImageFormatView` actually draws, for one "gibberish" and one "good" image, and diff them).
+This was read at the time as a **word-positioning bug** rather than a recognition-accuracy one, since the underlying Raw text for those same images (1, 2, 6, 7) scored fine-to-good above. That is still the most likely reading, but Section 5 shows it is not yet established — "correctly positioned but flooded with unreadable fine print" fits the same reports, and the two are told apart by the instrumented run described there.
 
 ### New bug: pinch-to-zoom doesn't work on-device
 
-Reported today, not yet investigated. No code changes made — this needs its own look next session (likely something in `editor.js`'s touch/gesture handling never got a native-equivalent path, or a native gesture recognizer is intercepting it before the web layer sees it — pure speculation, not checked yet).
+Reported 2026-08-27. **Now root-caused and fixed — see Section 6.**
+
+## 5. Positioning bug: what the 2026-08-27 follow-up session established
+
+Three hypotheses were tested offline. **The renderer is exonerated; two of the leads in Section 4 are dead; the remaining work needs one instrumented device run, which is now fully prepared.**
+
+### Ruled OUT: `renderImageFormatView` mangling large text
+
+`test/render-fidelity.js` (new) isolates the renderer from the engine entirely. It draws a poster-shaped synthetic image, measures each word's **exact** ink box with `ctx.measureText`'s `actualBoundingBox*` metrics, feeds those perfect boxes straight into `editor.js`'s `renderImageFormatView`, and screenshots the result. Run in two font variants: the same system stack `.image-format-word` renders in, and a heavy condensed display face (to mimic real poster art).
+
+**Result: given correct boxes, the rendered layout is clean and readable — headline text included.** Position drift is ~1px, and the only visible artifact is wider inter-word gaps when the source art uses a condensed face (the renderer's one-generic-font assumption; cosmetic, nothing like "gibberish"). Screenshots in `test/manual-output/fidelity-*.png`.
+
+So the "big display text overflows/overlaps and turns to soup" theory is dead, and the coordinates reaching the renderer really are wrong.
+
+### Ruled OUT: rotation, and any single fixed coordinate transform
+
+- **Not rotation / axis-aligned-box inflation.** ML Kit's `element.frame` is the axis-aligned rect of a possibly-rotated text quad, which would inflate boxes for angled text — but complexPic1 (poster) and complexPic2 (lock screen) were opened and inspected, and both are **perfectly axis-aligned flat art**, yet both are in the "gibberish" bucket. Angle can't be the cause.
+- **Not a uniform coordinate-space mismatch either** — which is what Section 4's `buildBboxMapper` hypothesis amounted to. A fixed wrong transform would break *every* image equally, but complexPic4/5/8/10 render "really good", so ML Kit's coordinates are in the right space at least some of the time. Section 4's own dimension pairs say the same: 946×2048 (pic2 bad, pic5 good) and 1536×2048 (pic4 good, pic6 bad).
+
+Whatever this is, it is **content-dependent, not a fixed transform** — so it can't be fixed by copying `ocrEngine.js`'s mapper across, and it can't be settled without the real numbers.
+
+### Also confirmed from the plugin source (not guessed)
+
+`node_modules/@capacitor-mlkit/text-recognition/ios/Plugin/`: `TextRecognition.swift` loads the image with `UIImage(contentsOfFile:)` and sets `visionImage.orientation = image.imageOrientation`; `ProcessImageResult.swift` returns, for blocks/lines/**elements alike**, both `boundingBox` (the axis-aligned rect, which `flattenBlocks` uses) and `cornerPoints` (the rotated quad, which it **ignores**). That Swift is fully deterministic and image-independent — nothing in it can explain a per-image split, which is further evidence the difference is in ML Kit's own output.
+
+### Still open, and what the dump will distinguish
+
+Two readings remain, and the user's own complexPic7 note ("only the word XBOX landed in a recognizable, correct position") is consistent with **both**:
+1. ML Kit's boxes are genuinely misplaced on those images.
+2. The boxes are fine, but ML Kit — far more aggressive than Tesseract — detects a mass of tiny incidental fine print (barcodes, shelf labels, background packaging), so Image format is *correctly* positioned yet flooded with unreadable junk.
+
+These look completely different in an overlay, so one device run settles it.
+
+### Instrumentation, ready to run (one device round trip)
+
+- **`js/mlkitDebug.js`** (new, diagnostic-only, **changes no app behaviour**): records ML Kit's raw result verbatim per scan — `boundingBox` *and* `cornerPoints`, blocks/lines/elements — plus `naturalWidth/naturalHeight` and a pre-computed `extent` (the union of all element boxes, which makes a scale mismatch readable at a glance). Wired into `mlkitEngine.js` right after `processImage`, inside its own try/catch so diagnostics can never fail a scan. Accumulates across scans, so **all 11 images can be captured in one pass**.
+  - Retrieve it either way: Safari → Develop → *device* → TextScanner → console → `copy(JSON.stringify(window.__textscannerDebug))`; or Xcode → Devices and Simulators → Download Container → `AppData/Documents/textscanner-mlkit-debug.json`.
+- **`test/replay-dump.js`** (new): replays that dump through the real renderer offline. Per scan it renders **raw** (today's `boundingBox`), **corner** (`cornerPoints` instead — answers "would that have fixed it?" with no second device run), and **fitted** (boxes rescaled to fill the image — what a pure scale bug would need), each both as the Image format view *and* as an **overlay on the source photo with the words forced visible**, which is the view that actually shows whether a word sits over the text it was read from. Plus a summary table of word counts, box extents and fit scales.
+  - `node test/replay-dump.js <dump.json>`
+  - Both tools were smoke-tested end to end against a synthetic dump whose boxes were deliberately halved; the overlay reproduced the exact "gibberish" signature (all words crammed into the top-left corner), so the kit is known to work before the real data arrives.
+
+## 6. Pinch-to-zoom: root-caused and fixed (no device debugging needed)
+
+Not speculation — traced through the installed Capacitor iOS source. `CAPInstanceDescriptor.m:40` defaults `_zoomingEnabled = NO`. `CAPBridgeViewController.swift:322` then does `if !configuration.zoomingEnabled { aWebView.scrollView.delegate = delegationHandler }`, and `WebViewDelegationHandler.swift:337-340`'s `scrollViewWillBeginZooming` **actively disables the pinch gesture recognizer**. `capacitor.config.json` never set `zoomEnabled`, so pinch was switched off by Capacitor's default — nothing to do with `editor.js`'s touch handling, and the page's viewport meta (`width=device-width, initial-scale=1.0`, no `user-scalable=no`) already permits zooming.
+
+**Fixed**: `capacitor.config.json` now sets `ios.zoomEnabled: true`. Needs `npm run sync:ios` and a rebuild to take effect, and wants a quick check that two-finger pinch doesn't fight the Full-image editor's drag/resize gestures (single-finger, so it shouldn't).
+
+## 7. Regression check
+
+The web/Tesseract path was smoke-tested after these changes (headless Chromium, full sample-image scan): modules load, the debug stash initialises, OCR returns correct text, **zero console errors**. `js/mlkitDebug.js` is imported on the web path too but only ever *called* from the native path.
 
 ## Next action
 
-In priority order — the rendering bug likely blocks shipping ML Kit at all regardless of how the CER/WER debate resolves, so it comes first:
-
-1. **Diagnose the Image format/Full image positioning bug.** Start by comparing `mlkitEngine.js`'s lack of bbox correction against `ocrEngine.js`'s `buildBboxMapper` pattern (see above) — instrument `flattenBlocks` to log raw `boundingBox` values on-device for complexPic1 (bad) and complexPic5 (good) and see whether the coordinates make sense against the actual image dimensions.
-2. **Fix pinch-to-zoom.**
-3. **Revisit the Phase 2 engine decision** with the table above once (1) is understood — a fixed positioning bug might change how much the CER/WER gap actually matters, since Image format/Full image are core to this app's whole "edit the image" pitch, not just Text view.
-4. Everything else from Phase 3/4 (App Store readiness, training-data sourcing) stays deferred until 1-3 land.
+1. **Run the instrumented build on-device** (`npm run sync:ios`, rebuild, scan complexPic1-11 in one session), retrieve `textscanner-mlkit-debug.json` by either route in Section 5, and run `node test/replay-dump.js <dump.json>`. That single run also verifies the pinch-to-zoom fix. Everything needed to diagnose the positioning bug offline is already built and smoke-tested — this is the only step that requires the device.
+2. **Read the replay output** — the overlay PNGs distinguish "boxes misplaced" from "boxes fine, flooded with fine print" immediately, and the `corner`/`fitted` variants say whether `cornerPoints` or a scale correction is the fix. Then change `flattenBlocks` accordingly.
+3. **Revisit the Phase 2 engine decision** with the Section 4 table once (2) lands — a fixed positioning bug might change how much the CER/WER gap actually matters, since Image format/Full image are core to this app's whole "edit the image" pitch, not just Text view.
+4. **Delete the diagnostic scaffolding** once the bug is understood: `js/mlkitDebug.js`, its import in `mlkitEngine.js`, and `test/replay-dump.js`. (`test/render-fidelity.js` is worth keeping — it's a real regression test for the renderer.)
+5. Everything else from Phase 3/4 (App Store readiness, training-data sourcing) stays deferred until 1-3 land.

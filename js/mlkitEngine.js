@@ -37,6 +37,12 @@
 // option - fine for the English-text validation images, a real gap for
 // non-Latin text to revisit once the core approach is validated.
 
+// DIAGNOSTIC, temporary: see js/mlkitDebug.js. Records ML Kit's raw result so
+// the Image format positioning bug can be replayed off-device. Changes nothing
+// about what this module returns.
+import { recordScan } from "./mlkitDebug.js";
+import { state } from "./state.js";
+
 const CACHE_FILE_PATH = "textscanner-scan-input.jpg";
 // ML Kit gives no per-word confidence score at all (unlike Tesseract). Every
 // word gets this fixed placeholder rather than a fabricated real-looking
@@ -108,6 +114,18 @@ export async function recognizeImage(previewImg, naturalWidth, naturalHeight, on
   try {
     if (onProgress) onProgress({ status: "recognizing text", progress: 0.5 });
     const result = await TextRecognition.processImage({ path: uri, script: "LATIN" });
+
+    try {
+      await recordScan({
+        label: state.currentFile?.name || "unknown",
+        naturalWidth,
+        naturalHeight,
+        rawResult: result,
+        imageByteLength: blob.size,
+      });
+    } catch {
+      // Diagnostics must never be able to fail a scan that otherwise worked.
+    }
 
     if (onProgress) onProgress({ status: "done", progress: 1 });
     return {

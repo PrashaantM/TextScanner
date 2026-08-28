@@ -1,5 +1,8 @@
 {
   "appId": "com.prashaantm.textscanner",
   "appName": "TextScanner",
-  "webDir": "www"
+  "webDir": "www",
+  "ios": {
+    "zoomEnabled": true
+  }
 }
