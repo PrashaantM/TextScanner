@@ -1,6 +1,6 @@
 # TextScanner handoff — 2026-08-27 (Phase 1 complete)
 
-Supersedes the earlier 2026-08-27 handoff written mid-session, before the on-device run actually succeeded. Sections 1-2 below are stable background; Section 3 has the real Phase 1 results and is where a new session should start.
+Supersedes the earlier 2026-08-27 handoff written mid-session, before the on-device run actually succeeded. Sections 1-2 below are stable background, Section 3 restates the full agreed phase plan (previously only in a local Claude Code plan file, not the repo), and Section 4 has the real Phase 1 results — that's where a new session should start.
 
 ## 1. Stable background (unchanged from earlier handoffs)
 
@@ -14,7 +14,22 @@ Supersedes the earlier 2026-08-27 handoff written mid-session, before the on-dev
 
 **complexPic12-15 are out of the active test set** — removed at your direction ("testing focuses on 1-11"). `test/groundtruth/complexPic12-15.txt` deleted so `test/run-benchmark.js` and `test/score-manual.js` naturally operate on 11 images now. The source JPEGs are still in `legacy-opencv-scripts/` (untouched — only the ground truth/test-scope was trimmed, not the files themselves), but they're not part of the MVP measurement going forward unless you decide otherwise.
 
-## 3. Phase 1 result: real ML Kit numbers exist (2026-08-27 device run)
+## 3. The MVP process (phase plan, agreed and still active)
+
+This was worked out in a planning session and hadn't been written into the repo itself until now — it lived only in a local Claude Code plan file outside version control. Restating it here so a fresh session has the whole picture without depending on that.
+
+- **Phase 0 — close the measurement gap**: done. Ground truth for the full (now 11-image) test set, a real Tesseract baseline, `test/score-manual.js` built.
+- **Phase 1 — on-device ML Kit checkpoint**: done, see Section 4 below. Real CER/WER numbers now exist for all 11 images.
+- **Phase 2 — decision gate**: **not yet resolved.** Originally proposed bar: <10% CER on clean/screenshot-style images, <20% CER on cluttered/decorative real-world photos. Planned outcomes:
+  - ML Kit clears the bar on most/all images → it becomes the shipping engine (Tesseract stays only as the existing web/GitHub Pages fallback, `js/recognize.js` already dispatches cleanly).
+  - ML Kit falls short on the same hard categories Tesseract already struggles on → evaluate Apple's Vision framework (`VNRecognizeTextRequest`) next, before more Tesseract tuning.
+  - Both fall short on the hardest images → those become the explicit target for Phase 5's training-data work (Tesseract only — ML Kit's model can't be retrained inside a Capacitor plugin).
+  - **Where things actually stand**: the real data in Section 4 doesn't cleanly match any of these three outcomes — genuinely mixed, and now entangled with the Image format/Full image rendering bug below. This gate is not resolved; see Next action.
+- **Phase 3 — close remaining gaps** on whichever engine wins Phase 2. Not started.
+- **Phase 4 — App Store readiness** (doesn't block Phases 1-3): the move/inpaint bug (Section 1), offline asset bundling for whichever engine ships, an Apple privacy manifest if ML Kit/Firebase ships, app icon/screenshots/TestFlight build. Not started.
+- **Phase 5 — training-data sourcing**: explicitly deferred, and only relevant if Tesseract is still in the mix after Phase 2 resolves (ML Kit's model isn't retrainable). Not started.
+
+## 4. Phase 1 result: real ML Kit numbers exist (2026-08-27 device run)
 
 Two blocking issues were hit and fixed before this run succeeded: a stale-clone Pods issue (resolved by the clone consolidation) and a hard crash on camera access (missing `NSCameraUsageDescription`/`NSPhotoLibraryUsageDescription` in `Info.plist`, fixed and pushed). **The device run itself then completed clean — no crash, all 11 images scanned.**
 
