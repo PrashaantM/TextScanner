@@ -21,12 +21,15 @@
 // treats `data` as base64 whenever `encoding` is omitted (its documented
 // default for binary writes).
 //
-// UNVERIFIED (no iOS device run has happened yet as of this writing - the
-// project synced/built the Xcode workspace successfully, but nobody has
-// pressed Run): whether processImage's `path` option accepts the file://
-// URI Filesystem.writeFile returns as-is, or needs the scheme stripped
-// first. If recognition fails with a "file not found"-shaped error on a
-// real device, try stripping the `file://` prefix from `uri` first.
+// The file:// URI Filesystem.writeFile returns is passed to processImage
+// as-is, deliberately not stripped to a bare path - traced through both
+// native plugins' source (still no device run to confirm at runtime, but
+// this is no longer a guess): @capacitor/filesystem's iOS side builds
+// `uri` from `url.absoluteString` (IONFileStructures+Converters.swift), and
+// the ML Kit plugin's createVisionImageFromFilePath does
+// `URL(string: path)!.path` (TextRecognition.swift), which strips the
+// file:// scheme itself. Stripping it here first would be redundant, not
+// a fix.
 //
 // KNOWN LIMITATION, intentionally not fixed in this pass: `script` is
 // hardcoded to Latin. ML Kit needs a separate bundled model per script

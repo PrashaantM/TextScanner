@@ -1,0 +1,33 @@
+BEST BUY
+Transaction Types
+Scan item to begin transaction.
+Customer Lookup
+Back
+Sale
+Returns, Adjustments & Services
+Manager Functions
+Back Office
+Reports
+Reprint Receipts
+Pickup Pre-Order
+Pay on House Account
+Best Buy Financing (Sale only)
+Void Transaction
+Applications Menu
+Price Inquiry
+Gift Card Inquiry and Cash Out
+Suspend/Resume
+Sign Off
+Diagnostic Information
+Associate: c383185
+Till: 51
+Terminal: 51
+Online
+# Of Sale items:
+08/21/2026 2:46 PM
+2:46 PM
+08/21/2026
+2UA62634PP
+CAB00914R051
+TREX CASH
+BEST BUY

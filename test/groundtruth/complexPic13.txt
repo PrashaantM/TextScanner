@@ -1,0 +1,33 @@
+BEST BUY
+Cash Office Store Totals
+Select a function.
+Totals Last Updated: 08/19/2026 7:35 PM
+Tender Type
+On Hand Amount
+Cash
+$3,550.91
+Visa
+$47,582,402.87
+MasterCard
+$32,552,602.55
+Amex
+$4,035,305.63
+Gift Card
+$2,932,473.46
+House Account
+-$473,667.65
+Best Buy Financing
+$5,860,131.81
+Debit
+$31,318,287.29
+PayPal
+-$95,112.06
+Associate: faimtiaz
+Till:
+Terminal: 41
+Online
+# Of Sale items:
+2UA62634NB
+CAB00914R041
+DRPEP SKU:12546637
+BEST BUY
