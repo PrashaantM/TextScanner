@@ -1,78 +1,72 @@
-# TextScanner handoff — 2026-08-27
+# TextScanner handoff — 2026-08-27 (Phase 1 complete)
 
-Supersedes the 2026-08-22 handoff. That doc's Section 1 (text extraction quality, filter rework, native ML Kit scaffolding) is still accurate background — this doc covers what's changed since, and narrows the "next action" down to exactly where things stand right now, since a device build is mid-flight.
+Supersedes the earlier 2026-08-27 handoff written mid-session, before the on-device run actually succeeded. Sections 1-2 below are stable background; Section 3 has the real Phase 1 results and is where a new session should start.
 
-## 1. What's done and verified since the last handoff
+## 1. Stable background (unchanged from earlier handoffs)
 
-### MVP measurement gap closed
-Ground truth previously existed for only 5 of the 15 `complexPic*` test images, so "full successful output on all 15" was never actually measurable. Fixed:
-- Ground truth for the missing 10 (`complexPic5`, `7-15`) transcribed directly from the images and added to `test/groundtruth/`. `complexPic7`, `10`, and `11` are **partial/flagged** — some fine print (tiny repeated spec copy, rotated box-art background text, gift-card denominations) was genuinely illegible even on close inspection and was deliberately left out rather than guessed at. Their CER/WER numbers below should be read as a soft signal, not gospel.
-- `test/score-manual.js` added: scores hand-pasted OCR output (one `.txt` per image in `test/manual-output/`, gitignored) against `test/groundtruth/` using the same CER/WER metrics as `test/run-benchmark.js`. This is the bridge for on-device testing, since nothing here can drive a physical iPhone automatically.
-- `js/mlkitEngine.js`'s previously-"unverified" `file://` URI handling: traced through the actual `@capacitor/filesystem` and ML Kit plugin iOS source (not left as a guess). Confirmed correct as written — `Filesystem.writeFile` returns `url.absoluteString`, and ML Kit's `createVisionImageFromFilePath` does `URL(string: path)!.path`, which strips the scheme itself. No code change was needed.
-
-### Repository cleanup (no behavior change — verified, not assumed)
-Removed dead code (`js/textUtil.js` — fully redundant with `filter.js`'s `wordsToFilteredText(words, "raw")`; 3 unused `filter.js` exports; `dom.js`'s dead `filterToggle` binding; an empty 0-byte legacy script; an orphaned, unrelated `.github/modernize/` tooling artifact). Consolidated 3 duplicated logic patterns into shared helpers (`setActiveButton`, `hide`/`show`, `ocrEngine.js`'s `transformBboxCorners`). Named magic numbers in `editor.js`'s resize logic. Trimmed `.gitignore` from ~150 lines of irrelevant Python-framework boilerplate to ~30 relevant lines, and filled two real gaps (`.DS_Store`, `test/manual-output/`).
-
-Verified, not just asserted: re-ran the full 15-image benchmark before/after — every score identical. Drove a real browser through mode switching, filter switching, and a resize drag — all work, zero console/page errors.
-
-### README repositioned
-Added a "Why not just use Google Lens, Adobe Scan, or Live Text?" section: per-word editable/movable/deletable text objects with real inpainting on delete, graduated Raw/Filtered/Coherence output instead of one fixed guess, visible confidence flagging, no-account/no-upload privacy. Deliberately **not** an accuracy claim — Tesseract's ceiling on hard photos is real (see baseline below) and the section says so explicitly.
-
-While writing it, caught and fixed a stale claim already in the Features list: it said moving a word patches its old spot from the surrounding image. That hasn't been true since the move/inpaint gap below was diagnosed — only delete currently inpaints. Corrected rather than left standing next to the new, accurate section.
-
-### Local dev environment consolidated
-This machine had **three** independent git clones at various points today — `~/TextScanner` (this one), `~/Documents/TextScanner`, and `~/Desktop/TextScanner` (the latter two both accidental duplicates, one from early Xcode setup, one from using Xcode's Source Control → Clone instead of File → Open on the existing workspace). Both duplicates are deleted. `~/TextScanner` is the single canonical copy — dependencies installed, CocoaPods installed, iOS signing team configured (`DEVELOPMENT_TEAM`, ported over from the Documents clone before deleting it, since that was real local work).
-
-**If you ever need to open this project in Xcode**: File → Open → `~/TextScanner/ios/App/App.xcworkspace`. Not Source Control → Clone (that creates a new, un-set-up duplicate elsewhere on disk).
-
-### First real on-device run: in progress, two blocking issues hit and fixed today
-1. Missing `Pods/*.xcconfig` — turned out to be the stale `~/Documents/TextScanner` duplicate clone (never had `npm install`/`pod install` run in it). Moot now that there's one clone with Pods already installed.
-2. **Hard crash on tapping "Use camera"**: iOS requires `NSCameraUsageDescription` in `Info.plist` before any camera access, or it aborts the process rather than showing a permission prompt. Neither that key nor `NSPhotoLibraryUsageDescription` existed. Both added (`ios/App/App/Info.plist`) and pushed — the photo-library key added preemptively, since the plain "click to browse" file input routes through the same kind of native picker on-device and would very likely have crashed identically on the next test.
-
-**Not yet confirmed**: a clean, crash-free scan on a real device, or any real ML Kit accuracy number. That's the very next thing to check, after a fresh Xcode build picks up the Info.plist fix.
-
-## 2. Still true from the 2026-08-22 handoff, unchanged
-
-- **Move/inpaint bug (Priority 3)**: genuinely untouched. Delete inpaints correctly; moving a component still doesn't clean up its old spot (original pixels stay visible underneath); in-place edits still render in one generic font/size via a solid-color legibility box, no font/color/style captured from OCR.
+- Text extraction quality (web/Tesseract.js path), the filter rework (Raw/Filtered Text/Coherence Filter), and the repository cleanup pass are all done and verified — see git log (`Repository cleanup:...`, `README: explain how this differs from...`) if the detail is ever needed.
+- **Move/inpaint bug (Priority 3)**: still genuinely untouched. Delete inpaints correctly; moving a component still doesn't clean up its old spot (original pixels stay visible underneath); in-place edits still render in one generic font/size via a solid-color legibility box, no font/color/style captured from OCR.
 - **ML Kit's `script` hardcoded to `"LATIN"`**: fine for the English test images, a real gap for anything else — not fixed by design until the core approach is validated.
-- **ML Kit gives no per-word confidence score**: every ML Kit word gets a fixed placeholder; the existing low-confidence-underline UI has nothing meaningful to flag for ML-Kit-sourced words.
-- Handwriting disclosure copy exists for the Tesseract/web path; nothing ML-Kit-specific written yet, since there's still no real device data.
+- **ML Kit gives no per-word confidence score**: every ML Kit word gets a fixed placeholder; the low-confidence-underline UI has nothing meaningful to flag for ML-Kit-sourced words.
+- **Local dev environment**: single canonical clone at `~/TextScanner`, fully set up (Pods, node_modules, iOS signing). Open via Xcode's File → Open on `ios/App/App.xcworkspace`, never Source Control → Clone (that creates a new, un-set-up duplicate elsewhere — happened twice this week, both deleted).
 
-## 3. The MVP process (agreed plan, still active)
+## 2. Test image scope change
 
-- **Phase 0 — close the measurement gap**: done, see Section 1 above.
-- **Phase 1 — on-device ML Kit checkpoint**: in progress, blocked on you (I can't drive a physical iPhone). Get a clean run (camera crash just fixed, unretested), run all 15 `complexPic1-15` images through the app, paste each Raw-view output into `test/manual-output/<name>.txt`, then run `node test/score-manual.js`.
-- **Phase 2 — decision gate**: compare ML Kit's real numbers against the Tesseract baseline below. Proposed bar (adjustable once real numbers exist): **<10% CER** on clean/screenshot-style images, **<20% CER** on cluttered/decorative real-world photos. If ML Kit clears it on most/all 15, it becomes the shipping engine (Tesseract stays only as the existing web/GitHub Pages fallback — `js/recognize.js` already dispatches cleanly, zero code changes needed there). If it falls short on the same hard categories Tesseract already struggles on, evaluate Apple's Vision framework (`VNRecognizeTextRequest`) next, before more Tesseract tuning.
-- **Phase 3 — close remaining gaps** on whichever engine wins Phase 2.
-- **Phase 4 — App Store readiness**: the move/inpaint bug above, offline asset bundling, an Apple privacy manifest if ML Kit/Firebase ships, app icon/screenshots/TestFlight — none of this blocks Phase 1-3.
-- **Phase 5 — training-data sourcing**: explicitly deferred, and only relevant if Tesseract is still in the mix after Phase 2 (ML Kit's model isn't retrainable inside a Capacitor plugin, so this step doesn't apply if ML Kit wins).
+**complexPic12-15 are out of the active test set** — removed at your direction ("testing focuses on 1-11"). `test/groundtruth/complexPic12-15.txt` deleted so `test/run-benchmark.js` and `test/score-manual.js` naturally operate on 11 images now. The source JPEGs are still in `legacy-opencv-scripts/` (untouched — only the ground truth/test-scope was trimmed, not the files themselves), but they're not part of the MVP measurement going forward unless you decide otherwise.
 
-## Current Tesseract/web baseline (all 15 images)
+## 3. Phase 1 result: real ML Kit numbers exist (2026-08-27 device run)
 
-For comparison once real ML Kit numbers exist. From `node test/run-benchmark.js`, unchanged across the cleanup pass (verified identical before/after):
+Two blocking issues were hit and fixed before this run succeeded: a stale-clone Pods issue (resolved by the clone consolidation) and a hard crash on camera access (missing `NSCameraUsageDescription`/`NSPhotoLibraryUsageDescription` in `Info.plist`, fixed and pushed). **The device run itself then completed clean — no crash, all 11 images scanned.**
 
-| Image | CER | WER | Ground truth |
-|---|---|---|---|
-| complexPic1 | 46.2% | 64.0% | full |
-| complexPic2 | 39.2% | 71.4% | full |
-| complexPic3 | 79.2% | 94.4% | full |
-| complexPic4 | 21.0% | 16.5% | full |
-| complexPic5 | 7.8% | 17.9% | full |
-| complexPic6 | 76.0% | 92.6% | full |
-| complexPic7 | 86.1% | 98.3% | partial |
-| complexPic8 | 34.3% | 40.6% | full |
-| complexPic9 | 57.7% | 65.3% | full |
-| complexPic10 | 381.1% | 651.4% | partial |
-| complexPic11 | 132.3% | 323.1% | partial |
-| complexPic12 | 396.7% | 719.7% | full (cropped source) |
-| complexPic13 | 590.4% | 1544.8% | full (cropped source) |
-| complexPic14 | 70.9% | 97.3% | full |
-| complexPic15 | 6.7% | 18.2% | full (cropped source) |
+### CER/WER: ML Kit vs. the Tesseract baseline (Raw view, both engines)
 
-The >100% CER scores (10, 11, 12, 13) aren't measurement bugs — CER can exceed 100% when the hypothesis is much longer than the reference. For 10 and 11 specifically, that's partly an artifact of the ground truth being conservative (illegible fine print omitted) while Tesseract still outputs *something* for that same region.
+| Image | Tesseract CER | ML Kit CER | Tesseract WER | ML Kit WER | Winner |
+|---|---|---|---|---|---|
+| complexPic1 (decorative poster) | 46.2% | **4.5%** | 64.0% | 20.0% | ML Kit, big |
+| complexPic2 (phone lock screen) | 39.2% | **21.9%** | 71.4% | 36.5% | ML Kit |
+| complexPic3 (dense UI mockup, longest text) | 79.2% | **55.4%** | 94.4% | 77.0% | ML Kit |
+| complexPic4 (product page screenshot) | **21.0%** | 24.3% | **16.5%** | 17.0% | Tesseract |
+| complexPic5 (product page screenshot) | **7.8%** | 11.2% | **17.9%** | 17.9% | Tesseract |
+| complexPic6 (retail shelf, headsets) | 76.0% | **56.8%** | 92.6% | 78.2% | ML Kit |
+| complexPic7 (Xbox shelf tag, partial GT) | 86.1% | **56.2%** | 98.3% | 89.8% | ML Kit |
+| complexPic8 (mobile flyer photo) | 34.3% | **30.2%** | 40.6% | 39.6% | ML Kit |
+| complexPic9 (POS terminal screen) | **57.7%** | 73.7% | **65.3%** | 106.7% | Tesseract |
+| complexPic10 (repeated TV boxes, partial GT) | 381.1% | **44.0%** | 651.4% | 65.7% | ML Kit, huge |
+| complexPic11 (cluttered store aisle, partial GT) | **132.3%** | 158.5% | **323.1%** | 187.2% | Tesseract |
+
+**ML Kit average CER: 48.8%. Tesseract average CER on the same 11: ~87.4%.** ML Kit wins 7 of 11 images, sometimes dramatically (1, 3, 6, 7, 10) — but this is a genuinely mixed result, not a clean sweep:
+- It **loses** to Tesseract on 4 images, including complexPic11 — the cluttered retail photo, exactly the category ML Kit was expected to dominate.
+- Against the Phase 2 proposed bar (<10% CER clean/screenshot, <20% CER cluttered) — **only complexPic1 clearly clears its bar.** Nothing clears the cluttered-photo bar on either engine. complexPic5 is closest (Tesseract 7.8%, ML Kit 11.2%) but that's the easy case.
+- complexPic7/10/11 have partial ground truth (illegible fine print deliberately omitted, not guessed) — read those three numbers as directional, not exact.
+
+**Qualitative note on complexPic9** (from your testing): ML Kit recognized roughly 40% of the text correctly but **failed to recognize "Best Buy" even though it's the largest text in the center of the image** — a notable miss on ML Kit's part independent of the aggregate CER number.
+
+**The Phase 2 engine decision is not made yet** — the data above is mixed enough that it's a real judgment call, not an obvious pick, and it's now entangled with a separate, more serious problem below.
+
+### New, likely more urgent finding: Image format / Full image modes are broken on the ML Kit path
+
+Your per-image notes on Image format / Full image (not measured by CER/WER, since that only scores the Text view):
+- **complexPic1, 2, 6, 7: "gibberish... 0% accuracy... completely useless."** (complexPic7: only the word "XBOX" landed in a recognizable, correct position.)
+- complexPic3: "look okay."
+- complexPic4, 5, 8: "really good."
+- complexPic9: "recognize about 40% of the text correctly but fail to recognize 'Best Buy'... some other text is only partially recognized."
+- complexPic10: "good." complexPic11: "okay."
+
+This is a **word-positioning bug**, not a text-recognition-accuracy problem — the underlying Raw text for those same images (1, 2, 6, 7) actually scored fine-to-good above. The words are being recognized; they're landing in the wrong place when overlaid on the image.
+
+**Leading hypothesis, not yet confirmed** — checked the code, not guessing: `js/ocrEngine.js` (Tesseract path) always runs every bbox through `buildBboxMapper`/`transformBboxCorners` (`ocrEngine.js:96-131`) to map from recognition-time coordinate space back to the original image's pixel space, undoing rotation and scale. `js/mlkitEngine.js`'s `flattenBlocks` (`mlkitEngine.js:64-87`) does **no such correction at all** — it takes ML Kit's `boundingBox.left/top/right/bottom` and uses them completely as-is. If ML Kit's bounding boxes come back in a coordinate space that doesn't exactly match `previewImg.naturalWidth/naturalHeight` (which is what `editor.js`'s `renderImageFormatView` positions words against, as a percentage), every word lands in the wrong spot.
+
+What doesn't explain it: checked EXIF orientation on the "gibberish" images (1, 2, 6, 7) vs. the "good" ones (4, 5, 8, 10) via `sips` — none of the 11 source JPEGs carry EXIF orientation metadata, and complexPic4/complexPic6 have identical pixel dimensions (1536×2048) despite landing in opposite buckets. So it's not a simple orientation or aspect-ratio correlation — the actual cause needs real on-device debugging (log ML Kit's raw `boundingBox` values next to what `renderImageFormatView` actually draws, for one "gibberish" and one "good" image, and diff them).
+
+### New bug: pinch-to-zoom doesn't work on-device
+
+Reported today, not yet investigated. No code changes made — this needs its own look next session (likely something in `editor.js`'s touch/gesture handling never got a native-equivalent path, or a native gesture recognizer is intercepting it before the web layer sees it — pure speculation, not checked yet).
 
 ## Next action
 
-1. Rebuild in Xcode (the Info.plist fix needs a fresh build) and retry "Use camera" — confirm no crash.
-2. Run all 15 `complexPic1-15` images through the app on-device (camera and/or the file-picker path), Raw view, save each into `test/manual-output/<name>.txt`.
-3. `node test/score-manual.js` — that result is what Phase 2's engine decision hinges on. Nothing else moves until it exists.
+In priority order — the rendering bug likely blocks shipping ML Kit at all regardless of how the CER/WER debate resolves, so it comes first:
+
+1. **Diagnose the Image format/Full image positioning bug.** Start by comparing `mlkitEngine.js`'s lack of bbox correction against `ocrEngine.js`'s `buildBboxMapper` pattern (see above) — instrument `flattenBlocks` to log raw `boundingBox` values on-device for complexPic1 (bad) and complexPic5 (good) and see whether the coordinates make sense against the actual image dimensions.
+2. **Fix pinch-to-zoom.**
+3. **Revisit the Phase 2 engine decision** with the table above once (1) is understood — a fixed positioning bug might change how much the CER/WER gap actually matters, since Image format/Full image are core to this app's whole "edit the image" pitch, not just Text view.
+4. Everything else from Phase 3/4 (App Store readiness, training-data sourcing) stays deferred until 1-3 land.
