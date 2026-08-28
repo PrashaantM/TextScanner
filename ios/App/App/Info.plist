@@ -20,6 +20,10 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSCameraUsageDescription</key>
+	<string>TextScanner uses your camera to take a photo of text you want to scan. The photo is processed entirely on your device and is never uploaded or shared.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>TextScanner accesses your photo library so you can choose an existing photo to scan for text. The photo is processed entirely on your device and is never uploaded or shared.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
