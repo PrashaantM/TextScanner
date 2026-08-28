@@ -23,9 +23,6 @@
 // A word the user has directly edited always passes every level - an explicit
 // human edit is a stronger signal than any heuristic.
 
-export const FILTER_LEVELS = ["raw", "filtered", "coherence"];
-export const DEFAULT_FILTER_LEVEL = "filtered";
-
 const SYMBOL_ONLY_RE = /^[^\w\s]+$/;
 const REPEATED_CHAR_RE = /(.)\1{3,}/;
 const NON_ALNUM_RATIO_THRESHOLD = 0.6;
@@ -68,13 +65,11 @@ export function wordPasses(word, level, isUserEdited) {
   return !isNoise(word.text || "", word.confidence);
 }
 
-export function filterWords(words, level) {
-  return words.filter((w) => wordPasses(w, level, false));
-}
-
 // Rebuilds display text from a flat, line-ordered ocrWords list (see
-// ocrEngine.js) at the given filter level, grouping back into lines the same
-// way textUtil.js's wordsToText does for the unfiltered case.
+// ocrEngine.js) at the given filter level, grouping back into lines. Calling
+// this with level "raw" is also how the app gets its unfiltered plain-text
+// view - wordPasses always passes everything at that level, so no separate
+// helper is needed just for the raw case.
 export function wordsToFilteredText(words, level) {
   const lines = [];
   let currentLineIndex = null;

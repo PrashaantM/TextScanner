@@ -57,9 +57,11 @@ import {
   removeUserWordObject,
   createWordObject,
   configureUndoHooks,
+  setActiveButton,
+  show,
+  hide,
 } from "./editor.js";
 import { recognizeImage } from "./recognize.js";
-import { wordsToText } from "./textUtil.js";
 import { computeInpaintedPatch } from "./inpaint.js";
 import { wordsToFilteredText } from "./filter.js";
 import { getStoredApiKey, setStoredApiKey, clearStoredApiKey, reconstructCoherentText } from "./coherence.js";
@@ -74,14 +76,6 @@ import {
   setTTSStateChangeHandler,
   TTS_STATE,
 } from "./tts.js";
-
-function show(el) {
-  el.classList.remove("hidden");
-}
-
-function hide(el) {
-  el.classList.add("hidden");
-}
 
 function setStatus(message, kind) {
   statusSection.textContent = message;
@@ -264,7 +258,7 @@ scanBtn.addEventListener("click", async () => {
 
     hide(progressSection);
 
-    const plainText = text || wordsToText(words);
+    const plainText = text || wordsToFilteredText(words, "raw");
     if (!plainText) {
       setStatus("No text was detected in this image. Try a clearer or higher-contrast image.", "error");
     } else {
@@ -297,11 +291,7 @@ scanBtn.addEventListener("click", async () => {
 // individual source words.
 function applyFilterLevel(level) {
   state.activeFilterLevel = level;
-  filterButtons.forEach((btn) => {
-    const isActive = btn.dataset.level === level;
-    btn.classList.toggle("is-active", isActive);
-    btn.setAttribute("aria-pressed", String(isActive));
-  });
+  setActiveButton(filterButtons, (btn) => btn.dataset.level === level);
 
   if (level === "coherence") {
     resultText.value = state.coherentText || "";

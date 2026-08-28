@@ -41,7 +41,6 @@ export const undoRedoGroup = document.getElementById("undo-redo-group");
 export const undoBtn = document.getElementById("undo-btn");
 export const redoBtn = document.getElementById("redo-btn");
 
-export const filterToggle = document.getElementById("filter-toggle");
 export const filterRawBtn = document.getElementById("filter-raw-btn");
 export const filterFilteredBtn = document.getElementById("filter-filtered-btn");
 export const filterCoherenceBtn = document.getElementById("filter-coherence-btn");

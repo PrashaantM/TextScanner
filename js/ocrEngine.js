@@ -90,6 +90,28 @@ function rotatePoint(x, y, cx, cy, angleRad) {
   return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
 }
 
+// Maps a bbox's 4 corners through transformFn(x, y) -> {x, y} (a rotation,
+// an unwarp, ...) and returns the axis-aligned box around the transformed
+// corners. A rotated/warped bbox isn't itself axis-aligned, so this re-fits
+// one around whatever the 4 corners land at - used by both buildBboxMapper
+// below and reprocessRegion's keystone-correction path.
+function transformBboxCorners({ x0, y0, x1, y1 }, transformFn) {
+  const corners = [
+    [x0, y0],
+    [x1, y0],
+    [x1, y1],
+    [x0, y1],
+  ].map(([x, y]) => transformFn(x, y));
+  const xs = corners.map((p) => p.x);
+  const ys = corners.map((p) => p.y);
+  return {
+    x0: Math.min(...xs),
+    y0: Math.min(...ys),
+    x1: Math.max(...xs),
+    y1: Math.max(...ys),
+  };
+}
+
 // Builds a function mapping a bbox in the recognized (rotated, possibly upscaled)
 // image's pixel space back to the original image's pixel space: undo Tesseract's
 // auto-rotation (around the image center) first, then undo any upscale.
@@ -99,21 +121,9 @@ function buildBboxMapper(imgWidth, imgHeight, rotateRadians, scaleFactor) {
   const angle = -(rotateRadians || 0);
   const inv = 1 / scaleFactor;
 
-  return ({ x0, y0, x1, y1 }) => {
-    const corners = [
-      [x0, y0],
-      [x1, y0],
-      [x1, y1],
-      [x0, y1],
-    ].map(([x, y]) => rotatePoint(x, y, cx, cy, angle));
-    const xs = corners.map((p) => p.x);
-    const ys = corners.map((p) => p.y);
-    return {
-      x0: Math.min(...xs) * inv,
-      y0: Math.min(...ys) * inv,
-      x1: Math.max(...xs) * inv,
-      y1: Math.max(...ys) * inv,
-    };
+  return (bbox) => {
+    const { x0, y0, x1, y1 } = transformBboxCorners(bbox, (x, y) => rotatePoint(x, y, cx, cy, angle));
+    return { x0: x0 * inv, y0: y0 * inv, x1: x1 * inv, y1: y1 * inv };
   };
 }
 
@@ -286,15 +296,7 @@ async function reprocessRegion(worker, PSM, previewImg, naturalWidth, naturalHei
                 y1: w.bbox.y1 * inv,
               };
               if (unwarpPoint) {
-                const corners = [
-                  [bx.x0, bx.y0],
-                  [bx.x1, bx.y0],
-                  [bx.x1, bx.y1],
-                  [bx.x0, bx.y1],
-                ].map(([x, y]) => unwarpPoint(x, y));
-                const xs = corners.map((p) => p.x);
-                const ys = corners.map((p) => p.y);
-                bx = { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+                bx = transformBboxCorners(bx, unwarpPoint);
               }
               return {
                 text,

@@ -36,23 +36,45 @@ function clampPosition(value, size) {
   return clamp(value, MIN_VISIBLE_PCT - size, 100 - MIN_VISIBLE_PCT);
 }
 
-function show(el) {
+// Resize bounds (beginResize) - object width/height and word font size are
+// all expressed as %-of-image-dimension, matching editorObjects' existing
+// unit convention.
+const MIN_OBJECT_SIZE_PCT = 1.5;
+const MAX_OBJECT_SIZE_PCT = 400;
+const MIN_RESIZE_SCALE = 0.2;
+const MAX_RESIZE_SCALE = 6;
+const MIN_FONT_SIZE_PCT = 0.5;
+
+// Fallback geometry for a new "New text" object (computeDefaultGeometry) when
+// there's no OCR word to size it against yet.
+const DEFAULT_FONT_SIZE_PCT = 3;
+const DEFAULT_TEXT_WIDTH_PCT = 12;
+const DEFAULT_TEXT_HEIGHT_PCT = 4;
+
+export function show(el) {
   el.classList.remove("hidden");
 }
 
-function hide(el) {
+export function hide(el) {
   el.classList.add("hidden");
+}
+
+// Shared by any button group that reflects a single active selection (mode
+// tabs here, filter-level tabs in main.js): toggles is-active/aria-pressed
+// across the group based on whichever button matchFn identifies as current.
+export function setActiveButton(buttons, matchFn) {
+  buttons.forEach((btn) => {
+    const isActive = matchFn(btn);
+    btn.classList.toggle("is-active", isActive);
+    btn.setAttribute("aria-pressed", String(isActive));
+  });
 }
 
 // ---- Mode switching (Text / Image format / Full image) ----
 
 export function setMode(mode) {
   state.activeMode = mode;
-  modeButtons.forEach((btn) => {
-    const isActive = btn.dataset.mode === mode;
-    btn.classList.toggle("is-active", isActive);
-    btn.setAttribute("aria-pressed", String(isActive));
-  });
+  setActiveButton(modeButtons, (btn) => btn.dataset.mode === mode);
 
   hide(resultText);
   hide(imageFormatView);
@@ -412,17 +434,17 @@ function computeDefaultGeometry() {
     .map((o) => o.fontSizePct)
     .sort((a, b) => a - b);
 
-  let fontSizePct = 3;
+  let fontSizePct = DEFAULT_FONT_SIZE_PCT;
   if (ocrFontSizes.length) {
     const mid = Math.floor(ocrFontSizes.length / 2);
     fontSizePct = ocrFontSizes.length % 2 ? ocrFontSizes[mid] : (ocrFontSizes[mid - 1] + ocrFontSizes[mid]) / 2;
   }
 
-  const w = 12;
+  const w = DEFAULT_TEXT_WIDTH_PCT;
   const h =
     state.lastNaturalWidth && state.lastNaturalHeight
       ? (fontSizePct * state.lastNaturalWidth) / state.lastNaturalHeight / FONT_SIZE_CORRECTION
-      : 4;
+      : DEFAULT_TEXT_HEIGHT_PCT;
   return { fontSizePct, w, h };
 }
 
@@ -811,7 +833,6 @@ function beginResize(e) {
   const startH = obj.h;
   const startFontSizePct = obj.fontSizePct;
   const preSnapshot = snapshotState();
-  const minSize = 1.5;
   let changed = false;
 
   function onMove(ev) {
@@ -819,12 +840,12 @@ function beginResize(e) {
     const dyPct = ((ev.clientY - startY) / rect.height) * 100;
     const scaleX = (startW + dxPct) / startW;
     const scaleY = (startH + dyPct) / startH;
-    let scale = clamp((scaleX + scaleY) / 2, 0.2, 6);
+    let scale = clamp((scaleX + scaleY) / 2, MIN_RESIZE_SCALE, MAX_RESIZE_SCALE);
 
-    obj.w = clamp(startW * scale, minSize, 400);
-    obj.h = clamp(startH * scale, minSize, 400);
+    obj.w = clamp(startW * scale, MIN_OBJECT_SIZE_PCT, MAX_OBJECT_SIZE_PCT);
+    obj.h = clamp(startH * scale, MIN_OBJECT_SIZE_PCT, MAX_OBJECT_SIZE_PCT);
     if (obj.type === "word") {
-      obj.fontSizePct = Math.max(startFontSizePct * scale, 0.5);
+      obj.fontSizePct = Math.max(startFontSizePct * scale, MIN_FONT_SIZE_PCT);
     }
     changed = true;
     applyObjectStyle(obj);
