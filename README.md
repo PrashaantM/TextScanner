@@ -4,6 +4,18 @@ Extract text from any image, right in your browser. Drag in a photo, screenshot,
 
 **Live app:** https://prashaantm.github.io/TextScanner/
 
+## Why not just use Google Lens, Adobe Scan, or Live Text?
+
+Those tools are all built to help you *read* text in a photo — select it, copy it, search it, translate it. None of them let you *edit* the image itself. TextScanner turns every recognized word into an independent object: retype it, move it, resize it, or delete it — deleted text's old spot gets properly repaired underneath (real inpainting, not a visible gap or a smudge) — so you can genuinely edit text on a photographed sign, screenshot, or poster and export the result, not just read it off.
+
+A few other gaps this fills:
+
+- **Graduated output, not one fixed guess** — Raw, Filtered Text, or an optional LLM-based Coherence Filter rewrite, chosen per scan instead of handed to you as a single take-it-or-leave-it result.
+- **Visible confidence flagging** on uncertain words, instead of every recognized word presented with the same, potentially false, authority.
+- **No account, no subscription, no upload** — recognition runs fully on-device/in-browser. The one opt-in exception (Coherence Filter) is disclosed every time you use it.
+
+What this doesn't claim: better raw recognition accuracy than those tools on hard, cluttered, or decorative photos. See Features below for an honest account of where recognition quality stands today.
+
 ## Features
 
 - Drag and drop, click to browse, paste from clipboard, or capture a photo on mobile
@@ -19,7 +31,7 @@ Extract text from any image, right in your browser. Drag in a photo, screenshot,
 - Three result views:
   - **Text**: the extracted text in a plain, copyable box
   - **Image format**: each word placed where it appeared in the source image, as editable and copyable text on a plain background instead of the image itself
-  - **Full image**: the actual image shown as is, with the same editable, copyable text laid over it. Untouched words stay invisible against the photo so nothing looks duplicated; a word only becomes visible once you interact with it or actually change it, and a patch sampled from the surrounding image covers its old spot if you move it
+  - **Full image**: the actual image shown as is, with the same editable, copyable text laid over it. Untouched words stay invisible against the photo so nothing looks duplicated; a word only becomes visible once you interact with it or actually change it. Deleting a word properly inpaints its old spot from the surrounding image, rather than leaving a gap; moving a word does not yet clean up its vacated spot the same way (known limitation)
 - Select multiple words at once in either image-based view, by shift-clicking or dragging a selection box, so Copy and Download work on just the words you pick
 - A **Move components** mode, available from Full image, for moving and resizing the text and the image itself, freely and independently, with Undo and Redo for every move and resize
 - Download the current view as a PNG from Image format or Full image, alongside the plain-text download
@@ -69,7 +81,6 @@ js/perspective.js    Keystone correction (line-geometry-based) and the generic
 js/filter.js         Raw / Filtered Text level logic (noise stripping over OCR words)
 js/coherence.js      Coherence Filter: API key storage and the Claude API call that
                      reconstructs Filtered Text into prose
-js/textUtil.js        Shared OCR-word-list -> plain-text helper
 legacy-opencv-scripts/   Early OpenCV exploration scripts from this project's origins
 test/                 CER/WER benchmark harness (Playwright-driven) and ground-truth
                       transcriptions for the test image set
