@@ -73,6 +73,15 @@ export const coherenceUnavailable = document.getElementById("coherence-unavailab
 // runs (see js/main.js) - Tesseract.js on the web, ML Kit inside the iOS app.
 export const footerEngine = document.getElementById("footer-engine");
 
+// Translate in place (Phase 4c). See js/translate.js for the dispatch and
+// js/editor.js's applyTranslatedLines for how a translation is written back.
+export const translateControls = document.getElementById("translate-controls");
+export const translateTarget = document.getElementById("translate-target");
+export const translateBtn = document.getElementById("translate-btn");
+export const translateRevertBtn = document.getElementById("translate-revert-btn");
+export const translateTier = document.getElementById("translate-tier");
+export const translateStatus = document.getElementById("translate-status");
+
 export const ttsControls = document.getElementById("tts-controls");
 export const ttsPlayBtn = document.getElementById("tts-play-btn");
 export const ttsStopBtn = document.getElementById("tts-stop-btn");

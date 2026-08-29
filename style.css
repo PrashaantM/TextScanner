@@ -397,6 +397,29 @@ main {
    level am I about to get" is answered before any of the disclosures. */
 /* Sits with the result views, styled like the existing hint text but slightly
    more prominent - it's a caveat about the result, not an instruction. */
+/* Translate-in-place controls. Sits with the other result actions and follows
+   the same muted-label / prominent-control rhythm as the filter row. */
+.translate-controls__label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.translate-controls__select {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.translate-controls__tier,
+.translate-controls__status {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
 .confidence-note {
   margin: 0 0 0.5rem;
   font-size: 0.8rem;

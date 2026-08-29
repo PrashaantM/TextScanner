@@ -39,6 +39,12 @@ import {
   newTextBtn,
   selectMultiBtn,
   confidenceNote,
+  translateControls,
+  translateTarget,
+  translateBtn,
+  translateRevertBtn,
+  translateTier,
+  translateStatus,
   footerEngine,
   ttsControls,
   ttsPlayBtn,
@@ -68,12 +74,24 @@ import {
   createWordObject,
   configureUndoHooks,
   setActiveButton,
+  getLineTexts,
+  applyTranslatedLines,
+  restoreSnapshot,
+  updateUndoRedoButtons,
   show,
   hide,
 } from "./editor.js";
 import { recognizeImage, getEngineName, engineProvidesConfidence } from "./recognize.js";
 import { computeInpaintedPatch } from "./inpaint.js";
 import { wordsToFilteredText } from "./filter.js";
+import {
+  translateLines,
+  resolveTranslateTier,
+  translateTierLabel,
+  getOfferableLanguages,
+  NON_LATIN_TARGETS,
+  TRANSLATE_TIER,
+} from "./translate.js";
 import {
   getStoredApiKey,
   setStoredApiKey,
@@ -648,6 +666,131 @@ if (newTextBtn) {
 }
 
 setAddTextClickHandler((xPct, yPct) => addUserTextObject(xPct, yPct));
+
+// ---- Translate in place (Phase 4c) ----
+//
+// The flow is: read the recognized text back a line at a time, translate the
+// lines, write them back into the same positions. editor.js owns the reading
+// and writing (getLineTexts / applyTranslatedLines) because that is object-model
+// work; translate.js owns the choice of tier. This is only the wiring between
+// them plus the button states.
+//
+// Restricted to the two image views. "In place" is meaningless in the plain
+// Text view, which has no positions to put anything back into.
+
+let translateLanguagesLoaded = false;
+let preTranslateSnapshot = null;
+
+async function populateTranslateLanguages() {
+  if (translateLanguagesLoaded) return;
+  const languages = await getOfferableLanguages();
+  translateTarget.innerHTML = "";
+  languages.forEach((language) => {
+    const option = document.createElement("option");
+    option.value = language.code;
+    option.textContent = language.label;
+    translateTarget.appendChild(option);
+  });
+  translateLanguagesLoaded = true;
+
+  // An ineligible device with no key can offer nothing at all. An empty dropdown
+  // next to an enabled button is a dead end that only reveals itself when the
+  // user presses it, so the control turns itself off and says why instead.
+  if (!languages.length) {
+    const { reason } = await resolveTranslateTier(null);
+    translateTarget.disabled = true;
+    translateBtn.disabled = true;
+    translateTier.textContent = "";
+    translateStatus.textContent = reason || "Translation isn't available on this device.";
+    return;
+  }
+
+  translateTarget.disabled = false;
+  // Default to the reader's own language where it's on offer - the common case
+  // is translating something foreign INTO what you speak, not out of it.
+  const preferred = (navigator.language || "en").split("-")[0];
+  if (languages.some((l) => l.code === preferred)) translateTarget.value = preferred;
+  await updateTranslateTier();
+}
+
+async function updateTranslateTier() {
+  if (!translateTarget.value) {
+    translateBtn.disabled = true;
+    return;
+  }
+  const { tier, reason } = await resolveTranslateTier(translateTarget.value);
+  translateTier.textContent = tier === TRANSLATE_TIER.NONE ? "" : `via ${translateTierLabel(tier)}`;
+  translateBtn.disabled = tier === TRANSLATE_TIER.NONE;
+  translateStatus.textContent = tier === TRANSLATE_TIER.NONE ? reason || "" : "";
+}
+
+function updateTranslateVisibility() {
+  const visible = state.activeMode === "image" || state.activeMode === "full";
+  if (!visible) {
+    hide(translateControls);
+    return;
+  }
+  show(translateControls);
+  void populateTranslateLanguages();
+}
+
+document.addEventListener("mode-changed", updateTranslateVisibility);
+
+translateTarget.addEventListener("change", () => {
+  void updateTranslateTier();
+});
+
+translateBtn.addEventListener("click", async () => {
+  const lines = getLineTexts();
+  if (!lines.length) {
+    translateStatus.textContent = "There's no recognized text to translate.";
+    return;
+  }
+
+  const targetCode = translateTarget.value;
+  translateBtn.disabled = true;
+  translateStatus.textContent = "Translating…";
+
+  // Captured before anything changes so "Revert to original" is a single
+  // restore rather than an unknown number of undo steps - the translation
+  // touches every line at once, and a user who wants the original back means
+  // all of it, not the last line.
+  const snapshotBeforeTranslation = snapshotState();
+
+  try {
+    const { lines: translated, tier } = await translateLines(lines, targetCode, {
+      onProgress: ({ done, total }) => {
+        translateStatus.textContent = total > 1 ? `Translating… ${done}/${total} lines` : "Translating…";
+      },
+    });
+    const changed = applyTranslatedLines(translated);
+    preTranslateSnapshot = snapshotBeforeTranslation;
+    translateTier.textContent = `via ${translateTierLabel(tier)}`;
+    translateStatus.textContent = changed ? `Translated ${changed} line${changed === 1 ? "" : "s"}.` : "Nothing needed translating.";
+    if (changed) show(translateRevertBtn);
+    if (NON_LATIN_TARGETS.has(targetCode)) {
+      // Worth saying once, at the moment it becomes true: this renders and
+      // exports correctly, but scanning the result back in won't work on the
+      // native build, which only loads ML Kit's Latin model.
+      translateStatus.textContent += " Note: this app can't re-scan text in this script.";
+    }
+  } catch (err) {
+    translateStatus.textContent = err.message || "Translation failed.";
+  } finally {
+    translateBtn.disabled = false;
+  }
+});
+
+translateRevertBtn.addEventListener("click", () => {
+  if (!preTranslateSnapshot) return;
+  const current = snapshotState();
+  state.undoStack.push(current);
+  restoreSnapshot(preTranslateSnapshot);
+  updateUndoRedoButtons();
+  preTranslateSnapshot = null;
+  hide(translateRevertBtn);
+  translateStatus.textContent = "Reverted to the original text.";
+});
 
 // ---- Text-to-speech (Phase 5) ----
 //

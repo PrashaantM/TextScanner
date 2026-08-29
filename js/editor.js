@@ -1327,6 +1327,84 @@ imageFormatView.addEventListener("pointerdown", (e) => {
   beginMarquee(e, additive);
 });
 
+// ---- Translate in place (Phase 4c) ----
+//
+// The editor's contribution to translation is deliberately small, because the
+// object model already does the hard part. Text is read out and written back a
+// LINE at a time (js/translate.js explains why word-at-a-time translation
+// produces nonsense in most languages), and writing a line back is expressed
+// entirely in operations that already exist:
+//
+//   - the line's first word span takes the whole translated string, so the
+//     translation starts exactly where the original line started and inherits
+//     its font size;
+//   - every other span on that line is emptied, which is precisely what Delete
+//     does to an OCR word, so those spots get the existing inpainting treatment
+//     with no new code;
+//   - the whole thing is one snapshot/pushUndo pair, so it is one Undo step.
+//
+// No new object type, no new export path, no new undo handling.
+
+// The word objects of each recognized line, in reading order. Same grouping as
+// state.imageFormatLines (which holds elements), resolved to objects so callers
+// can read and write text through the object model rather than the DOM.
+export function getLineObjects() {
+  const byElement = new Map(state.editorObjects.filter((o) => o.type === "word").map((o) => [o.el, o]));
+  return state.imageFormatLines
+    .map((spans) => spans.map((span) => byElement.get(span)).filter(Boolean))
+    .filter((objs) => objs.length > 0);
+}
+
+// The current text of each line, joined the way a reader would see it. This is
+// what gets sent for translation - the live span text, not the original OCR, so
+// a user's own corrections are translated rather than silently discarded.
+export function getLineTexts() {
+  return getLineObjects().map((objs) =>
+    objs
+      .map((o) => o.el.textContent)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+}
+
+// Writes translated lines back, one per line from getLineTexts(), as a single
+// undoable step. A line whose translation is empty or unchanged is left exactly
+// as it was rather than being collapsed into one span for no reason.
+export function applyTranslatedLines(translated) {
+  const lines = getLineObjects();
+  if (!lines.length) return 0;
+
+  const preSnapshot = snapshotState();
+  let changedLines = 0;
+
+  lines.forEach((objs, i) => {
+    const text = (translated[i] || "").trim();
+    if (!text) return;
+    const current = objs
+      .map((o) => o.el.textContent)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (text === current) return;
+
+    objs[0].el.textContent = text;
+    // Widen the first span to span the whole original line, so a translation
+    // that runs longer than the first word has the line's own width to sit in
+    // before it starts overflowing to the right.
+    const lineRight = Math.max(...objs.map((o) => o.x + o.w));
+    objs[0].w = Math.max(objs[0].w, lineRight - objs[0].x);
+    for (let k = 1; k < objs.length; k++) objs[k].el.textContent = "";
+    applyObjectStyle(objs[0]);
+    changedLines++;
+  });
+
+  if (!changedLines) return 0;
+  pushUndo(preSnapshot);
+  refreshModifiedStates();
+  return changedLines;
+}
+
 // ---- Flatten the current view to a PNG canvas ----
 
 let patchCanvasProvider = null;

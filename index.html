@@ -181,6 +181,24 @@
           <button id="download-image-btn" class="btn btn--secondary hidden" type="button">Download image</button>
         </div>
 
+        <!-- Translate in place (Phase 4c): the differentiating feature. Every
+             other tool on a phone helps you READ a foreign menu; this replaces
+             the text with its translation at the same position on the image, so
+             you get the menu back in your language and can export it.
+             Shown in Image format and Full image only - "in place" means nothing
+             in the plain Text view, which has no positions. js/translate.js
+             dispatches between on-device and Claude exactly as the Coherence
+             Filter does; the tier label is here for the same reason it is
+             there. -->
+        <div id="translate-controls" class="result-toolbar__row result-toolbar__actions hidden">
+          <label class="translate-controls__label" for="translate-target">Translate to</label>
+          <select id="translate-target" class="translate-controls__select"></select>
+          <button id="translate-btn" class="btn btn--secondary" type="button">Translate</button>
+          <button id="translate-revert-btn" class="btn btn--ghost hidden" type="button">Revert to original</button>
+          <span id="translate-tier" class="translate-controls__tier"></span>
+          <span id="translate-status" class="translate-controls__status" role="status"></span>
+        </div>
+
         <!-- Text-to-speech (Phase 5): reads getActiveResultText() aloud via the
              browser's SpeechSynthesis API (js/tts.js). js/main.js hides this
              entirely if the browser has no usable TTS, and only in Text/Image
