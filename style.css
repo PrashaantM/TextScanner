@@ -393,6 +393,32 @@ main {
   background: color-mix(in srgb, var(--text) 8%, transparent);
 }
 
+/* Phase 2's tier indicator: the first thing in the panel, so "which quality
+   level am I about to get" is answered before any of the disclosures. */
+.coherence-panel__tier {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.coherence-panel__tier-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.coherence-panel__disclosure--unavailable {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.btn--small {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+}
+
 .coherence-panel__row {
   display: flex;
   align-items: center;

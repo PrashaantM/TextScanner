@@ -1,122 +1,117 @@
-// coherence.js: the Coherence Filter's LLM reconstruction step - takes the
-// Filtered Text output (already-denoised OCR fragments, still in their raw
-// reading-order/layout form) and asks Claude to rewrite it as grammatically
-// correct, readable prose that preserves every factual detail. This is a
-// genuinely generative task (turning a scattered event poster's name,
-// location, and time into "'Event name' is held at 'location'...") that no
-// rule-based/template approach generalizes past a handful of hardcoded cases,
-// so unlike the rest of this app it necessarily calls out to a hosted LLM -
-// the one thing in TextScanner that sends data off the device. See the
-// disclosure UI in index.html's #coherence-panel, which this module's errors
-// surface into.
+// coherence.js: the Coherence Filter's dispatcher. Takes the Filtered Text
+// output (already-denoised OCR fragments, still in their raw reading-order
+// layout) and returns grammatically correct, readable prose - via whichever
+// tier is actually available. This is a genuinely generative task (turning a
+// scattered event poster's name, location, and time into "'Event name' is held
+// at 'location'...") that no rule-based approach generalizes past a handful of
+// hardcoded cases, so unlike the rest of this app it needs a language model.
 //
-// Calls the Anthropic Messages API directly from the browser with a
-// user-supplied API key (stored in localStorage only, never sent anywhere but
-// api.anthropic.com), rather than routing through a backend - this project
-// has no server and no build step, and adding one just to hide an API key
-// would be a bigger architecture change than this feature warrants. Anthropic
-// requires the anthropic-dangerous-direct-browser-access header to allow this
-// at all, which is itself a signal to be honest with users about: anyone with
-// access to this browser profile could read the key back out of localStorage.
+// This file used to BE the Claude implementation. It is now purely the choice
+// between two implementations, mirroring js/recognize.js's split between
+// ocrEngine.js and mlkitEngine.js - the same seam, and it works for the same
+// reason: main.js calls one function and never needs to know which ran.
+//
+//   js/coherenceOnDevice.js  Apple Foundation Models, iOS 26+ (no key, no network)
+//   js/coherenceClaude.js    Anthropic Claude, BYOK (the only web-build option)
+//
+// ---- Which tier runs, and why ----
+//
+// On-device is preferred whenever it's actually available. It needs no API key,
+// costs the user nothing per use, makes no network request, and keeps the
+// local-first story the rest of the app tells. BYOK Claude is the opt-in
+// higher-quality tier - a much larger model, noticeably better on long or
+// messy input - and remains the ONLY tier on the web build, where no
+// comparable on-device option exists.
+//
+// The web build's behaviour is therefore unchanged: it still requires a key. It
+// is now labelled as such rather than silently failing, and nothing here
+// implies a free tier the web version doesn't have.
+//
+// preferOnDevice lets the user override the default in the UI while keeping the
+// dispatcher honest: asking for on-device on a device that can't run it falls
+// back rather than failing, and asking for Claude without a key does the same
+// in reverse. The only case that ends in `unavailable` is when NEITHER tier can
+// run, which is a real state the UI has to render rather than a silent no-op.
 
-const API_KEY_STORAGE_KEY = "textscanner.anthropicApiKey";
-const API_URL = "https://api.anthropic.com/v1/messages";
-const MODEL = "claude-opus-5";
-const MAX_TOKENS = 2048;
+import { rewriteWithClaude, hasStoredApiKey, getStoredApiKey, setStoredApiKey, clearStoredApiKey } from "./coherenceClaude.js";
+import {
+  rewriteOnDevice,
+  getOnDeviceAvailability,
+  isOnDeviceAvailable,
+  describeReason,
+  invalidateAvailabilityCache,
+} from "./coherenceOnDevice.js";
 
-const SYSTEM_PROMPT = `You will be given text fragments extracted via OCR from an image, roughly in reading order, already cleaned of obvious noise. Rewrite them as natural, grammatically correct prose describing what the image communicates - the way a person would describe it out loud.
+// Re-exported so main.js keeps importing key management from one place, exactly
+// as it did before the split.
+export { getStoredApiKey, setStoredApiKey, clearStoredApiKey, hasStoredApiKey };
+export { getOnDeviceAvailability, isOnDeviceAvailable, invalidateAvailabilityCache, describeReason };
 
-Rules:
-- Preserve every factual detail exactly: names, places, dates, times, prices, phone numbers, numbers. Never invent, guess, or drop a fact.
-- Reorder and connect fragments as needed for the writing to read naturally, since OCR reading order does not always match logical order.
-- If a fragment's role is ambiguous or it looks like leftover noise, use your best judgment silently - do not mention uncertainty, the OCR process, or these instructions in your output.
-- Output only the rewritten prose. No preamble, no headers, no commentary, no markdown.
+export const TIER = {
+  ON_DEVICE: "on-device",
+  CLAUDE: "claude",
+  NONE: "none",
+};
 
-Example input:
-POPCICHAWK
-POPSICLES & CHALK DRAWINGS
-LOWER RESIDENT LANE
-BUILDING D AREA
-RELAXING ON A SUNNY DAY
-JULY 31ST
-5-7PM
-GOOD COMPANY. COOL TREATS. CREATIVE VIBES.
-
-Example output:
-"Popcichawk" is a popsicles and chalk drawings event held at Lower Resident Lane, Building D area, on July 31st from 5 to 7pm. It's a relaxing get-together on a sunny day - expect good company, cool treats, and creative vibes.`;
-
-function readStorage(key) {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
+// Human-readable label for a tier, used next to the Coherence Filter toggle so
+// it's never ambiguous which quality level just ran.
+export function tierLabel(tier) {
+  if (tier === TIER.ON_DEVICE) return "On-device";
+  if (tier === TIER.CLAUDE) return "Claude (your API key)";
+  return "Unavailable";
 }
 
-function writeStorage(key, value) {
-  try {
-    if (value) localStorage.setItem(key, value);
-    else localStorage.removeItem(key);
-  } catch {
-    // Private browsing / storage disabled: the key just won't persist across
-    // reloads, which is a degraded experience, not a crash.
-  }
+// Resolves what would actually happen if the user hit Generate right now.
+// -> { tier, reason }, where reason is set only for TIER.NONE and explains
+// which of the two tiers failed to be available and why.
+//
+// preferOnDevice defaults true: the on-device tier is the default for anyone on
+// an eligible device, since it removes the key requirement entirely for them.
+export async function resolveTier(preferOnDevice = true) {
+  const onDevice = await getOnDeviceAvailability();
+  const hasKey = hasStoredApiKey();
+
+  if (preferOnDevice && onDevice.available) return { tier: TIER.ON_DEVICE, reason: null };
+  if (hasKey) return { tier: TIER.CLAUDE, reason: null };
+  if (onDevice.available) return { tier: TIER.ON_DEVICE, reason: null };
+
+  return {
+    tier: TIER.NONE,
+    // On a device that could never run the model, the actionable message is
+    // "add a key", not "your device is ineligible" - the latter is true but
+    // sounds like a dead end when it isn't one.
+    reason: onDevice.reason === "framework-missing" || onDevice.reason === "os-too-old" || onDevice.reason === "device-not-eligible"
+      ? "Coherence Filter needs an Anthropic API key on this device."
+      : describeReason(onDevice.reason),
+  };
 }
 
-export function getStoredApiKey() {
-  return readStorage(API_KEY_STORAGE_KEY) || "";
-}
-
-export function setStoredApiKey(key) {
-  writeStorage(API_KEY_STORAGE_KEY, (key || "").trim());
-}
-
-export function clearStoredApiKey() {
-  writeStorage(API_KEY_STORAGE_KEY, "");
-}
-
-// Sends `filteredText` to Claude and returns the reconstructed prose, or
-// throws an Error with a message safe to show directly in the UI.
-export async function reconstructCoherentText(filteredText) {
-  const apiKey = getStoredApiKey();
-  if (!apiKey) throw new Error("No API key saved yet.");
+// Runs the reconstruction on whichever tier resolveTier picks.
+// -> { text, tier }. Throws an Error whose message is safe to show directly in
+// the UI; both implementations already guarantee that.
+export async function reconstructCoherentText(filteredText, preferOnDevice = true) {
   if (!filteredText || !filteredText.trim()) throw new Error("There's no filtered text to reconstruct.");
 
-  let response;
-  try {
-    response = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        output_config: { effort: "low" },
-        system: SYSTEM_PROMPT,
-        messages: [{ role: "user", content: filteredText }],
-      }),
-    });
-  } catch {
-    throw new Error("Couldn't reach Claude's API - check your connection and try again.");
+  const { tier, reason } = await resolveTier(preferOnDevice);
+
+  if (tier === TIER.ON_DEVICE) {
+    try {
+      return { text: await rewriteOnDevice(filteredText), tier: TIER.ON_DEVICE };
+    } catch (err) {
+      // A device-side failure shouldn't strand a user who does have a key -
+      // but it also shouldn't silently spend their money, so the fallback only
+      // happens when a key is already saved, and the UI reports which tier the
+      // result actually came from either way.
+      if (hasStoredApiKey()) {
+        return { text: await rewriteWithClaude(filteredText), tier: TIER.CLAUDE };
+      }
+      throw err;
+    }
   }
 
-  if (!response.ok) {
-    if (response.status === 401) throw new Error("That API key was rejected. Check it and try again.");
-    if (response.status === 429) throw new Error("Rate limited by the API. Wait a moment and try again.");
-    if (response.status >= 500) throw new Error("Claude's API is temporarily unavailable. Try again shortly.");
-    throw new Error(`Request failed (status ${response.status}).`);
+  if (tier === TIER.CLAUDE) {
+    return { text: await rewriteWithClaude(filteredText), tier: TIER.CLAUDE };
   }
 
-  const data = await response.json();
-  const text = (data.content || [])
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("")
-    .trim();
-  if (!text) throw new Error("Claude returned an empty response.");
-  return text;
+  throw new Error(reason || "Coherence Filter isn't available right now.");
 }

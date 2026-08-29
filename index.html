@@ -131,7 +131,19 @@
              Shown only while that level is selected; js/main.js switches its inner rows
              between "no key saved yet" and "key saved, ready to generate". -->
         <div id="coherence-panel" class="coherence-panel hidden">
-          <p class="coherence-panel__disclosure">
+          <!-- Which tier is about to run (js/coherence.js's resolveTier), stated
+               up front. "Coherence Filter" must never quietly mean two different
+               quality levels with no indication which one you got. -->
+          <div class="coherence-panel__tier">
+            <span class="coherence-panel__tier-label">Rewriting with</span>
+            <span id="coherence-tier-name" class="coherence-panel__tier-name">&mdash;</span>
+            <button id="coherence-tier-switch-btn" class="btn btn--ghost btn--small hidden" type="button"></button>
+          </div>
+          <p id="coherence-disclosure-ondevice" class="coherence-panel__disclosure hidden">
+            On-device rewriting uses Apple's built-in language model. Nothing leaves your device,
+            no API key is needed, and it costs nothing.
+          </p>
+          <p id="coherence-disclosure-claude" class="coherence-panel__disclosure hidden">
             Coherence Filter sends your extracted text to Anthropic's Claude API to rewrite it as prose &mdash;
             the only thing in TextScanner that leaves your device. Your API key is stored only in this browser.
           </p>
@@ -139,8 +151,8 @@
                path, and the web build is served from a github.io origin shared
                with every other project published under the same account. Saying
                so plainly is the same standard the rest of this app's copy holds
-               itself to. -->
-          <p class="coherence-panel__disclosure coherence-panel__disclosure--caveat">
+               itself to. Shown only when the Claude tier is actually in play. -->
+          <p id="coherence-disclosure-origin" class="coherence-panel__disclosure coherence-panel__disclosure--caveat hidden">
             One caveat worth knowing: on the web version, that storage belongs to the whole
             <code>github.io</code> origin, not just to TextScanner &mdash; any other site published
             at the same origin can read the key back. Use a key scoped and budget-limited to this,
@@ -150,6 +162,7 @@
             <input id="coherence-api-key" class="coherence-panel__key-input" type="password" placeholder="Anthropic API key (sk-ant-...)" autocomplete="off" />
             <button id="coherence-save-key-btn" class="btn btn--secondary" type="button">Save key</button>
           </div>
+          <p id="coherence-unavailable" class="coherence-panel__disclosure coherence-panel__disclosure--unavailable hidden" role="status"></p>
           <div id="coherence-generate-row" class="coherence-panel__row hidden">
             <button id="coherence-generate-btn" class="btn btn--primary" type="button">Generate</button>
             <button id="coherence-change-key-btn" class="btn btn--ghost" type="button">Change key</button>
@@ -226,7 +239,7 @@
        was previously pinned on jsDelivr) before js/main.js, so the global Tesseract
        object it exposes is available when js/ocrEngine.js calls it. The worker,
        wasm core and language data it pulls in at scan time are vendored too - see
-       TESSERACT_ASSETS in js/ocrEngine.js. -->
+       tesseractAssetPaths() in js/ocrEngine.js. -->
   <script src="vendor/tesseract/tesseract.min.js"></script>
   <script type="module" src="js/main.js"></script>
 </body>

@@ -35,7 +35,7 @@ Four separate problems, one fix:
 | `core/tesseract-core-lstm.wasm.js` | `corePath` + a name the worker picks | Non-SIMD fallback. |
 | `tessdata/eng.traineddata.gz` | `langPath` + `eng.traineddata.gz` | From `@tesseract.js-data/eng/4.0.0_best_int`. |
 
-The three paths are set in `TESSERACT_ASSETS` in
+The three paths are set in `tesseractAssetPaths()` in
 [`js/ocrEngine.js`](../../js/ocrEngine.js).
 
 ## How the file list was determined

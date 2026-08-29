@@ -54,6 +54,14 @@ export const coherenceGenerateRow = document.getElementById("coherence-generate-
 export const coherenceGenerateBtn = document.getElementById("coherence-generate-btn");
 export const coherenceChangeKeyBtn = document.getElementById("coherence-change-key-btn");
 export const coherenceStatus = document.getElementById("coherence-status");
+// Phase 2's two-tier UI: which tier will run, the per-tier disclosures, the
+// opt-in switch between them, and the honest "neither tier can run" state.
+export const coherenceTierName = document.getElementById("coherence-tier-name");
+export const coherenceTierSwitchBtn = document.getElementById("coherence-tier-switch-btn");
+export const coherenceDisclosureOnDevice = document.getElementById("coherence-disclosure-ondevice");
+export const coherenceDisclosureClaude = document.getElementById("coherence-disclosure-claude");
+export const coherenceDisclosureOrigin = document.getElementById("coherence-disclosure-origin");
+export const coherenceUnavailable = document.getElementById("coherence-unavailable");
 
 // Filled in at startup with whichever recognition engine this build actually
 // runs (see js/main.js) - Tesseract.js on the web, ML Kit inside the iOS app.

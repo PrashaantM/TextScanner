@@ -30,6 +30,12 @@ import {
   coherenceGenerateBtn,
   coherenceChangeKeyBtn,
   coherenceStatus,
+  coherenceTierName,
+  coherenceTierSwitchBtn,
+  coherenceDisclosureOnDevice,
+  coherenceDisclosureClaude,
+  coherenceDisclosureOrigin,
+  coherenceUnavailable,
   newTextBtn,
   footerEngine,
   ttsControls,
@@ -65,7 +71,17 @@ import {
 import { recognizeImage, getEngineName } from "./recognize.js";
 import { computeInpaintedPatch } from "./inpaint.js";
 import { wordsToFilteredText } from "./filter.js";
-import { getStoredApiKey, setStoredApiKey, clearStoredApiKey, reconstructCoherentText } from "./coherence.js";
+import {
+  getStoredApiKey,
+  setStoredApiKey,
+  clearStoredApiKey,
+  reconstructCoherentText,
+  resolveTier,
+  tierLabel,
+  isOnDeviceAvailable,
+  invalidateAvailabilityCache,
+  TIER,
+} from "./coherence.js";
 import {
   isTTSSupported,
   waitForVoices,
@@ -302,7 +318,11 @@ function applyFilterLevel(level) {
 
   if (level === "coherence") {
     resultText.value = state.coherentText || "";
-    updateCoherencePanel();
+    // Deliberately not awaited: the panel resolves the on-device availability
+    // asynchronously (a real query into the Foundation Models framework), and
+    // blocking a filter-tab switch on that would make the tab feel laggy for a
+    // result that only affects the panel's own contents.
+    void updateCoherencePanel();
   } else {
     hide(coherencePanel);
     resultText.value = wordsToFilteredText(state.ocrWords, level);
@@ -315,14 +335,67 @@ filterButtons.forEach((btn) => {
   btn.addEventListener("click", () => applyFilterLevel(btn.dataset.level));
 });
 
-// Shows the coherence panel in whichever state matches reality: no key saved
-// yet (key-entry row), or a key saved and ready to (re)generate.
-function updateCoherencePanel() {
+// Phase 2: which tier the user has asked for. Defaults to on-device, so anyone
+// on an eligible device gets a working Coherence Filter with no API key at all;
+// BYOK Claude is the opt-in higher-quality tier. resolveTier() falls back on its
+// own when the preferred tier can't actually run, so this is a preference, not
+// a promise.
+let preferOnDevice = true;
+
+// Shows the coherence panel in whichever state matches reality. There are more
+// states than there used to be, because there are now two tiers: which one will
+// run, the disclosure that belongs to that tier, whether a key is still needed,
+// and the case where neither tier can run at all (which has to say so plainly
+// rather than present a Generate button that can only fail).
+// `displayTier`, when given, overrides the tier the panel would otherwise
+// predict. It's for the one case where prediction and reality diverge: an
+// on-device rewrite that failed and fell back to Claude. Without it the label
+// would say Claude while the on-device disclosure sat underneath it, which is
+// exactly the "which one just ran?" ambiguity this UI exists to remove.
+async function updateCoherencePanel(displayTier) {
   show(coherencePanel);
+
   const hasKey = !!getStoredApiKey();
+  const onDeviceAvailable = await isOnDeviceAvailable();
+  const resolved = await resolveTier(preferOnDevice);
+  const tier = displayTier || resolved.tier;
+  const reason = displayTier ? null : resolved.reason;
+
+  coherenceTierName.textContent = tierLabel(tier);
+  coherenceDisclosureOnDevice.classList.toggle("hidden", tier !== TIER.ON_DEVICE);
+  coherenceDisclosureClaude.classList.toggle("hidden", tier !== TIER.CLAUDE);
+  coherenceDisclosureOrigin.classList.toggle("hidden", tier !== TIER.CLAUDE);
+
+  // The key row is for entering a key, so it shows whenever there isn't one AND
+  // a key would actually buy something: on an eligible device that's the
+  // optional upgrade to Claude, and everywhere else it's the only way in.
   coherenceKeyRow.classList.toggle("hidden", hasKey);
-  coherenceGenerateRow.classList.toggle("hidden", !hasKey);
+  coherenceGenerateRow.classList.toggle("hidden", tier === TIER.NONE);
   coherenceGenerateBtn.textContent = state.coherentText ? "Regenerate" : "Generate";
+  // With no key saved there is nothing to change, and on-device needs none.
+  coherenceChangeKeyBtn.classList.toggle("hidden", !hasKey);
+
+  coherenceUnavailable.textContent = tier === TIER.NONE ? reason || "" : "";
+  coherenceUnavailable.classList.toggle("hidden", tier !== TIER.NONE);
+
+  // The switch only appears when there is a genuine choice to make - both tiers
+  // usable - rather than offering a toggle that would just fall back.
+  const canSwitch = onDeviceAvailable && hasKey;
+  coherenceTierSwitchBtn.classList.toggle("hidden", !canSwitch);
+  if (canSwitch) {
+    coherenceTierSwitchBtn.textContent = preferOnDevice ? "Use Claude instead" : "Use on-device instead";
+  }
+}
+
+if (coherenceTierSwitchBtn) {
+  coherenceTierSwitchBtn.addEventListener("click", () => {
+    preferOnDevice = !preferOnDevice;
+    // The cached reconstruction came from the other tier, so it no longer
+    // matches what the panel now says it will produce.
+    state.coherentText = null;
+    resultText.value = "";
+    updateCoherencePanel();
+  });
 }
 
 coherenceSaveKeyBtn.addEventListener("click", () => {
@@ -331,13 +404,28 @@ coherenceSaveKeyBtn.addEventListener("click", () => {
   setStoredApiKey(key);
   coherenceApiKeyInput.value = "";
   coherenceStatus.textContent = "";
+  // Saving a key is an explicit request to use Claude - the tier the user just
+  // went to the trouble of enabling - so it becomes the preference rather than
+  // sitting unused behind an on-device default.
+  preferOnDevice = false;
   updateCoherencePanel();
 });
 
 coherenceChangeKeyBtn.addEventListener("click", () => {
   clearStoredApiKey();
   coherenceStatus.textContent = "";
+  // With the key gone, on-device is the only tier left that could run.
+  preferOnDevice = true;
   updateCoherencePanel();
+});
+
+// Enabling Apple Intelligence happens in Settings, which means leaving the app
+// and coming back - the one case where the availability answer genuinely
+// changes mid-session, so it's rechecked on return rather than cached forever.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  invalidateAvailabilityCache();
+  if (state.activeFilterLevel === "coherence") void updateCoherencePanel();
 });
 
 coherenceGenerateBtn.addEventListener("click", async () => {
@@ -346,10 +434,14 @@ coherenceGenerateBtn.addEventListener("click", async () => {
   coherenceChangeKeyBtn.disabled = true;
   coherenceStatus.textContent = "Generating…";
   try {
-    const text = await reconstructCoherentText(filteredText);
+    // Returns the tier that actually ran, which is not always the one the panel
+    // predicted: an on-device failure falls back to Claude when a key exists.
+    // Reporting the real one keeps the label honest.
+    const { text, tier } = await reconstructCoherentText(filteredText, preferOnDevice);
     state.coherentText = text;
     resultText.value = text;
     coherenceStatus.textContent = "";
+    await updateCoherencePanel(tier);
     refreshModifiedStates();
     if (ttsSupported) updateTTSButtons();
   } catch (err) {

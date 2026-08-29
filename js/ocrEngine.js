@@ -59,11 +59,20 @@ const FALLBACK_PSM = { AUTO: "3", SPARSE_TEXT: "11", SINGLE_BLOCK: "6", SINGLE_L
 // - langPath: also a directory; the worker appends "eng.traineddata.gz". The
 //   _best_int variant is the one oem 1 resolves to, so vendoring it keeps
 //   recognition byte-identical to what the CDN was serving.
-const TESSERACT_ASSETS = {
-  workerPath: new URL("vendor/tesseract/worker.min.js", document.baseURI).href,
-  corePath: new URL("vendor/tesseract/core/", document.baseURI).href,
-  langPath: new URL("vendor/tesseract/tessdata/", document.baseURI).href,
-};
+//
+// Resolved lazily inside recognizeImage rather than at module load: nothing else
+// in this module touches the DOM at import time, and document.baseURI here did
+// break importing it outside a browser (test/unit/bbox.test.js exercises this
+// file's coordinate math in plain Node). Absolute rather than relative because
+// the worker resolves corePath/langPath from its own blob: URL, which has no
+// useful base to resolve against.
+function tesseractAssetPaths() {
+  return {
+    workerPath: new URL("vendor/tesseract/worker.min.js", document.baseURI).href,
+    corePath: new URL("vendor/tesseract/core/", document.baseURI).href,
+    langPath: new URL("vendor/tesseract/tessdata/", document.baseURI).href,
+  };
+}
 
 // Below this mean confidence, the raw pass is considered to have real room for
 // improvement, and preprocessing is worth trying as a second candidate.
@@ -356,7 +365,7 @@ async function reprocessRegion(worker, PSM, previewImg, naturalWidth, naturalHei
 // UI-agnostic and leaves rendering the progress bar to the caller.
 export async function recognizeImage(previewImg, naturalWidth, naturalHeight, onProgress) {
   const PSM = { ...FALLBACK_PSM, ...((window.Tesseract && window.Tesseract.PSM) || {}) };
-  const worker = await window.Tesseract.createWorker("eng", 1, { ...TESSERACT_ASSETS, logger: onProgress });
+  const worker = await window.Tesseract.createWorker("eng", 1, { ...tesseractAssetPaths(), logger: onProgress });
 
   const runPass = async (source, width, height, psm, preprocessed) => {
     await worker.setParameters({ tessedit_pageseg_mode: psm });
