@@ -84,7 +84,12 @@ export function detectKeystoneQuad(lines, regionWidth, regionHeight) {
 // the 4 `to` points (standard DLT-style linear system for a planar homography).
 // Returns a 3x3 matrix (row-major, 9 entries, h22 normalized to 1) or null if
 // the points are degenerate.
-function solveHomography(from, to) {
+//
+// Exported, with applyHomography below, only so test/unit/perspective.test.js
+// can round-trip them without a canvas: warpPerspective (the sole in-app
+// caller) needs a DOM, this math doesn't, and a silently wrong homography
+// misplaces every reprocessed word's bbox.
+export function solveHomography(from, to) {
   const A = [];
   const b = [];
   for (let i = 0; i < 4; i++) {
@@ -118,7 +123,7 @@ function solveHomography(from, to) {
   return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
 }
 
-function applyHomography(h, x, y) {
+export function applyHomography(h, x, y) {
   const w = h[6] * x + h[7] * y + h[8];
   return { x: (h[0] * x + h[1] * y + h[2]) / w, y: (h[3] * x + h[4] * y + h[5]) / w };
 }

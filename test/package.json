@@ -1,5 +1,14 @@
 {
+  "name": "textscanner-test",
   "private": true,
   "type": "module",
-  "description": "Scoped to test/ only, so Node treats .js files here as ES modules without affecting the rest of the (build-step-free) app."
+  "description": "Scoped to test/ only, so Node treats .js files here as ES modules without affecting the rest of the (build-step-free) app. Also owns the one real dependency this repo has outside Capacitor tooling: playwright-core, used by run-benchmark.js to drive the real app in a headless browser.",
+  "scripts": {
+    "test": "node --test unit/*.test.js",
+    "benchmark": "node run-benchmark.js",
+    "install-browser": "playwright-core install chromium"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.62.1"
+  }
 }

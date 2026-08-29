@@ -17,7 +17,7 @@
 //              pure coordinate-space/scale mismatch would need to look right
 //
 // Usage: node test/replay-dump.js <dump.json> [imageDir]
-//   imageDir defaults to legacy-opencv-scripts/, matched to each scan by `label`.
+//   imageDir defaults to test/images/, matched to each scan by `label`.
 
 import { chromium } from "playwright-core";
 import { createServer } from "node:http";
@@ -28,10 +28,6 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const OUT = join(ROOT, "test/manual-output/replay");
 const PORT = 8125;
-const CHROMIUM_PATH = join(
-  process.env.HOME,
-  "Library/Caches/ms-playwright/chromium-1140/chrome-mac/Chromium.app/Contents/MacOS/Chromium"
-);
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".jpeg": "image/jpeg", ".jpg": "image/jpeg", ".png": "image/png" };
 
@@ -115,13 +111,13 @@ async function main() {
     console.error("Usage: node test/replay-dump.js <dump.json> [imageDir]");
     process.exit(1);
   }
-  const imageDir = process.argv[3] || join(ROOT, "legacy-opencv-scripts");
+  const imageDir = process.argv[3] || join(ROOT, "test/images");
   const dump = JSON.parse(await readFile(dumpPath, "utf8"));
   const scans = dump.scans || [];
 
   await mkdir(OUT, { recursive: true });
   const server = serveStatic();
-  const browser = await chromium.launch({ executablePath: CHROMIUM_PATH });
+  const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 900, height: 1400 }, deviceScaleFactor: 2 });
 
   const summary = [];

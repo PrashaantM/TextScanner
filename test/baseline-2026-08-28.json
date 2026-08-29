@@ -1,0 +1,75 @@
+{
+  "recordedAt": "2026-08-29T04:53:55.844Z",
+  "engine": "tesseract.js (web path)",
+  "imageCount": 11,
+  "averageCer": 0.6825967507205043,
+  "averageWer": 1.120132533467082,
+  "images": [
+    {
+      "name": "complexPic1",
+      "cer": 0.46153846153846156,
+      "wer": 0.64,
+      "elapsedMs": 2436
+    },
+    {
+      "name": "complexPic10",
+      "cer": 1.6603773584905661,
+      "wer": 2.9714285714285715,
+      "elapsedMs": 4428
+    },
+    {
+      "name": "complexPic11",
+      "cer": 1.4323144104803494,
+      "wer": 3.358974358974359,
+      "elapsedMs": 3920
+    },
+    {
+      "name": "complexPic2",
+      "cer": 0.3810810810810811,
+      "wer": 0.6666666666666666,
+      "elapsedMs": 1915
+    },
+    {
+      "name": "complexPic3",
+      "cer": 0.7941776629030064,
+      "wer": 0.9475555555555556,
+      "elapsedMs": 17968
+    },
+    {
+      "name": "complexPic4",
+      "cer": 0.2101542416452442,
+      "wer": 0.1650485436893204,
+      "elapsedMs": 2444
+    },
+    {
+      "name": "complexPic5",
+      "cer": 0.0776978417266187,
+      "wer": 0.1794871794871795,
+      "elapsedMs": 1405
+    },
+    {
+      "name": "complexPic6",
+      "cer": 0.765793528505393,
+      "wer": 0.9095744680851063,
+      "elapsedMs": 4915
+    },
+    {
+      "name": "complexPic7",
+      "cer": 0.8057742782152231,
+      "wer": 1.423728813559322,
+      "elapsedMs": 3907
+    },
+    {
+      "name": "complexPic8",
+      "cer": 0.34265734265734266,
+      "wer": 0.4056603773584906,
+      "elapsedMs": 1398
+    },
+    {
+      "name": "complexPic9",
+      "cer": 0.5769980506822612,
+      "wer": 0.6533333333333333,
+      "elapsedMs": 1385
+    }
+  ]
+}

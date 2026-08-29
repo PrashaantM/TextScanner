@@ -81,14 +81,16 @@ js/perspective.js    Keystone correction (line-geometry-based) and the generic
 js/filter.js         Raw / Filtered Text level logic (noise stripping over OCR words)
 js/coherence.js      Coherence Filter: API key storage and the Claude API call that
                      reconstructs Filtered Text into prose
-legacy-opencv-scripts/   Early OpenCV exploration scripts from this project's origins
-test/                 CER/WER benchmark harness (Playwright-driven) and ground-truth
-                      transcriptions for the test image set
+docs/origins/        Early OpenCV exploration scripts from this project's origins,
+                     plus the sample media they read (history, not a dependency)
+test/                CER/WER benchmark harness (Playwright-driven), unit tests for the
+                     pure pipeline functions, the benchmark image corpus (test/images/)
+                     and its ground-truth transcriptions (test/groundtruth/)
 ```
 
 ## Origins
 
-TextScanner started as a set of Python and OpenCV exercises exploring computer vision fundamentals like grayscale conversion and image I/O. Those original scripts are kept in [`legacy-opencv-scripts/`](legacy-opencv-scripts) for reference. The project has since been rebuilt as a browser-based OCR tool so it is something you can actually open and use.
+TextScanner started as a set of Python and OpenCV exercises exploring computer vision fundamentals like grayscale conversion and image I/O. Those original scripts are kept in [`docs/origins/`](docs/origins) for reference. The project has since been rebuilt as a browser-based OCR tool so it is something you can actually open and use.
 
 ## Tech stack
 

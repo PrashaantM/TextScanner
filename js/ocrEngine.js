@@ -39,6 +39,7 @@ import { detectKeystoneQuad, warpPerspective } from "./perspective.js";
 // throwing before OCR can even start.
 const FALLBACK_PSM = { AUTO: "3", SPARSE_TEXT: "11", SINGLE_BLOCK: "6", SINGLE_LINE: "7" };
 
+
 // Below this mean confidence, the raw pass is considered to have real room for
 // improvement, and preprocessing is worth trying as a second candidate.
 const PREPROCESS_WORTH_TRYING_THRESHOLD = 70;
@@ -95,7 +96,12 @@ function rotatePoint(x, y, cx, cy, angleRad) {
 // corners. A rotated/warped bbox isn't itself axis-aligned, so this re-fits
 // one around whatever the 4 corners land at - used by both buildBboxMapper
 // below and reprocessRegion's keystone-correction path.
-function transformBboxCorners({ x0, y0, x1, y1 }, transformFn) {
+//
+// Exported (like buildBboxMapper below) only so test/unit/bbox.test.js can
+// cover it directly: this is coordinate math that silently misplaces every
+// word on screen when it's wrong, and it has no DOM dependency, so it's worth
+// testing in isolation rather than only through a full browser scan.
+export function transformBboxCorners({ x0, y0, x1, y1 }, transformFn) {
   const corners = [
     [x0, y0],
     [x1, y0],
@@ -115,7 +121,7 @@ function transformBboxCorners({ x0, y0, x1, y1 }, transformFn) {
 // Builds a function mapping a bbox in the recognized (rotated, possibly upscaled)
 // image's pixel space back to the original image's pixel space: undo Tesseract's
 // auto-rotation (around the image center) first, then undo any upscale.
-function buildBboxMapper(imgWidth, imgHeight, rotateRadians, scaleFactor) {
+export function buildBboxMapper(imgWidth, imgHeight, rotateRadians, scaleFactor) {
   const cx = imgWidth / 2;
   const cy = imgHeight / 2;
   const angle = -(rotateRadians || 0);

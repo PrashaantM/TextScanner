@@ -1,7 +1,9 @@
-# Node. No trailing slash on node_modules: test/node_modules is a symlink to a
-# borrowed Playwright install, and a directory-only pattern (trailing slash)
-# doesn't match a symlink. The root package-lock.json (Capacitor/ML Kit
-# tooling deps) IS committed for reproducible installs - not listed here.
+# Node. Matches both the root install (Capacitor/ML Kit tooling) and
+# test/node_modules (playwright-core, for the benchmark harness). test/ used to
+# symlink a borrowed Playwright install from an unrelated local project, which
+# made the harness unrunnable from a fresh clone; it now has a real
+# devDependency of its own. Both package-lock.json files ARE committed for
+# reproducible installs - not listed here.
 node_modules
 
 # Capacitor (iOS native shell - the only native platform this project

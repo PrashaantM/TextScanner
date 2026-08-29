@@ -2,6 +2,7 @@
   "name": "textscanner",
   "private": true,
   "version": "1.0.0",
+  "type": "module",
   "description": "Capacitor tooling for TextScanner's native iOS build. The web app itself (index.html/style.css/js/) has no build step and keeps deploying to GitHub Pages exactly as before - this package.json exists only to drive `npx cap` commands.",
   "scripts": {
     "sync-web": "sh scripts/sync-web-assets.sh",

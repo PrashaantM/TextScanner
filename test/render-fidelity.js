@@ -22,10 +22,6 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const OUT = join(ROOT, "test/manual-output");
 const PORT = 8124;
-const CHROMIUM_PATH = join(
-  process.env.HOME,
-  "Library/Caches/ms-playwright/chromium-1140/chrome-mac/Chromium.app/Contents/MacOS/Chromium"
-);
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".jpeg": "image/jpeg", ".jpg": "image/jpeg", ".png": "image/png" };
 
@@ -128,7 +124,7 @@ async function run(page, fontMode) {
 async function main() {
   const server = serveStatic();
   await mkdir(OUT, { recursive: true });
-  const browser = await chromium.launch({ executablePath: CHROMIUM_PATH });
+  const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 900, height: 1400 }, deviceScaleFactor: 2 });
 
   for (const fontMode of ["system", "display"]) {
