@@ -3,7 +3,7 @@
 // without a device in the loop.
 //
 // Companion to test/render-fidelity.js, which already established that
-// js/editor.js's renderImageFormatView reproduces a layout faithfully when it's
+// js/editorObjects.js's renderImageFormatView reproduces a layout faithfully when it's
 // given correct boxes. So whatever this produces IS what ML Kit's coordinates say
 // - if the replay looks like the "gibberish" seen on-device, the boxes are wrong;
 // if it looks fine, the bug is somewhere after recognition.
@@ -175,7 +175,8 @@ async function main() {
       await page.evaluate(
         async ({ words, naturalWidth, naturalHeight, imageDataUrl, overlay }) => {
           const dom = await import("/js/dom.js");
-          const editor = await import("/js/editor.js");
+          const objects = await import("/js/editorObjects.js");
+    const interactions = await import("/js/editorInteractions.js");
           const src =
             imageDataUrl ||
             (() => {
@@ -190,8 +191,8 @@ async function main() {
           dom.previewImg.src = src;
           await dom.previewImg.decode();
           document.getElementById("result-section").classList.remove("hidden");
-          editor.renderImageFormatView(dom.previewImg, words, naturalWidth, naturalHeight, src);
-          editor.setMode(overlay ? "full" : "image");
+          objects.renderImageFormatView(dom.previewImg, words, naturalWidth, naturalHeight, src);
+          interactions.setMode(overlay ? "full" : "image");
           if (overlay) {
             const style = document.createElement("style");
             style.textContent = `

@@ -5,7 +5,7 @@
 // needs a real filesystem path, not a Blob/canvas), runs recognition, and
 // normalizes ML Kit's block/line/element hierarchy into the same flat
 // { lineIndex, text, confidence, bbox } word list js/ocrEngine.js produces,
-// so editor.js/filter.js/main.js need no changes regardless of which engine
+// so the editor modules/filter.js/main.js need no changes regardless of which engine
 // actually ran.
 //
 // No bundler is used anywhere in this app (index.html loads plain
@@ -55,7 +55,7 @@ const CACHE_FILE_PATH = "textscanner-scan-input.jpg";
 // signal the UI uses to mean "this one is fine". A user had no way to tell
 // "nothing was flagged" from "flagging doesn't work here".
 //
-// null instead says what's true. editor.js already guards its low-confidence
+// null instead says what's true. editorObjects.js already guards its low-confidence
 // styling on `confidence != null`, and filter.js's confidence check is
 // typeof-guarded, so neither fabricates anything from a missing score. The gap
 // is then stated outright in the UI - see engineProvidesConfidence() in

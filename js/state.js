@@ -39,7 +39,7 @@ export const state = {
   selectedObjectIds: new Set(),
   fullEditorMode: false,
   addTextMode: false,
-  // Rubber-band selection armed (see setMarqueeMode in js/editor.js). Exists for
+  // Rubber-band selection armed (see setMarqueeMode in js/editorInteractions.js). Exists for
   // touch: while on, the editor surface takes the finger drag that would
   // otherwise scroll the page.
   marqueeMode: false,

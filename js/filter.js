@@ -2,7 +2,7 @@
 // levels. No DOM, no mutation of the ocrWords it's given - so the same logic
 // drives Text view's rendered text, Image format/Full image's per-word
 // dimming, and Copy/Download/TTS's active text (all wired in via
-// editor.js/main.js).
+// the editor modules/main.js).
 //
 // - "raw": no filtering, exactly what Tesseract returned - every
 //   character/word/symbol the engine detected as text-like, unfiltered.
@@ -58,7 +58,7 @@ function isNoise(text, confidence) {
 // always passes, regardless of level. level "coherence" is treated the same
 // as "filtered" here (the underlying word-level view, e.g. Image format
 // dimming, has no other sensible fallback while a generative reconstruction
-// is showing in Text view - see editor.js/main.js).
+// is showing in Text view - see editorObjects.js/main.js).
 export function wordPasses(word, level, isUserEdited) {
   if (isUserEdited) return true;
   if (level === "raw" || !level) return true;

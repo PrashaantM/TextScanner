@@ -14,7 +14,7 @@
 // Why this exists: the on-device run rendered Image format as "gibberish" on
 // complexPic1/2/6/7 and "really good" on 4/5/8/10, with no correlation to image
 // dimensions or EXIF orientation. test/render-fidelity.js has since ruled out the
-// renderer - fed perfect word boxes, js/editor.js's renderImageFormatView
+// renderer - fed perfect word boxes, js/editorObjects.js's renderImageFormatView
 // reproduces a poster's layout cleanly, large display text included. So the wrong
 // coordinates are coming out of ML Kit (or out of how mlkitEngine.js reads them),
 // and settling WHICH needs the raw numbers, which only exist on-device.
@@ -107,7 +107,7 @@ export async function recordScan({ label, naturalWidth, naturalHeight, rawResult
   const entry = {
     label,
     at: new Date().toISOString(),
-    // What editor.js's renderImageFormatView divides every bbox by. If ML Kit's
+    // What renderImageFormatView divides every bbox by. If ML Kit's
     // coordinates are in some other space, the mismatch shows up as boxes whose
     // extent doesn't reach (or overshoots) these numbers.
     naturalWidth,

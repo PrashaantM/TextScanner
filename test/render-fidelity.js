@@ -1,4 +1,4 @@
-// render-fidelity.js: isolates js/editor.js's renderImageFormatView from whichever
+// render-fidelity.js: isolates renderImageFormatView (js/editorObjects.js) from whichever
 // OCR engine produced the words. It draws a synthetic image whose word boxes are
 // known EXACTLY (measured with ctx.measureText's actualBoundingBox metrics, not
 // estimated), feeds those perfect boxes straight into renderImageFormatView, and
@@ -143,12 +143,13 @@ async function run(page, fontMode) {
   // Feed the exact boxes into the real renderer, through the real module.
   await page.evaluate(async ({ dataUrl, words, W, H }) => {
     const dom = await import("/js/dom.js");
-    const editor = await import("/js/editor.js");
+    const objects = await import("/js/editorObjects.js");
+    const interactions = await import("/js/editorInteractions.js");
     dom.previewImg.src = dataUrl;
     await dom.previewImg.decode();
     document.getElementById("result-section").classList.remove("hidden");
-    editor.renderImageFormatView(dom.previewImg, words, W, H, dataUrl);
-    editor.setMode("image");
+    objects.renderImageFormatView(dom.previewImg, words, W, H, dataUrl);
+    interactions.setMode("image");
   }, built);
 
   await page.waitForTimeout(400);

@@ -36,7 +36,7 @@ export const imageFormatHint = document.getElementById("image-format-hint");
 // Shown only on an engine with no per-word confidence signal (see
 // engineProvidesConfidence() in js/recognize.js).
 export const confidenceNote = document.getElementById("confidence-note");
-// Arms rubber-band selection (see setMarqueeMode in js/editor.js). Needed for
+// Arms rubber-band selection (see setMarqueeMode in js/editorInteractions.js). Needed for
 // touch, where a plain drag belongs to the page's scrolling.
 export const selectMultiBtn = document.getElementById("select-multi-btn");
 export const editorToolbar = document.getElementById("editor-toolbar");
@@ -74,7 +74,7 @@ export const coherenceUnavailable = document.getElementById("coherence-unavailab
 export const footerEngine = document.getElementById("footer-engine");
 
 // Translate in place (Phase 4c). See js/translate.js for the dispatch and
-// js/editor.js's applyTranslatedLines for how a translation is written back.
+// js/editorExport.js's applyTranslatedLines for how a translation is written back.
 export const translateControls = document.getElementById("translate-controls");
 export const translateTarget = document.getElementById("translate-target");
 export const translateBtn = document.getElementById("translate-btn");

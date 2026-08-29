@@ -1,6 +1,7 @@
 // main.js: application bootstrap. Wires file input (drag/drop, paste, camera,
 // sample image), the Scan text button (preprocessing + OCR via recognize.js), and
-// Copy/Download, on top of the editor surface (editor.js) that renders and manages
+// Copy/Download, on top of the editor surface (js/editorObjects.js and its two
+// sibling modules) that renders and manages
 // the OCR result.
 import {
   dropZone,
@@ -51,36 +52,43 @@ import {
   ttsStopBtn,
 } from "./dom.js";
 import { state, MAX_FILE_BYTES, MAX_IMAGE_PIXELS } from "./state.js";
+// editor.js was split into three modules (Phase 5); main.js imports from each
+// directly rather than through a barrel, so which concern a call belongs to is
+// visible at the import site.
 import {
-  setMode,
-  setMarqueeMode,
   clearImageFormatView,
   renderImageFormatView,
-  getActiveResultText,
-  buildResultCanvas,
   setPatchProvider,
-  setPatchCanvasProvider,
   setDeleteHandler,
   snapshotState,
+  restoreSnapshot,
   pushUndo,
+  updateUndoRedoButtons,
   refreshModifiedStates,
   clearSelection,
-  setFilterTextHook,
-  setFullEditorMode,
-  setAddTextMode,
-  setAddTextClickHandler,
-  addUserTextObject,
   removeUserWordObject,
   createWordObject,
   configureUndoHooks,
   setActiveButton,
-  getLineTexts,
-  applyTranslatedLines,
-  restoreSnapshot,
-  updateUndoRedoButtons,
   show,
   hide,
-} from "./editor.js";
+} from "./editorObjects.js";
+import {
+  setMode,
+  setMarqueeMode,
+  setFullEditorMode,
+  setAddTextMode,
+  setAddTextClickHandler,
+  addUserTextObject,
+} from "./editorInteractions.js";
+import {
+  getActiveResultText,
+  buildResultCanvas,
+  setPatchCanvasProvider,
+  setFilterTextHook,
+  getLineTexts,
+  applyTranslatedLines,
+} from "./editorExport.js";
 import { recognizeImage, getEngineName, engineProvidesConfidence } from "./recognize.js";
 import { computeInpaintedPatch } from "./inpaint.js";
 import { wordsToFilteredText } from "./filter.js";
@@ -525,7 +533,7 @@ coherenceGenerateBtn.addEventListener("click", async () => {
   }
 });
 
-// Text view's Copy/Download path (see editor.js's getActiveResultText): always
+// Text view's Copy/Download path (see editorExport.js's getActiveResultText): always
 // recompute from ocrWords + the active level rather than trusting resultText.value
 // to still be in sync, so it can't go stale under some future code path. Coherence
 // Filter has no ocrWords-derived text at all, so it reads the cached reconstruction.
@@ -610,9 +618,9 @@ setPatchProvider((obj) => {
 
 setPatchCanvasProvider((obj) => getOrComputePatch(obj));
 
-// So undo/redo (see editor.js's restoreSnapshot) can recreate a user-added word
+// So undo/redo (see editorObjects.js's restoreSnapshot) can recreate a user-added word
 // that was fully removed (Delete, or redo-of-add) and clean up after one that's
-// gone for good (redo-of-delete, or undo-of-add) - without editor.js needing to
+// gone for good (redo-of-delete, or undo-of-add) - without editorObjects.js needing to
 // know about the patch cache it's cleaning up here.
 configureUndoHooks({
   createFromSnapshot: (s) =>
@@ -634,10 +642,44 @@ configureUndoHooks({
 // inpainted patch; 'user' words (Phase 4's "New text" tool) have no underlying
 // image content to reveal, so they're removed outright instead. ----
 
-setDeleteHandler((selectedObjects) => {
+// Inpainting one word is 300 synchronous Gauss-Seidel iterations, which is fine.
+// "Select all, Delete" on a dense screenshot serializes hundreds of them with no
+// yield, no progress and no way to tell the app from a hung one - the UI simply
+// stops for several seconds.
+//
+// The fix is not to make the solver faster but to stop running the whole batch
+// in one uninterrupted block. Patches are computed one word at a time with a
+// yield to the event loop between each, so the browser can paint the progress
+// message, and are written into the same cache the synchronous patch provider
+// reads - so by the time refreshModifiedStates asks for them they are already
+// there and nothing downstream has to become async.
+//
+// Below this many words the yielding and the progress message are pure
+// overhead: a handful of patches complete inside a frame or two.
+const PATCH_PROGRESS_THRESHOLD = 8;
+
+async function precomputePatches(objects) {
+  const needed = objects.filter((obj) => obj.type === "word" && obj.origin === "ocr" && obj.originalBbox && !patchCache.has(obj.id));
+  if (!needed.length) return;
+
+  const showProgress = needed.length >= PATCH_PROGRESS_THRESHOLD;
+  for (let i = 0; i < needed.length; i++) {
+    getOrComputePatch(needed[i]);
+    if (!showProgress) continue;
+    setStatus(`Repairing the image where the text was… ${i + 1}/${needed.length}`);
+    // A real yield, not a microtask: setTimeout(0) lets the browser lay out and
+    // paint between words, which is the whole point. await Promise.resolve()
+    // would keep the frame blocked exactly as before.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  if (showProgress) setStatus("");
+}
+
+setDeleteHandler(async (selectedObjects) => {
   if (!selectedObjects.length) return;
   const preSnapshot = snapshotState();
   let changed = false;
+  const cleared = [];
   selectedObjects.forEach((obj) => {
     if (obj.type !== "word") return;
     if (obj.origin === "user") {
@@ -646,17 +688,21 @@ setDeleteHandler((selectedObjects) => {
     } else if (obj.origin === "ocr") {
       if (obj.el.textContent === "") return;
       obj.el.textContent = "";
+      cleared.push(obj);
       changed = true;
     }
   });
   if (!changed) return;
   pushUndo(preSnapshot);
-  refreshModifiedStates();
   clearSelection();
+  // Before the refresh, so the patches it asks for are already cached and it
+  // doesn't trigger the serialized run this exists to avoid.
+  await precomputePatches(cleared);
+  refreshModifiedStates();
 });
 
 // ---- New text (Phase 4): arms add-mode; the next click on the image surface
-// places a new user-added word there (see editor.js's addUserTextObject). ----
+// places a new user-added word there (see editorInteractions.js's addUserTextObject). ----
 
 if (newTextBtn) {
   newTextBtn.addEventListener("click", () => {
@@ -670,7 +716,7 @@ setAddTextClickHandler((xPct, yPct) => addUserTextObject(xPct, yPct));
 // ---- Translate in place (Phase 4c) ----
 //
 // The flow is: read the recognized text back a line at a time, translate the
-// lines, write them back into the same positions. editor.js owns the reading
+// lines, write them back into the same positions. editorExport.js owns the reading
 // and writing (getLineTexts / applyTranslatedLines) because that is object-model
 // work; translate.js owns the choice of tier. This is only the wiring between
 // them plus the button states.
