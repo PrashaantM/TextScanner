@@ -7,7 +7,9 @@
   "scripts": {
     "sync-web": "sh scripts/sync-web-assets.sh",
     "sync:ios": "npm run sync-web && cap sync ios",
-    "cap": "cap"
+    "cap": "cap",
+    "postinstall": "node scripts/trim-mlkit-scripts.js",
+    "trim-mlkit": "node scripts/trim-mlkit-scripts.js"
   },
   "dependencies": {
     "@capacitor/core": "8.5.0",

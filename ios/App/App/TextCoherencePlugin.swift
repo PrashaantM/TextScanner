@@ -2,9 +2,14 @@
 //  TextCoherencePlugin.swift
 //  TextScanner
 //
-//  Native half of the Coherence Filter. Exposes Apple's on-device Foundation
-//  Models to the web layer so the feature works with no API key on eligible
-//  devices; js/coherenceOnDevice.js is the caller, and js/coherence.js decides
+//  Native access to Apple's on-device Foundation Models, for the two features
+//  that need a language model: the Coherence Filter's rewrite (Phase 2) and
+//  translate-in-place (Phase 4c). Named for the first of those, and kept as one
+//  plugin because both are the same model, the same availability check and the
+//  same failure surface - splitting them would duplicate all three.
+//
+//  Callers: js/coherenceOnDevice.js (rewrite) and js/translateOnDevice.js
+//  (translate/supportedLanguages). js/coherence.js and js/translate.js decide
 //  when to prefer this over the BYOK Claude path.
 //
 //  Why on-device at all: Coherence Filter was previously the one feature that
@@ -48,7 +53,9 @@ public class TextCoherencePlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "TextCoherence"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "availability", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "rewrite", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "rewrite", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "translate", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "supportedLanguages", returnType: CAPPluginReturnPromise)
     ]
 
     // Deliberately identical in intent to the SYSTEM_PROMPT in js/coherence.js,
@@ -76,6 +83,85 @@ public class TextCoherencePlugin: CAPPlugin, CAPBridgedPlugin {
         static let appleIntelligenceOff = "apple-intelligence-off"
         static let modelNotReady = "model-not-ready"
         static let unknown = "unknown"
+    }
+
+    // Translation reuses the same on-device model rather than reaching for
+    // Apple's Translation framework. That framework's session is created through
+    // a SwiftUI view modifier (.translationTask), which there is no clean way to
+    // drive from a Capacitor plugin with no SwiftUI view of its own - and the
+    // language model already installed here translates perfectly well for the
+    // short, sign-and-menu-sized strings this feature targets. One dependency,
+    // one availability check, one failure surface.
+    //
+    // The instruction is deliberately rigid about returning ONLY the
+    // translation: this text goes straight back into a word's position on the
+    // image, so a preamble like "Here is the translation:" would render on the
+    // photo as though it were part of the sign.
+    private static func translationInstructions(for language: String) -> String {
+        """
+        You translate short text extracted from a photograph into \(language).
+
+        Rules:
+        - Output only the translation. No preamble, no quotes, no notes, no alternatives, no markdown.
+        - Preserve numbers, prices, times, phone numbers, and proper names exactly as they appear.
+        - Keep it about as short as the original. This text has to fit back into the same space on an image.
+        - If the text is already in \(language), or is a number or a name with nothing to translate, return it unchanged.
+        """
+    }
+
+    @objc func translate(_ call: CAPPluginCall) {
+        guard let text = call.getString("text"), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            call.reject("No text to translate.", "empty-input")
+            return
+        }
+        guard let language = call.getString("targetLanguage"), !language.isEmpty else {
+            call.reject("No target language given.", "no-target-language")
+            return
+        }
+
+        let (isAvailable, reason) = Self.currentAvailability()
+        guard isAvailable else {
+            call.reject("On-device model unavailable.", reason ?? Reason.unknown)
+            return
+        }
+
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            Task {
+                do {
+                    let session = LanguageModelSession(instructions: Self.translationInstructions(for: language))
+                    let response = try await session.respond(to: text)
+                    let output = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if output.isEmpty {
+                        call.reject("The on-device model returned an empty translation.", "empty-output")
+                    } else {
+                        call.resolve(["text": output])
+                    }
+                } catch let error as LanguageModelSession.GenerationError {
+                    call.reject(Self.message(for: error), Self.code(for: error))
+                } catch {
+                    call.reject("The on-device translation failed.", "generation-failed", error)
+                }
+            }
+            return
+        }
+        #endif
+
+        call.reject("On-device model unavailable.", Reason.osTooOld)
+    }
+
+    // The languages the installed model can actually handle, as language codes.
+    // The web layer intersects its offered list with this, so a user is never
+    // shown a target language that would quietly produce nonsense.
+    @objc func supportedLanguages(_ call: CAPPluginCall) {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *), case .available = SystemLanguageModel.default.availability {
+            let codes = SystemLanguageModel.default.supportedLanguages.compactMap { $0.languageCode?.identifier }
+            call.resolve(["languages": Array(Set(codes)).sorted()])
+            return
+        }
+        #endif
+        call.resolve(["languages": [String]()])
     }
 
     @objc func availability(_ call: CAPPluginCall) {
@@ -111,22 +197,7 @@ public class TextCoherencePlugin: CAPPlugin, CAPBridgedPlugin {
                         call.resolve(["text": output])
                     }
                 } catch let error as LanguageModelSession.GenerationError {
-                    // These are the failures a user can actually hit and act on,
-                    // so they get their own codes rather than one opaque message.
-                    switch error {
-                    case .exceededContextWindowSize:
-                        call.reject("That's more text than the on-device model can take at once.", "context-too-long")
-                    case .guardrailViolation, .refusal:
-                        call.reject("The on-device model declined to rewrite this text.", "declined")
-                    case .unsupportedLanguageOrLocale:
-                        call.reject("The on-device model doesn't support this language.", "unsupported-language")
-                    case .assetsUnavailable:
-                        call.reject("The on-device model isn't ready yet.", Reason.modelNotReady)
-                    case .rateLimited, .concurrentRequests:
-                        call.reject("The on-device model is busy. Try again in a moment.", "busy")
-                    default:
-                        call.reject("The on-device rewrite failed.", "generation-failed")
-                    }
+                    call.reject(Self.message(for: error), Self.code(for: error))
                 } catch {
                     call.reject("The on-device rewrite failed.", "generation-failed", error)
                 }
@@ -141,7 +212,36 @@ public class TextCoherencePlugin: CAPPlugin, CAPBridgedPlugin {
         call.reject("On-device model unavailable.", Reason.osTooOld)
     }
 
-    // Single source of truth for "can this run right now", used by both methods
+    // Shared by rewrite() and translate() so the two can't drift apart on error
+    // handling. These are the failures a user can actually hit and act on, so
+    // each gets its own code rather than one opaque message.
+    #if canImport(FoundationModels)
+    @available(iOS 26.0, *)
+    private static func code(for error: LanguageModelSession.GenerationError) -> String {
+        switch error {
+        case .exceededContextWindowSize: return "context-too-long"
+        case .guardrailViolation, .refusal: return "declined"
+        case .unsupportedLanguageOrLocale: return "unsupported-language"
+        case .assetsUnavailable: return Reason.modelNotReady
+        case .rateLimited, .concurrentRequests: return "busy"
+        default: return "generation-failed"
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private static func message(for error: LanguageModelSession.GenerationError) -> String {
+        switch error {
+        case .exceededContextWindowSize: return "That's more text than the on-device model can take at once."
+        case .guardrailViolation, .refusal: return "The on-device model declined to handle this text."
+        case .unsupportedLanguageOrLocale: return "The on-device model doesn't support this language."
+        case .assetsUnavailable: return "The on-device model isn't ready yet."
+        case .rateLimited, .concurrentRequests: return "The on-device model is busy. Try again in a moment."
+        default: return "The on-device request failed."
+        }
+    }
+    #endif
+
+    // Single source of truth for "can this run right now", used by every method
     // so the availability the UI is told about and the one rewrite() enforces can
     // never disagree.
     private static func currentAvailability() -> (Bool, String?) {

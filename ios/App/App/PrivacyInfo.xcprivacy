@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  App-target privacy manifest. Required for App Store submission, and the app
+	  target had none - every Pod ships its own (Capacitor, MLKitCommon,
+	  GoogleDataTransport, GoogleUtilities and the rest), and Apple aggregates
+	  them, but the app's own manifest was simply missing.
+
+	  This declares what THIS TARGET's own code does, which is deliberately very
+	  little. Dependencies' collection is declared by their manifests, not
+	  restated here - in particular MLKitCommon declares the device ID and
+	  diagnostic data it sends to Google, which is the app's one piece of
+	  telemetry and is documented in docs/PRIVACY-DECISIONS.md.
+	-->
+
+	<!--
+	  No tracking, and no tracking domains. Nothing in this app correlates a user
+	  with data from other apps or with a data broker, and there is no
+	  advertising or attribution SDK linked at all.
+	-->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<!--
+	  Empty on purpose, and true. The app's own code collects nothing: images are
+	  read, recognized and edited entirely on the device and never uploaded; the
+	  extracted text stays local unless the user explicitly opts into the
+	  Coherence Filter or translation with their own Anthropic API key, which is
+	  a user-initiated request to a service they hold the account for rather than
+	  collection by this app. On an Apple Intelligence-eligible device both of
+	  those run on-device instead and make no request at all.
+
+	  No accounts, no analytics, no crash reporting, no server of any kind.
+	-->
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+
+	<!--
+	  Required-reason APIs: none used by this target's own code. UserDefaults and
+	  file-timestamp access do occur inside dependencies (Capacitor's
+	  configuration, GoogleUtilities), and each declares its own reason in its own
+	  manifest - restating them here would claim they are this target's usage,
+	  which is not what the field means.
+	-->
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array/>
+</dict>
+</plist>

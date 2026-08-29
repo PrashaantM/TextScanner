@@ -86,6 +86,9 @@ js/coherence.js      Coherence Filter: API key storage and the Claude API call t
                      reconstructs Filtered Text into prose
 vendor/tesseract/    Tesseract.js 5.1.1, its worker, wasm cores and English language
                      data, served from this origin instead of a CDN (see its README)
+docs/PRIVACY-DECISIONS.md
+                     What leaves the device and what doesn't, the ML Kit telemetry
+                     decision, and how each claim was verified
 docs/origins/        Early OpenCV exploration scripts from this project's origins,
                      plus the sample media they read (history, not a dependency)
 test/                CER/WER benchmark harness (Playwright-driven), unit tests for the
