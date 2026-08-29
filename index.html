@@ -171,6 +171,11 @@
         </div>
 
         <div class="result-toolbar__row result-toolbar__actions">
+          <!-- Only meaningful in the two image views, where words have positions
+               to rubber-band across. Exists for touch: a finger drag is how the
+               page scrolls, so marquee selection has to be an explicit mode
+               rather than a gesture that competes with scrolling. -->
+          <button id="select-multi-btn" class="btn btn--secondary hidden" type="button" aria-pressed="false">Select multiple</button>
           <button id="copy-btn" class="btn btn--secondary" type="button">Copy</button>
           <button id="download-btn" class="btn btn--secondary" type="button">Download .txt</button>
           <button id="download-image-btn" class="btn btn--secondary hidden" type="button">Download image</button>

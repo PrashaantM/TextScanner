@@ -496,10 +496,35 @@ main {
   border-radius: var(--radius);
   background: var(--surface);
   overflow: hidden;
+  /* Vertical scrolling and pinch survive; horizontal panning is given up, which
+     nothing here wants. The result image is tall on a phone and often fills the
+     screen, so taking scrolling away by default would trap the page - which is
+     why the two modes that genuinely need to own a finger drag opt in below
+     rather than this being `none` everywhere. */
+  touch-action: pan-y pinch-zoom;
+}
+
+/* Armed by the "Select multiple" button. Rubber-band selection needs the finger
+   drag that scrolling otherwise takes, and on a phone there is no shift key to
+   express "drag to select" the way the desktop hint describes - so it becomes an
+   explicit, visible mode instead of an undiscoverable gesture that silently
+   scrolls. Scrolling comes back the moment it's switched off. */
+.image-format-view.marquee-mode {
+  touch-action: none;
+  user-select: none;
+  cursor: crosshair;
 }
 
 .image-format-view.editor-mode {
   user-select: none;
+  /* Not `none`, deliberately. `none` would make single-finger drag reliable and
+     simultaneously kill pinch-to-zoom over the image - and pinch was only just
+     re-enabled at the Capacitor config layer, precisely so people can zoom in on
+     small text before editing it. `pinch-zoom` gives up only single-finger
+     panning, which in this mode is what the drag handler wants anyway: the
+     browser can no longer decide mid-gesture that a drag was really a scroll and
+     snatch it away. Two-finger zoom keeps working. */
+  touch-action: pinch-zoom;
 }
 
 .image-format-bg {
@@ -613,17 +638,36 @@ main {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
+/* The handle is two things at once: a 28px invisible hit target (the WCAG
+   minimum target size is 24px, and this was an 11px square - unhittable with a
+   finger) and, via ::after, the same small visible square as before. Growing the
+   visible dot instead would have meant covering the corner of the very word
+   being resized. touch-action: none here rather than pinch-zoom because a
+   deliberate press on a 28px target is never the start of a zoom, and any
+   browser gesture handling on it is pure interference. */
 .resize-handle {
   display: none;
   position: absolute;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  transform: translate(-50%, -50%);
+  cursor: nwse-resize;
+  touch-action: none;
+  z-index: 4;
+}
+
+.resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
   width: 11px;
   height: 11px;
+  transform: translate(-50%, -50%);
   background: var(--accent);
   border: 1.5px solid var(--accent-contrast);
   border-radius: 3px;
-  transform: translate(-50%, -50%);
-  cursor: nwse-resize;
-  z-index: 4;
 }
 
 .marquee-box {

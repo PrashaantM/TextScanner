@@ -37,6 +37,7 @@ import {
   coherenceDisclosureOrigin,
   coherenceUnavailable,
   newTextBtn,
+  selectMultiBtn,
   confidenceNote,
   footerEngine,
   ttsControls,
@@ -46,6 +47,7 @@ import {
 import { state, MAX_FILE_BYTES, MAX_IMAGE_PIXELS } from "./state.js";
 import {
   setMode,
+  setMarqueeMode,
   clearImageFormatView,
   renderImageFormatView,
   getActiveResultText,
@@ -679,6 +681,22 @@ function updateTTSVisibility() {
   }
   updateTTSButtons();
 }
+
+// "Select multiple" only makes sense where words have positions to rubber-band
+// across, and it must not linger armed after leaving those views - it takes
+// scrolling away from the surface while it's on.
+function updateSelectMultiVisibility() {
+  if (!selectMultiBtn) return;
+  const visible = state.activeMode === "image" || state.activeMode === "full";
+  if (visible) {
+    show(selectMultiBtn);
+  } else {
+    hide(selectMultiBtn);
+    if (state.marqueeMode) setMarqueeMode(false);
+  }
+}
+
+document.addEventListener("mode-changed", updateSelectMultiVisibility);
 
 document.addEventListener("mode-changed", updateTTSVisibility);
 

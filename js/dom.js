@@ -36,6 +36,9 @@ export const imageFormatHint = document.getElementById("image-format-hint");
 // Shown only on an engine with no per-word confidence signal (see
 // engineProvidesConfidence() in js/recognize.js).
 export const confidenceNote = document.getElementById("confidence-note");
+// Arms rubber-band selection (see setMarqueeMode in js/editor.js). Needed for
+// touch, where a plain drag belongs to the page's scrolling.
+export const selectMultiBtn = document.getElementById("select-multi-btn");
 export const editorToolbar = document.getElementById("editor-toolbar");
 export const editorModeBtn = document.getElementById("editor-mode-btn");
 export const newTextBtn = document.getElementById("new-text-btn");

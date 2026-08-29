@@ -23,6 +23,7 @@ import {
   redoBtn,
   deleteBtn,
   newTextBtn,
+  selectMultiBtn,
 } from "./dom.js";
 import { state, MAX_UNDO_STEPS, FONT_SIZE_CORRECTION, LOW_CONFIDENCE_THRESHOLD } from "./state.js";
 import { wordPasses } from "./filter.js";
@@ -84,6 +85,9 @@ export function setMode(mode) {
 
   if (mode === "text") {
     show(resultText);
+    // Marquee mode takes scrolling away from the surface; it must not survive
+    // into a view that has no marquee.
+    if (state.marqueeMode) setMarqueeMode(false);
   } else {
     show(imageFormatView);
     show(imageFormatHint);
@@ -106,6 +110,11 @@ modeImageBtn.addEventListener("click", () => setMode("image"));
 modeFullBtn.addEventListener("click", () => setMode("full"));
 
 export function updateImageFormatHint() {
+  if (state.marqueeMode) {
+    imageFormatHint.textContent =
+      "Drag across the image to select several items at once. Tap \u201cDone selecting\u201d when you're finished.";
+    return;
+  }
   if (state.activeMode === "image") {
     imageFormatHint.textContent =
       "Text is positioned where it appeared in the source image. Click a word to edit it, or shift-click and drag to select multiple.";
@@ -144,6 +153,33 @@ export function setFullEditorMode(on) {
 }
 
 editorModeBtn.addEventListener("click", () => setFullEditorMode(!state.fullEditorMode));
+
+// ---- Marquee (rubber-band) selection mode ----
+//
+// On a mouse this was never a mode: shift-drag, or drag on empty space, and the
+// marquee appears. Touch has neither - there is no shift key, and a plain drag
+// is how the page scrolls, so the surface has to give scrolling up to receive
+// it (see .marquee-mode's touch-action in style.css). Making that an explicit,
+// visible toggle rather than a silent gesture means scrolling still works the
+// rest of the time, and it makes multi-select discoverable on a phone at all,
+// which the desktop-worded hint ("shift-click and drag") never did.
+//
+// While armed, a drag starts a marquee even when it begins on top of a word -
+// otherwise on a densely recognized image there would be nowhere to start one.
+
+export function setMarqueeMode(on) {
+  state.marqueeMode = on;
+  imageFormatView.classList.toggle("marquee-mode", on);
+  if (selectMultiBtn) {
+    selectMultiBtn.textContent = on ? "Done selecting" : "Select multiple";
+    selectMultiBtn.setAttribute("aria-pressed", String(on));
+  }
+  updateImageFormatHint();
+}
+
+if (selectMultiBtn) {
+  selectMultiBtn.addEventListener("click", () => setMarqueeMode(!state.marqueeMode));
+}
 
 // ---- Add-text mode (Phase 4 hook; toggled by main.js's New text button) ----
 
@@ -765,6 +801,67 @@ export function getActiveResultText() {
 }
 
 // ---- Pointer interactions: select, drag, resize, marquee ----
+//
+// These were bound to mousedown/mousemove/mouseup only, which meant that on the
+// iOS build this app is actually shipped as, "Move components" - the feature the
+// README leads with - did not work at all. WKWebView synthesizes a click from a
+// tap, so tapping a word to edit it worked, which is exactly why the gap went
+// unnoticed: the parts that fail silently are dragging to move, dragging the
+// resize handle, and marquee selection.
+//
+// Pointer events cover mouse, touch and stylus in one path, so there is no
+// separate touch branch to keep in sync.
+
+// Tracks one pointer from press to release for a drag/resize/marquee gesture.
+//
+// setPointerCapture is what makes a drag survive leaving the element - without
+// it, moving a finger or cursor off the editor surface silently strands the
+// gesture mid-drag. Because capture retargets every subsequent event for that
+// pointer to the capturing element, the move/up listeners go on the surface
+// rather than on document.
+//
+// pointercancel is not optional on touch: iOS fires it whenever the system takes
+// the gesture over (a second finger starting a pinch, an edge swipe, an incoming
+// call). It's treated exactly like pointerup - finish the gesture cleanly and
+// commit what happened - because the alternative is an object left stuck to a
+// finger that is no longer there.
+//
+// The pointerId check keeps a second finger from driving a gesture the first one
+// started.
+function trackPointer(e, { onMove, onEnd }) {
+  const surface = imageFormatView;
+  const pointerId = e.pointerId;
+
+  try {
+    surface.setPointerCapture(pointerId);
+  } catch {
+    // Capture can be refused (a pointer that ended before capture was
+    // requested). The gesture still works, it just won't survive leaving the
+    // element - strictly better than aborting it.
+  }
+
+  function onPointerMove(ev) {
+    if (ev.pointerId !== pointerId) return;
+    onMove(ev);
+  }
+
+  function finish(ev) {
+    if (ev.pointerId !== pointerId) return;
+    surface.removeEventListener("pointermove", onPointerMove);
+    surface.removeEventListener("pointerup", finish);
+    surface.removeEventListener("pointercancel", finish);
+    try {
+      surface.releasePointerCapture(pointerId);
+    } catch {
+      // Already released (the pointer ended, or capture was never granted).
+    }
+    onEnd(ev);
+  }
+
+  surface.addEventListener("pointermove", onPointerMove);
+  surface.addEventListener("pointerup", finish);
+  surface.addEventListener("pointercancel", finish);
+}
 
 function beginObjectDrag(e, obj, additive) {
   let selectionChangedAtDown = false;
@@ -802,8 +899,6 @@ function beginObjectDrag(e, obj, additive) {
   }
 
   function onUp() {
-    document.removeEventListener("mousemove", onMove);
-    document.removeEventListener("mouseup", onUp);
     if (moved) {
       pushUndo(preSnapshot);
     } else if (!selectionChangedAtDown) {
@@ -818,8 +913,7 @@ function beginObjectDrag(e, obj, additive) {
     }
   }
 
-  document.addEventListener("mousemove", onMove);
-  document.addEventListener("mouseup", onUp);
+  trackPointer(e, { onMove, onEnd: onUp });
 }
 
 function beginResize(e) {
@@ -854,13 +948,10 @@ function beginResize(e) {
   }
 
   function onUp() {
-    document.removeEventListener("mousemove", onMove);
-    document.removeEventListener("mouseup", onUp);
     if (changed) pushUndo(preSnapshot);
   }
 
-  document.addEventListener("mousemove", onMove);
-  document.addEventListener("mouseup", onUp);
+  trackPointer(e, { onMove, onEnd: onUp });
 }
 
 function beginMarquee(e, additive) {
@@ -895,13 +986,10 @@ function beginMarquee(e, additive) {
   }
 
   function onUp() {
-    document.removeEventListener("mousemove", onMove);
-    document.removeEventListener("mouseup", onUp);
     marqueeBox.style.display = "none";
   }
 
-  document.addEventListener("mousemove", onMove);
-  document.addEventListener("mouseup", onUp);
+  trackPointer(e, { onMove, onEnd: onUp });
 }
 
 let onSurfaceClickForAdd = null;
@@ -909,8 +997,14 @@ export function setAddTextClickHandler(fn) {
   onSurfaceClickForAdd = fn;
 }
 
-imageFormatView.addEventListener("mousedown", (e) => {
+imageFormatView.addEventListener("pointerdown", (e) => {
+  // Left button only for mouse; touch and pen report button 0 too, so this
+  // doesn't exclude them.
   if (e.button !== 0) return;
+  // Only the first finger down drives a gesture. The second finger of a pinch
+  // is a non-primary pointer, and letting it start its own drag is what makes
+  // two-finger zoom yank an object across the image.
+  if (!e.isPrimary) return;
 
   // Every branch below that acts on an object (drag/resize/add-placement) calls
   // preventDefault() to stop native text selection/drag - which has the side
@@ -942,6 +1036,15 @@ imageFormatView.addEventListener("mousedown", (e) => {
 
   const additive = e.shiftKey || e.metaKey || e.ctrlKey;
   const objEl = e.target.closest(".image-format-word, .image-format-bg");
+
+  // Armed marquee wins over everything except the editor's own drag/resize: on a
+  // densely recognized image the words cover the surface, so requiring empty
+  // space to start from would leave nowhere to begin.
+  if (state.marqueeMode && !state.fullEditorMode) {
+    e.preventDefault();
+    beginMarquee(e, additive);
+    return;
+  }
 
   if (objEl) {
     const obj = state.editorObjects.find((o) => o.el === objEl);
