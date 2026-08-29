@@ -1,36 +1,48 @@
 # TextScanner — Architecture, Design & Security Analysis
 
-**Date:** 2026-08-28 · **Commit:** `931ddc6` · **Branch:** `main`
-**Scope:** folder structure, system design, UI/UX design, security. Assessment of the code as it stands, not a plan — for the roadmap and current blockers see [HANDOFF.md](HANDOFF.md).
+**Date:** 2026-08-29 · **Commit:** `7ff391e` · **Branch:** `main`
+**Scope:** folder structure, system design, UI/UX design, security. This is the **post-completion-plan** revision of the 2026-08-28 analysis below — every finding in that version's severity table has been addressed, and this revision documents what was actually built, what was measured and rejected, and what remains genuinely open. For session-to-session state see [HANDOFF.md](HANDOFF.md); for the phase-by-phase execution record see the git log (`Phase 0` through `Phase 7`, plus this rewrite).
 
 ---
 
 ## 0. Executive summary
 
-TextScanner is a **zero-build, dependency-light, local-first OCR and image-text-editing app**: ~3,200 lines of vanilla ES-module JavaScript deployed straight to GitHub Pages, wrapped in a Capacitor iOS shell that swaps Tesseract.js for native Google ML Kit behind a single dispatch seam.
+TextScanner is a **zero-build, dependency-light, local-first OCR and image-text-editing app**: ~5,450 lines of vanilla ES-module JavaScript deployed straight to GitHub Pages, wrapped in a Capacitor iOS shell that dispatches between Tesseract.js and native Google ML Kit, plus two features (Coherence Filter, translate-in-place) that dispatch between Apple's on-device Foundation Models and a BYOK Claude fallback.
 
-**What's genuinely strong**
+The codebase grew by about 2,250 lines since the prior analysis — not from feature sprawl, but from three real features (on-device rewriting, touch support, translation) each built with its own dispatcher, its own verification, and its own documentation of what didn't work.
 
-- A **clean layered module design** with an explicit dependency-inversion pattern (hook registration) that keeps the editor free of engine, inpainting, and network concerns.
-- A **single-seam engine abstraction** ([js/recognize.js](js/recognize.js)) — swapping OCR engines touched no caller.
-- A **"can only help" recognition pipeline**: every enhancement pass is scored against the previous best and discarded if it loses.
-- **Unusually honest product copy** — the README and in-app hints state limitations (handwriting, accuracy vs. Google Lens, what leaves the device) rather than hiding them.
-- **No injection surface**: `textContent` everywhere, zero `innerHTML`/`eval`/`document.write`.
+**What was already strong, and still is**
 
-**Where it's weakest**
+- The **hook-registration dependency-inversion pattern** survived a three-way file split intact, and gained one more hook (`registerModeReset`) for exactly the reason the original ones existed — keeping the object model ignorant of the interaction layer above it.
+- The **single-seam engine abstraction** pattern proved itself twice more: `js/coherence.js` and `js/translate.js` both copy `js/recognize.js`'s shape (caller states intent, dispatcher picks an implementation) rather than inventing a new one.
+- The **"can only help" recognition pipeline** is unchanged, and is now the subject of a real experiment (§2.4) rather than an assumption.
+- **Unusually honest product copy** got more honest, not less: the footer names the actual running engine, the README separates "your image is never uploaded" from "the app makes no network requests," and a dedicated document (`docs/PRIVACY-DECISIONS.md`) states the one privacy claim that couldn't be verified live (native network traffic) and says exactly why.
+- **No injection surface**, still verified: no `innerHTML`/`eval`/`document.write` anywhere in `js/` or `index.html`.
+
+**What changed, mapped against the prior severity table**
+
+| # | 2026-08-28 finding | Severity | Status now |
+|---|---|---|---|
+| 1 | CDN script, no SRI, no CSP | High | **Fixed.** Tesseract vendored (`vendor/tesseract/`); CSP added and verified against a live scan — the verification itself caught a real break (`wasm-unsafe-eval` was required, not in the original plan) |
+| 2 | API key readable by any co-hosted `github.io` project | High | **Disclosed, not fixed.** No code change closes this — it's a hosting-origin property — but the panel now states it explicitly and recommends a scoped, budget-limited key |
+| 3 | Editor is mouse-only; touch doesn't work | High | **Fixed and regression-tested.** Pointer events throughout; `test/touch-interactions.js` drives real touch via CDP specifically because a mouse-based test would have passed against the old code |
+| 4 | Native build fetches Tesseract from a CDN at launch | Medium | **Fixed** by the same vendoring that closed #1 — `scripts/sync-web-assets.sh` ships only the 67 KB script tag into the native bundle, not the 11 MB of cores/language data the web build needs |
+| 5 | ML Kit telemetry vs. the privacy claim | Medium | **Researched and decided, not fixed.** No standalone opt-out exists (the documented one is Firebase's; this app has no Firebase). Left on, disclosed precisely — see §4.5 |
+| 6 | Diagnostic dump persists recognized text to Documents | Medium | **Fixed.** `js/mlkitDebug.js` is off by default and inert until explicitly armed via a URL flag or a console-set `localStorage` key; still not deleted, because the bug it instruments is still open |
+| 7 | No keyboard path; unlabeled 11px resize handle | Medium | **Fixed.** Full keyboard path (Tab/Enter/arrows/Alt+arrows/Escape), real ARIA on every word span, a 28px slider-role handle, non-colour state signals, a manual theme override |
+| 8 | Benchmark harness depends on a symlinked, borrowed Playwright | Medium | **Fixed.** Real `playwright-core` devDependency in `test/package.json`; zero hardcoded paths |
+| 9 | Drag loop is O(objects) per mousemove | Low | **Fixed.** Scoped to the objects actually being dragged; a full reconciliation happens once, at gesture end |
+| 10 | No `PrivacyInfo.xcprivacy` | Low (was pre-submission) | **Fixed**, and verified present in a built app bundle, not just registered in the project file |
+
+**New findings from this revision**, all Low unless noted:
 
 | # | Finding | Area | Severity |
 |---|---|---|---|
-| 1 | CDN script has **no SRI and no CSP** — a jsDelivr compromise gets the DOM, all image data, and the stored API key | Security | **High** |
-| 2 | API key in `localStorage` on a **shared `*.github.io` origin** with every other project the author publishes | Security | **High** |
-| 3 | Editor is **mouse-event-only** — drag, resize and marquee do not work by touch, on an iOS-first product | UX / Design | **High** |
-| 4 | Native build still **fetches Tesseract.js from a CDN at launch** despite never using it | Security / Design | Medium |
-| 5 | ML Kit pulls **GoogleDataTransport/GoogleUtilities telemetry**, unqualified against the "nothing leaves your device" claim | Security / Privacy | Medium |
-| 6 | Diagnostic dump persists **full recognized text of every scan** to Documents | Security / Privacy | Medium |
-| 7 | **No keyboard path** through the editor; resize handle is an unlabeled 11px div | Accessibility | Medium |
-| 8 | Benchmark harness depends on a **symlinked, borrowed Playwright** and a hardcoded Chromium path | Design / Testing | Medium |
-| 9 | Drag loop is **O(objects) per mousemove** with full DOM class reconciliation | Design / Perf | Low |
-| 10 | No app-level **Apple privacy manifest** (`PrivacyInfo.xcprivacy`) — App Store blocker | Security / Release | Low (now) |
+| 11 | No bold/regular font-weight detection for edited text | Design | Informational — measured and deliberately not built (§2.6) |
+| 12 | Translating into a non-Latin script can't be re-scanned on the native build | Design | Low, disclosed at the moment it's true |
+| 13 | Native network claims are verified statically, not by device packet capture | Security | Medium — the one privacy claim not independently confirmed |
+| 14 | The recognition pipeline has not moved since the prior analysis | Design | Informational — two full tuning sweeps found nothing above the measurement's own noise floor (§2.4) |
+| 15 | Nothing in this codebase has run on a physical iPhone | Testing | Medium — every verification is a real browser, a synthetic touch context, or a simulated native bridge |
 
 ---
 
@@ -40,54 +52,60 @@ TextScanner is a **zero-build, dependency-light, local-first OCR and image-text-
 
 ```
 TextScanner/
-├── index.html                  ← the app shell (182 lines), heavily commented
-├── style.css                   ← all styling (612 lines), CSS custom properties
-├── js/                         ← 14 ES modules, ~3,200 LOC, no bundler
+├── index.html                  ← app shell, now carries a verified CSP meta tag
+├── style.css                   ← styling; three theme states (system/light/dark), not two
+├── js/                         ← 23 ES modules, ~5,450 LOC, no bundler
+├── vendor/tesseract/            ← NEW: Tesseract.js + worker + wasm cores + eng data, vendored
 ├── www/                        ← GENERATED, gitignored — Capacitor's webDir
-├── ios/                        ← Capacitor iOS shell (87 tracked files; Pods untracked)
-├── test/                       ← Playwright benchmark, CER/WER metrics, ground truth
-├── legacy-opencv-scripts/      ← origin-story Python + the 11-image test corpus
-├── scripts/sync-web-assets.sh  ← root → www/ copy, the only "build" step
-├── capacitor.config.json       ├─ native config
-├── package.json                ├─ exists *only* to drive `npx cap`
-├── README.md                   ├─ user-facing
-├── HANDOFF.md                  └─ session-to-session engineering state
+├── ios/                        ← Capacitor iOS shell + TextCoherencePlugin.swift (app-target plugin)
+├── test/                       ← Playwright benchmark, unit tests, touch tests, tuning sweep
+├── docs/
+│   ├── origins/                ← RENAMED from legacy-opencv-scripts/: history, not test data
+│   └── PRIVACY-DECISIONS.md    ← NEW: what leaves the device, and why the telemetry stays on
+├── scripts/
+│   ├── sync-web-assets.sh      ← now also copies the one vendored file the native build needs
+│   └── trim-mlkit-scripts.js   ← NEW: npm postinstall patch dropping 4 unused ML Kit models
+├── capacitor.config.json
+├── package.json                ← now has a real postinstall step
+├── README.md
+└── HANDOFF.md                  ← rewritten for the post-completion-plan state
 ```
 
-### 1.2 The one-source-of-truth rule
+### 1.2 The one-source-of-truth rule — unchanged, and the drift is gone
 
-The repo root **is** the web app. There is no `src/` and no build output, because the app deploys to GitHub Pages as-is. Capacitor needs a `webDir`, so [scripts/sync-web-assets.sh](scripts/sync-web-assets.sh) does a plain recursive copy into `www/`, and `cap sync` copies that again into `ios/App/App/public/`.
+The repo root is still the only source of truth for the web app; `www/` and `ios/App/App/public/` are still gitignored, regenerated copies. The prior analysis flagged a concrete case of drift proving the risk (`textUtil.js` surviving in both generated trees after deletion from source). That specific drift is gone — both trees were regenerated repeatedly across all eight phases and are clean.
 
-**Consequence: three copies of the web app exist on disk.** Only the root is source; `www/` and `ios/App/App/public/` are both gitignored build artifacts. This is correctly documented in the `.gitignore` and the sync script — but it is a real footgun, and there is currently drift proving it: `www/js/textUtil.js` and `ios/App/App/public/js/textUtil.js` exist while `js/textUtil.js` does not. A deleted module is still sitting in both generated trees because `cap sync` copies without pruning. It is inert (nothing imports it), but it means the stale trees are not trustworthy for reading.
+`scripts/sync-web-assets.sh` now does more than a flat copy: it deliberately copies `vendor/tesseract/tesseract.min.js` (67 KB) into `www/` but **not** the rest of `vendor/tesseract/` (~11 MB of wasm cores and language data), because the native build's recognition path is ML Kit and never touches Tesseract. The comment in the script names the exact line to change if a native Tesseract fallback is ever added — the kind of documentation this repo already did well, extended to a new asymmetry between the two builds.
 
-### 1.3 Naming and cohesion
+### 1.3 Naming and cohesion — `editor.js` is gone
 
-`js/` is flat with 14 modules and no subdirectories. At this size that's the right call — a `js/engines/`, `js/ui/`, `js/imaging/` split would add path noise for no navigational gain. The modules are cohesive and single-purpose:
+The single largest structural change: **`editor.js` (1,032 lines, previously the one module flagged as carrying more than one responsibility) no longer exists.** It's split along the section boundaries it was already banner-commented into:
 
-| Module | LOC | Role |
-|---|---|---|
-| `editor.js` | 1032 | View/controller for the Image-format & Full-image surface |
-| `main.js` | 555 | Bootstrap and wiring |
-| `ocrEngine.js` | 403 | Tesseract.js pipeline |
-| `preprocess.js` | 252 | Canvas pixel work |
-| `perspective.js` | 200 | Keystone correction |
-| `mlkitEngine.js` | 144 | Native ML Kit path |
-| `inpaint.js` | 130 | Harmonic diffusion fill |
-| `coherence.js` | 122 | Claude API call |
-| `filter.js` | 89 | Raw / Filtered predicates |
-| `tts.js` | 90 | SpeechSynthesis wrapper |
-| `mlkitDebug.js` | 92 | **Temporary diagnostic** |
-| `dom.js` | 60 | Element registry |
-| `state.js` | 47 | Shared store + constants |
-| `recognize.js` | 24 | Engine dispatch |
+| Module | LOC | Exports | Role |
+|---|---|---|---|
+| `editorObjects.js` | 927 | 34 | Object model, selection, undo/redo, pixel sampling (colour + geometry), rendering, id/element indexes |
+| `editorInteractions.js` | 758 | 8 | View/editor/marquee/add-text modes, every pointer gesture, the full keyboard path |
+| `editorExport.js` | 227 | 7 | Text extraction (Copy/Download/TTS/translation reads), PNG canvas export |
 
-`editor.js` at 1,032 lines is the only module carrying more than one responsibility (object model + selection + drag/resize + undo/redo + text extraction + canvas export). It is the natural next split — `editorObjects.js` / `editorInteractions.js` / `editorExport.js` — but it is internally well-sectioned with banner comments, so this is a maintainability nudge, not a defect.
+The dependency direction is one-way — `editorInteractions.js` and `editorExport.js` both import from `editorObjects.js`, which imports from neither — with exactly one edge running the other way: `clearImageFormatView` (in `editorObjects.js`) has to leave Move-components mode, which lives in `editorInteractions.js`. That's `registerModeReset`, a hook registered rather than imported, keeping the graph acyclic using the exact idiom the codebase already ran on for inpainting and undo (§2.2).
 
-**`legacy-opencv-scripts/` is misnamed for what it now does.** It holds two throwaway Python files *and* the entire 11-image benchmark corpus that `test/` scores against. The test data's home being a folder named "legacy" is a discoverability trap. Splitting it into `test/images/` + `docs/origins/` would cost one commit.
+`main.js` grew to 972 lines — not because it absorbed editor logic, but because it now owns wiring for translation, the two-tier Coherence Filter panel, the theme toggle, the keyboard hint, categorized scan-error messages, and a yielding batch-delete path. It imports from all three editor modules directly rather than through a barrel file, so which concern a given call belongs to is visible at the import site.
 
-### 1.4 Documentation as a first-class artifact
+The rest of the module list grew by ten files, all following the dispatcher pattern established by `recognize.js`:
 
-Unusual and worth naming: **the comments carry the reasoning, not the mechanics.** Nearly every module opens with a header explaining *why the approach was chosen and what was rejected* — the OpenCV.js main-thread freeze that killed the WASM plan ([js/preprocess.js](js/preprocess.js), [js/inpaint.js](js/inpaint.js)), why `file://` URIs are passed unstripped to ML Kit ([js/mlkitEngine.js](js/mlkitEngine.js)), why block-granularity reading-order sorting beats word-level ([js/ocrEngine.js](js/ocrEngine.js)). Each threshold constant is annotated with the failure it prevents. This is the repo's best-maintained asset, and combined with `HANDOFF.md` it makes the project resumable cold — which is exactly what it's been used for.
+```
+coherence.js / coherenceClaude.js / coherenceOnDevice.js
+translate.js / translateClaude.js / translateOnDevice.js / translateLanguages.js
+theme.js
+```
+
+`legacy-opencv-scripts/` is gone. The 11-image benchmark corpus moved to `test/images/` (with a new `README.md` documenting the categories still missing — low light, steep skew, a receipt, non-Latin script — and exactly how to add one); the two origin-story Python scripts and the stock OpenCV tutorial media they read/write moved to `docs/origins/`, with its own `README.md` distinguishing history from dependency.
+
+### 1.4 Documentation as a first-class artifact — the standard held
+
+The prior analysis called the header-comment discipline "the repo's best-maintained asset." It held under three new features and a major refactor. New examples worth naming: `js/theme.js`'s header explains why "system" is represented by the *absence* of an attribute rather than a third value; `vendor/tesseract/README.md` documents that the file list was determined by running a scan with request logging, not by reading documentation, and explicitly corrects the record on `tessdata.projectnaptha.com` (never used by tesseract.js 5.x, despite being what the original security review's suggested CSP was built around); `scripts/trim-mlkit-scripts.js`'s header explains three approaches that were tried and failed before the one that shipped.
+
+The one new practice worth calling out specifically: **negative results are written down.** `test/TUNING.md` exists to record that two full sweeps of every pipeline threshold found nothing worth changing, with the per-image numbers showing why each rejected candidate was rejected. Nothing forced this — a null result is easy to just not commit. Its presence is a real signal about how this project is being run.
 
 ---
 
@@ -96,359 +114,278 @@ Unusual and worth naming: **the comments carry the reasoning, not the mechanics.
 ### 2.1 Layer map
 
 ```
-                       index.html  (static structure, ids/classes)
+                       index.html  (structure, CSP meta, ids/classes)
                             │
         ┌───────────────────┼────────────────────┐
         │                   │                    │
      dom.js             state.js             style.css
-  (element registry) (mutable store +      (visual layer, reads
-   looked up once)    tuning constants)     the same ids/classes)
+  (element registry,   (mutable store +      (3 theme states,
+   now incl. theme/     tuning constants,      not 2; token-based
+   translate/a11y refs)  marqueeMode)           per §3.4)
         │                   │
         └─────────┬─────────┘
                   │
-   ┌──────────────┼───────────────┬─────────────────┐
-   │              │               │                 │
-recognize.js   filter.js      editor.js          tts.js
- (dispatch)   (pure preds)  (view/controller)  (speech FSM)
-   │                             │
-   ├── ocrEngine.js ─── preprocess.js
-   │   (Tesseract)  └── perspective.js
-   └── mlkitEngine.js ── mlkitDebug.js  [temporary]
-       (native ML Kit)
-                  │
-               main.js  ── coherence.js (the only network call)
-            (bootstrap: wires everything, owns inpaint.js cache)
+   ┌──────────────┼───────────────┬──────────────┬────────────────┐
+   │              │               │              │                │
+recognize.js   filter.js    editorObjects.js   coherence.js   translate.js
+ (dispatch)   (pure preds)  editorInteractions.js (dispatch)    (dispatch)
+   │                       editorExport.js         │                │
+   ├── ocrEngine.js ── preprocess.js          coherenceClaude.js  translateClaude.js
+   │   (Tesseract)  └── perspective.js        coherenceOnDevice.js translateOnDevice.js
+   └── mlkitEngine.js ── mlkitDebug.js [gated]      │                │
+       (native ML Kit)                              └──── TextCoherencePlugin.swift
+                  │                                        (shared native bridge)
+               main.js  ── inpaint.js (patch cache, now yields on batch delete)
+            (bootstrap: wires everything, owns theme.js's button, error categorization)
 ```
 
-### 2.2 The central architectural idea: hook registration
+Three dispatchers now exist where one did. `js/recognize.js` picks an OCR engine; `js/coherence.js` and `js/translate.js` each pick between an on-device tier and a BYOK Claude tier. All three share the same shape — a plain function the caller awaits, with no indication upstream of which implementation actually ran — and `js/translate.js`'s own header comment says so explicitly: it's the third module built this way, not a new pattern invented for the occasion.
 
-`editor.js` is the biggest module and would naturally accumulate dependencies on inpainting, the Claude API, and the patch cache. It doesn't — because `main.js` injects behaviour into it through registration setters:
+### 2.2 The central architectural idea: hook registration — extended, not replaced
+
+The registration setters the prior analysis documented (`setPatchProvider`, `setDeleteHandler`, `setFilterTextHook`, `setAddTextClickHandler`, `configureUndoHooks`) are all still there, unchanged in shape, now split across the three editor modules by which concern each belongs to. One was added:
 
 ```js
-setPatchProvider(fn)        // "how do I fill a deleted word's old spot?"
-setPatchCanvasProvider(fn)  // "…and for PNG export?"
-setDeleteHandler(fn)        // "what does Delete mean for this selection?"
-setFilterTextHook(fn)       // "what text is active at this filter level?"
-setAddTextClickHandler(fn)  // "a click landed in add-text mode"
-configureUndoHooks({...})   // "recreate/destroy an object for undo"
+registerModeReset(fn)   // "clearImageFormatView needs to leave Move/marquee mode"
 ```
 
-This is dependency inversion done without a framework, and it works: `editor.js` imports nothing from `inpaint.js`, `coherence.js`, or the patch cache. Undo/redo, in particular, becomes uniform — one snapshot/reconcile mechanism ([editor.js:230-300](js/editor.js#L230)) covers moves, resizes, text edits, additions *and* deletions, because object recreation is delegated back to `main.js`.
-
-**The trade-off is honest but real:** these are module-level mutable singletons with no compile-time guarantee they're wired. `editor.js` guards each (`if (onPatchNeeded)`), so an unwired hook degrades silently rather than throwing. Initialization order in `main.js` is load-bearing and undocumented as a contract. At this scale that's acceptable; a fourth consumer would justify a small explicit registry.
+This is the one dependency `editorObjects.js` has on `editorInteractions.js`, and it exists for the same reason the original hooks did: rather than have the object-model module import the interaction module (or worse, the two import each other), `editorInteractions.js` registers a callback at load time and `editorObjects.js` calls it without knowing what "Move mode" or "marquee mode" even are. The trade-off the prior analysis named — module-level mutable singletons with no compile-time guarantee they're wired — is unchanged and was not worth solving at this scale; the split proved the pattern generalizes cleanly rather than needing rework.
 
 ### 2.3 State model
 
-[js/state.js](js/state.js) is a single exported mutable object, deliberately (the header explains why: ES module `let` exports can't be reassigned from outside). Every module mutates `state.x = y` in place.
+`state.js` grew by two fields, both following the existing convention exactly: `marqueeMode` (touch's explicit rubber-band-selection toggle, §3.5) and no framework, no reactivity, still a single mutable object mutated in place. The two-representations problem the prior analysis flagged (`ocrWords` vs. `editorObjects`) is unchanged — `getActiveResultText()` in `editorExport.js` still has to choose based on active mode, and it's still the subtlest piece of logic in the app. It was not touched during the split, on the theory that refactoring genuinely subtle logic while also moving it between files is how subtle logic gets a subtle bug.
 
-- **Pro:** trivially inspectable, no framework, no reactivity cost, and the comment discipline keeps intent clear.
-- **Con:** no change notification, so keeping views in sync is manual and by convention. `refreshModifiedStates()` is the de facto reconciler and is called from eight places. `applyFilterLevel()` in `main.js` is documented as "the single place that applies a filter level change" — an invariant enforced by comment, not by code.
-- **Con:** two overlapping representations of the same scan coexist — `state.ocrWords` (immutable source of truth) and `state.editorObjects` (live, DOM-backed). `getActiveResultText()` has to choose between them based on active mode ([editor.js:735-780](js/editor.js#L735)). The rule is sound (image views read DOM, text view reads `ocrWords`), but it is the app's subtlest piece of logic.
+Object lookup is no longer linear. `state.editorObjects.find(...)` — flagged in the prior analysis as the app's most frequent scan — is now backed by two `Map`s (`objectsById`, `objectsByElement`) maintained by the four functions that are the only places the array is mutated. The array itself is kept as the order-preserving source of truth (reading order matters for text extraction), so this is an index alongside the array, not a replacement for it.
 
-### 2.4 Recognition: a scored-candidate pipeline
+### 2.4 Recognition: the scored-candidate pipeline, now measured
 
-The Tesseract path in [js/ocrEngine.js](js/ocrEngine.js) is the most sophisticated part of the system, and its design principle is stated explicitly: **preprocessing can only help, never hurt.**
+The pipeline described in the prior analysis is **completely unchanged** — same five stages, same thresholds, same guards. What's new is that it was actually tested against the corpus, twice, with a real experiment design:
 
-```
-1. Raw pass (PSM.AUTO, rotateAuto)                    → best
-2. if mean confidence < 70  → preprocessed pass       → keep if it scores higher
-3. if 0 words or conf < 40  → PSM.SPARSE_TEXT retry   → keep if it scores higher
-4. if conf < 85 → per-region reprocessing, ≤16 weakest regions:
-     crop (+6px margin) → keystone-detect from line geometry → warp
-     → contrast-normalize (+ edge-binarize if background is textured)
-     → re-recognize at PSM tuned to region aspect ratio
-     → keep only if confidence rose AND ≥50% of word count survived
-5. flattenRegions() with block-granularity reading-order sort
-```
+1. **A noise floor was established first.** The identical code, benchmarked twice, produced 57.1% and 56.9% WER — so any measured delta under roughly ±0.3 points is indistinguishable from run-to-run variation, and every subsequent number is read against that floor.
+2. **Scoring was corrected before tuning began.** Three of the eleven benchmark images (`complexPic7`, `10`, `11`) have deliberately partial ground truth — illegible fine print was omitted rather than guessed — so an engine that reads *more* real text scores *worse* on them. The prior analysis's 11-image average is dominated by these three (they sit around 130% CER). The corrected headline metric is the mean over the other eight: **45.1% CER / 57.1% WER**, and that's the number every tuning decision was actually made against.
+3. **Every threshold the completion plan named was swept**, patching both `ocrEngine.js` and `preprocess.js` in place and restoring them after each run (`test/tune-thresholds.js`). Results, in full, live in `test/TUNING.md`. The short version: four thresholds produced byte-identical output at every value tried — they don't bind on this corpus at all; one variant reproduced across both sweeps and was still rejected because its entire effect was one image out of eight (an average moved by a single sample is overfitting, not tuning); one variant (running the region pass on almost every image) was clearly and reproducibly worse, which is a useful confirmation that the existing `SKIP_REGION_PASS_OVERALL_THRESHOLD` is doing real work.
+4. **One new preprocessing idea was tried and left off, deliberately.** `REGION_INCLUDE_RAW_CANDIDATE` in `preprocess.js` gives the region-reprocessing pass an untouched candidate to lose to, mirroring a rule the whole-image pass has always followed. It measured inside the noise floor (0.1 CER, 0.2 WER) and costs an extra `recognize()` call per weak region, so it's implemented, documented, and switched off — a decision the corpus couldn't distinguish from noise, not a rejected idea.
 
-Every stage is gated on measured score, and each guard encodes a specific observed failure — the `MIN_REGION_WORD_COUNT_RATIO` guard exists because merged multi-column blocks collapse into "confidently wrong" merged words; the `MAX_ZERO_WORD_REGION_AREA_FRACTION` guard exists because a poster's illustration area got hallucinated into text. This is empirically-derived engineering, not speculative complexity.
+**Net result: the pipeline is bit-for-bit unchanged from the prior analysis, and the benchmark score after every later phase is identical to the Phase 0 baseline — 68.3% CER / 112.0% WER over all eleven images.** That stability was verified repeatedly, specifically to catch a regression from unrelated refactoring (the editor split, the touch rewrite) leaking into recognition — which never happened.
 
-**Cost:** worst case is roughly 1 + 1 + 1 + (16 × 2) = 35 `recognize()` calls on the main thread for one hard image. Bounded, but unbudgeted — there is no time cap, only a count cap.
+The one real constraint this surfaced: **eight scoring images cannot resolve a one-point difference.** `test/images/README.md` names the categories the corpus is missing (low light, steep skew, dense small text, a receipt, a street sign, a moiré case, non-Latin script) and is the actual blocker on any further tuning — not more threshold sweeping.
 
-**Coordinate handling** is careful: `buildBboxMapper` composes an inverse rotation about the image centre with an inverse upscale, and `transformBboxCorners` re-fits an axis-aligned box around four transformed corners rather than transforming a rect naively. The region path composes crop offset ∘ unwarp ∘ inverse-scale correctly.
+The megapixel cap flagged as a hardening opportunity (prior §4.7) is now implemented: `MAX_IMAGE_PIXELS` in `state.js` (12 MP) triggers a downscale in `main.js` before recognition runs, with the user told when it happens rather than a silent shrink. Verified: a 24 MP synthetic image comes back at 12.0 MP, correctly recognized, with an explicit status message.
 
-### 2.5 Engine abstraction
+### 2.5 Engine abstraction — the confidence gap is now honest, not silent
 
-[js/recognize.js](js/recognize.js) is 24 lines and is the whole abstraction:
+`js/recognize.js` is unchanged in shape (still the one-branch `isNativePlatform()` dispatch) but gained two exports: `isNativeEngine()` and `getEngineName()`, both used by the footer to name the engine actually running rather than hardcoding "Tesseract.js" (which the prior analysis correctly flagged as false on the native build).
 
-```js
-if (window.Capacitor?.isNativePlatform?.()) return recognizeWithMlKit(...);
-return recognizeWithTesseract(...);
-```
+The confidence-comparability gap the prior analysis flagged — ML Kit's fixed placeholder `100` making `LOW_CONFIDENCE_THRESHOLD` flagging silently dead on native — is fixed by making the gap visible instead of papering over it. `mlkitEngine.js` now sets confidence to `null` rather than a plausible-looking fake number (both downstream consumers were already `typeof`/null-guarded, so nothing had to change to accommodate this), and `js/recognize.js` exports `engineProvidesConfidence()`, which `main.js` uses to show a one-line note above the result whenever the active engine has nothing real to flag with. This is the fix the prior analysis explicitly named as one of two acceptable options ("surface the gap, or suppress the affordance") — surfacing was chosen because suppressing the underline styling entirely would have left no way to explain its absence.
 
-Both engines return `{ words: [{lineIndex, text, confidence, bbox}], text, preprocessed }`. The payoff is verified by history: adding ML Kit, and later removing Android, required no changes to `editor.js`, `filter.js`, or `main.js`.
+The `cornerPoints`-vs-`boundingBox` question and the hardcoded `"LATIN"` script are both **unchanged and still open** — see §5.2 and §2.7 below.
 
-**Where the contract is leaky:**
+### 2.6 Editor object model — colour matching added, font-family deliberately not
 
-- **Confidence is not comparable across engines.** ML Kit exposes no per-word score, so [mlkitEngine.js](js/mlkitEngine.js) assigns a fixed `100`. The choice to use an obviously-fake constant rather than a plausible fabrication is correct and documented — but it means `LOW_CONFIDENCE_THRESHOLD` flagging and `filter.js`'s `NOISE_CONFIDENCE_THRESHOLD` stripping are **both dead on the native path**. Filtered Text silently degrades to pattern checks only. Nothing in the UI tells the user the confidence signal is absent on their platform.
-- **`flattenBlocks` discards `cornerPoints`.** ML Kit returns both an axis-aligned `boundingBox` and the rotated quad; only the former is read. Per HANDOFF §5 this is confirmed against the plugin's Swift source and is a live suspect in the positioning bug.
-- **`script` is hardcoded to `"LATIN"`.** ML Kit needs one bundled model per script with no auto-detect; five are compiled in via the Podfile but only Latin is ever requested. Documented as intentional deferral.
-- **A round-trip through the filesystem per scan.** Blob → base64 (≈33% memory inflation, and `FileReader` holds the whole string) → `Filesystem.writeFile` to CACHE → ML Kit reads the path → delete. Forced by the plugin's path-only API, not a design choice, but it is the native path's peak-memory moment.
+The prior analysis's biggest documented gap in the editor — "no font, colour, size, or style is captured from the source" — is now half-closed, and the half that's closed was measured rather than eyeballed.
 
-### 2.6 Editor object model
+**Colour sampling** (`sampleInkAppearance` in `editorObjects.js`) reads a word's real ink colour from the source pixels at render time, before the inpainting patch covers the region. `test/render-fidelity.js` was extended specifically to measure this: the synthetic poster it draws now uses real ink colours across four background bands, so the harness has ground truth to compare against.
 
-Every word span and the background image are uniform `editorObjects` entries with `{id, type, origin, x, y, w, h, fontSizePct}` — **all geometry in percentages of the source image's natural dimensions.** The container uses `container-type: inline-size` and fonts are sized in `cqw`, so the whole layout is resolution-independent and reflows correctly at any rendered width. That's the right primitive, and it's why PNG export at full natural resolution works from the same numbers.
+The path to the current algorithm is worth recording because two earlier approaches looked correct and weren't, and both are documented in the Phase 4b commit rather than lost:
+- Comparing against a background sampled just *outside* the box inverted near a background transition (the strip above the box belonged to the old background).
+- Otsu's method on the box's own histogram, with "ink is the minority class," failed on heavy display text — where letterforms cover *more* than half their own tight bounding box, inverting the rule.
 
-`origin: 'ocr' | 'user'` cleanly drives divergent behaviour: deleting an OCR word clears its text and reveals an inpainted patch; deleting a user word removes it outright, because there is no underlying image content to restore.
+What works: Otsu for clean class means, then a **median** of a ring outside the box (not a mean — a minority of the ring straying onto a neighbouring colour moves a mean and doesn't move a median) to decide which class is the background. Measured result: mean ink-colour error fell from 204.4 (one fixed theme colour for every word) to ~30 (0 = exact, 441 = black-vs-white), with no geometry regression.
 
-**Known gaps** (all documented in HANDOFF §1):
+**Font-weight (bold/regular) detection was tried and explicitly rejected**, and this is worth citing as a model of how to handle a plausible-looking feature that doesn't survive contact with data. Ink-coverage fraction was the obvious proxy; it was measured against the harness's known ground truth and does not separate weights — in the system font stack, weight-500 and weight-700 ranges overlap almost completely (0.368–0.578 vs. 0.421–0.518), and in the display face the relationship *inverts*: bold text covers *less* of its box than medium weight does. There is no threshold that works, so none was shipped. Font *family* was never attempted, on the same reasoning the prior analysis already endorsed (getting it wrong looks worse than a neutral stack, and there's no way to verify a guess without exactly this kind of measurement infrastructure).
 
-- **Moving a word does not repair its vacated spot** — the patch is keyed to `originalBbox` and shown when modified, but the original pixels remain visible beneath the moved text in Full image.
-- **No font, colour, size or style is captured from the source.** Every rendered word uses one system stack in `--text` colour over a translucent legibility box. `test/render-fidelity.js` measured the cost: given perfect boxes, positioning drift is ~1px, but a condensed display face in the source produces visibly wider inter-word gaps.
-- **`buildResultCanvas` re-renders text with `ctx.fillText`** using the same generic stack, so PNG export inherits the same fidelity ceiling — and, unlike the DOM, has no word-wrap or overflow handling.
+**Font size** was already correct (bbox height → `fontSizePct`) and remains so — `render-fidelity.js` reports a mean width ratio of 1.00–1.01 across both sweeps, unchanged.
 
-### 2.7 Inpainting
+The move/inpaint gap the prior analysis flagged — moving a word doesn't clean up its vacated spot — is **unchanged and still open.** It was not in scope for any of the eight phases and remains the editor's longest-standing known limitation.
 
-[js/inpaint.js](js/inpaint.js) implements harmonic (Laplace) inpainting via 300 Gauss-Seidel iterations over the bbox interior with the surrounding margin as fixed boundary. The choice is well-justified: OpenCV.js's Telea/Navier-Stokes would be better, but loading its WASM runtime from a click handler reproducibly froze the tab.
+### 2.7 Inpainting — no longer blocks the main thread on a batch delete
 
-Design notes:
-- Seeding the interior with the mean boundary colour before relaxing is the right move — it prevents the loop reading residual text pixels as boundary data.
-- Results are cached per object id in `main.js`'s `patchCache` and invalidated per scan, so the cost is paid once.
-- **It runs synchronously on the main thread.** 300 iterations × 3 channels over (bbox + up to 40px margin)² is fine for a word, but "select all and delete" on a dense screenshot serializes hundreds of these with no yield, no progress, and no cancellation. A Web Worker or an iteration budget scaled to region area is the obvious hardening.
-- Harmonic diffusion produces a smooth gradient, not texture. On patterned backgrounds (wood, fabric, photo detail) the fill will read as a soft blur — acceptable for word-sized regions, and correctly scoped as such.
+The prior analysis's performance table flagged 300 synchronous Gauss-Seidel iterations with no yield as fine for one word but freezing on a batch delete. This is fixed, and the fix was measured against the old behaviour rather than just asserted better:
 
-### 2.8 Native shell
+deleting 115 words on a benchmark image, old path (one uninterrupted block): **1.0s fully blocked, 1 animation frame.** New path (`precomputePatches` in `main.js`, yielding via a real `setTimeout(0)` — a microtask would not have released the frame): **1.6s elapsed, 90 frames at ~55fps**, with a progress message shown only above an 8-word threshold (below that, the yielding is pure overhead). Slightly slower in wall-clock, which is the correct trade: the alternative is an app indistinguishable from a hung one.
 
-Minimal and correct: `CAPBridgeViewController` in a stock storyboard, `packageClassList` narrowed to exactly `FilesystemPlugin` and `TextRecognitionPlugin`, `ios/App/Pods` untracked with `Podfile.lock` committed. `ios/` is committed per standard Capacitor practice with its own nested `.gitignore` — 87 tracked files total, so the repo stays light.
+Everything else about `inpaint.js` — the harmonic-diffusion approach, the OpenCV.js rejection reasoning, the per-object patch cache — is unchanged.
 
-The pinch-to-zoom fix in [capacitor.config.json](capacitor.config.json) (`ios.zoomEnabled: true`) is a good example of the project's debugging standard: root-caused by reading Capacitor's installed Swift source (`CAPInstanceDescriptor` default → `WebViewDelegationHandler.scrollViewWillBeginZooming` disabling the recognizer), not guessed at.
+### 2.8 Native shell — one more plugin, registered by hand
 
-### 2.9 Testing strategy
+`ios/App/App/TextCoherencePlugin.swift` is new: an app-target Capacitor plugin (not an npm package — the header explains why packaging a few app-specific lines just to import them back would be pure ceremony) wrapping `SystemLanguageModel`/`LanguageModelSession` behind `availability`, `rewrite`, `translate`, and `supportedLanguages`. Because it's app-target rather than installed, it can't appear in the generated `packageClassList` that `cap sync` rebuilds from installed packages — so `MainViewController.swift` exists solely to call `bridge?.registerPluginInstance(...)` from `capacitorDidLoad()`, and `Main.storyboard` now points its root view controller at that subclass instead of the stock `CAPBridgeViewController`. This is documented in both files' headers as the one thing that silently breaks (the plugin becomes `undefined` in JS with no error) if the storyboard ever gets reset by a fresh `cap add ios`.
 
-`test/` is a **measurement harness, not a test suite**, and that's a deliberate fit — the thing worth defending here is recognition quality, which unit tests can't express.
+The API surface was written against the SDK's own `.swiftinterface` file (`FoundationModels.swiftmodule/arm64e-apple-ios.swiftinterface`), not from memory or documentation, specifically because the framework is new enough (iOS 26) that training-data familiarity would be unreliable.
 
-- [test/metrics.js](test/metrics.js): clean, dependency-free Levenshtein CER/WER with whitespace normalization.
-- [test/run-benchmark.js](test/run-benchmark.js): Playwright drives the **real app** through a real static server — no mocking. Correct methodology.
-- [test/score-manual.js](test/score-manual.js): the escape hatch for engines that can't be automated (on-device ML Kit), scoring pasted output against the same ground truth.
-- [test/render-fidelity.js](test/render-fidelity.js): isolates the renderer from the engine by feeding it perfect `measureText`-derived boxes. This is what exonerated the renderer in the positioning investigation, and it should be kept as a permanent regression test.
-- [test/replay-dump.js](test/replay-dump.js): replays a device dump offline in three variants (raw / cornerPoints / fitted), each as both the rendered view and an overlay on the source. Smoke-tested against a synthetic dump with deliberately halved boxes before the real data exists — the right way to build an instrument.
+The four unused ML Kit script models (Chinese, Devanagari, Japanese, Korean) flagged in the prior analysis's §4.5/§4.7 are removed via `scripts/trim-mlkit-scripts.js`, an npm `postinstall` step — not a Podfile edit, because the two obvious alternatives were tried first and both failed: a `:podspec` override makes CocoaPods try to clone the upstream repo at a tag that doesn't exist, and a `:path` override needs a directory of vendored sources (the exact fragility Phase 0 removed from `test/`). The script patches two files together — the podspec's dependency list and the plugin's Swift imports/switch — because dropping one without the other fails the build outright (`unable to resolve module dependency`), which is exactly what happened on the first attempt and is why the shipped version verifies both patches apply before writing either. Measured on a clean build: **56 MB → 49 MB**, with only `LatinOCRResources.bundle` present.
 
-**Real weaknesses:**
-- `test/node_modules` is a **symlink to a Playwright install borrowed from another local project**, and `CHROMIUM_PATH` is a hardcoded absolute path including a pinned build number. The benchmark runs on exactly one machine. Any second contributor, any CI, any laptop reinstall breaks it. A `test/package.json` with a real `playwright-core` devDependency would fix this at the cost of the "no dependencies" aesthetic — worth it for the project's most valuable tooling.
-- **No unit tests at all** for the genuinely testable pure functions: `metrics.js`, `filter.js`'s predicates, `buildBboxMapper`/`transformBboxCorners`, `perspective.js`'s quad math. These are exactly the places a silent regression would hide, and they need no browser.
-- **No CI.** Nothing runs on push.
+### 2.9 Testing strategy — from "runs on one machine" to a real test suite
 
-### 2.10 Performance profile
+The prior analysis's two structural weaknesses are both closed:
 
-| Hot path | Cost | Notes |
-|---|---|---|
-| Drag `onMove` | O(n) `filter` + O(n) `refreshModifiedStates` per mousemove | Each object gets `wordPasses()` + up to four `classList.toggle` calls; patch provider may re-encode a `toDataURL()` |
-| Object lookup | `state.editorObjects.find(...)` on every mousedown, input event, snapshot restore | Linear; an id→object `Map` alongside the array is a 5-line fix |
-| `readImagePixels` | Full natural-resolution `getImageData` on every render | A 4000×3000 photo = 48 MB `Uint8ClampedArray`, retained for the whole render pass |
-| `computeInpaintedPatch` | 300 synchronous iterations, no yield | Batched deletes serialize |
-| Region reprocessing | Up to 32 extra `recognize()` calls | Count-capped, not time-capped |
-| Base64 encode (native) | ~1.33× image size as a JS string | Peak memory on the native path |
+- **The symlinked, borrowed Playwright is gone.** `test/package.json` declares a real `playwright-core` devDependency; `test/run-benchmark.js`, `test/render-fidelity.js`, and `test/replay-dump.js` all resolve the browser through `playwright-core`'s own registry with zero hardcoded paths. Verified by running the full suite from a state where the borrowed symlink no longer exists.
+- **Unit tests exist**, covering exactly the pure functions the prior analysis named: `test/unit/metrics.test.js` (CER/WER, including the non-obvious property that CER can validly exceed 1.0), `test/unit/filter.test.js` (every `wordPasses` branch, including the acronym exemption), `test/unit/bbox.test.js` (`buildBboxMapper`/`transformBboxCorners`, including a rotation composed with scale — the exact class of bug the ML Kit positioning investigation is chasing), `test/unit/perspective.test.js` (keystone detection's decline-by-default behavior, and a homography round-trip). **45 tests, all passing**, run via plain `node --test` with no framework added. Two of the four exported-for-testing functions (`buildBboxMapper`, `transformBboxCorners`) were module-private before Phase 0 and are now exported solely for this, each flagged as such in a comment.
 
-None of these are pathological for the sample-image case, and the biggest (`refreshModifiedStates` in the drag loop) is masked by the fact that dragging is a deliberate, low-frequency interaction. But a 12-megapixel photo with 400 recognized words on an iPhone is the case that will surface all of them at once, and that is the app's intended use case.
+**New since the prior analysis:**
+
+- `test/touch-interactions.js` — deliberately does **not** use Playwright's mouse API (which emits `pointerType: "mouse"` and would have passed against the broken pre-Phase-4a code). Drives CDP `Input.dispatchTouchEvent` directly to produce genuinely trusted touch input, and asserts drag, resize, and marquee all actually change state, not just that no error was thrown.
+- `test/tune-thresholds.js` — the pipeline-tuning sweep harness described in §2.4, notable for restoring the patched source files even on `SIGINT`, so an interrupted sweep can't leave the pipeline silently mutated.
+- `render-fidelity.js` gained colour/weight ground truth (§2.6) alongside its existing geometry measurement.
+
+**Still true from the prior analysis: no CI.** Nothing runs on push. Every verification in this revision was run manually, once, and the results transcribed into commit messages and `test/TUNING.md` rather than being continuously re-checked. This is the same shape of risk the prior analysis flagged and it wasn't addressed — the completion plan didn't call for it, and eight phases of manual-but-thorough verification is not a substitute for a workflow that runs on every push.
+
+### 2.10 Performance profile — the two flagged hot paths are both fixed
+
+| Hot path (2026-08-28 finding) | Status |
+|---|---|
+| Drag `onMove`: O(n) `refreshModifiedStates` per mousemove | **Fixed.** `refreshModifiedStatesFor([...])` scopes the reconciliation to the objects actually moving; one full pass happens once, at gesture end |
+| Object lookup: `state.editorObjects.find(...)` | **Fixed.** O(1) via `getObjectById`/`getObjectByElement`, backed by two `Map`s maintained at every mutation site |
+| `computeInpaintedPatch`: 300 synchronous iterations, no yield | **Fixed** for the batch case (§2.7); a single delete was never the problem and is unchanged |
+| Region reprocessing: up to 32 extra `recognize()` calls | **Unchanged.** Still count-capped, not time-capped; not addressed because the tuning sweep (§2.4) found no evidence the cap is currently the limiting factor on this corpus |
+| Base64 encode on the native path | **Unchanged.** Still forced by the ML Kit plugin's path-only API |
+| `readImagePixels`: full-resolution `getImageData` on every render | **Indirectly bounded** by the new 12 MP decode cap (§2.4), which limits how large this buffer can get, though the call site itself is unchanged |
 
 ---
 
 ## 3. UI & UX design
 
-### 3.1 Flow
+### 3.1–3.2 Flow and the orthogonal state matrix — extended by one dimension
 
-A single centered column with strict progressive disclosure — nothing appears before it's relevant:
+The nine-state matrix (three views × three filter levels) the prior analysis described is unchanged in shape. Two things were added on top of it rather than into it:
 
-```
-Drop zone (+ Use camera / Try a sample)
-   ↓ file chosen
-Preview + [Scan text] [Choose a different image]
-   ↓ scan
-Progress bar (live %, engine-stage label)
-   ↓ done
-Results:  [Text | Image format | Full image]
-          [Raw | Filtered Text | Coherence Filter]
-          [Copy] [Download .txt] [Download image]
-          [Play / Stop]                       ← text & image-format only
-          [Move components] [New text] [Delete] [Undo] [Redo]  ← full image only
-```
+- **Translate-in-place** (`translate-controls` in `index.html`) is a language picker plus a Translate/Revert pair, visible only in the two image views — "in place" is meaningless in the plain Text view, which has no positions to write into. It reuses the object model wholesale: a translated line's first word span takes the whole translated string, the rest of that line's spans are emptied — which is exactly what Delete already does to an OCR word, so the vacated spots get the existing inpainting treatment for free, and the whole operation is one snapshot, so it's one Undo step.
+- The **Coherence Filter panel gained a tier indicator** ("Rewriting with: On-device" / "Claude (your API key)") with per-tier disclosure text, because the panel can now produce output from two different quality tiers and the prior single-tier design had no way to say which one a result came from. A "switch tier" button appears only when both tiers are genuinely usable — offering a toggle that would just fall back to the same tier was judged worse than not offering one.
 
-**Five input paths** — click, drag & drop, clipboard paste (bound at `window` level, so it works from anywhere on the page), camera capture (`capture="environment"`), and a canvas-generated sample image that requires no network. The sample is a genuinely good onboarding decision: a first-time visitor can evaluate the product in one click without finding a file.
+The "one seam shows" gap the prior analysis flagged — Coherence Filter's word-level dimming silently falling back to Filtered Text's view with no on-screen indication — is **unchanged.** It wasn't in scope for any phase and remains a real, if minor, discoverability gap.
 
-### 3.2 The orthogonal state matrix
+### 3.3 Standout interaction decisions — the invisible-word trick survived, and gained a colour rule
 
-Three views × three filter levels = **nine result states**, and the design keeps them genuinely orthogonal — the filter bar stays visible in all three views and means the same thing in each. This is more ambitious than it first looks, and mostly lands:
+The "invisible-until-touched" Full-image rendering the prior analysis called the single best design decision in the project is architecturally unchanged, and now composes correctly with sampled colour: an untouched word is still `color: transparent`, but a *modified* word's colour comes from a CSS custom property (`--word-color`) written by `editorObjects.js` rather than a hardcoded `color: var(--text)` — chosen specifically so the "when is a word visible" rule (still owned by the existing CSS class logic) and the "what colour is it" rule (now owned by pixel sampling) can't fight each other. An inline `color` on the element would have overridden the transparency rule outright; the custom-property indirection was necessary, not stylistic.
 
-- **Text** — plain readonly textarea.
-- **Image format** — each word positioned as it appeared, on a blank surface. This is the "read the layout without the noise" view.
-- **Full image** — the same words over the real photo.
+The empty-new-text auto-undo and the mousedown blur-forcing behaviour are both unchanged and untouched by any phase.
 
-**Filtering is non-destructive and visible.** A word the filter excludes is dimmed to `opacity: 0.35`, not removed — so the user can see *what* was filtered and switch back to Raw to recover it. Copy/Download/TTS honour the dimming. This is a materially better decision than the usual "silently drop the noise", and it's the mechanism behind the README's "graduated output, not one fixed guess" claim.
+**New interaction pattern, forced by touch:** marquee (rubber-band) selection is now an explicit toggle ("Select multiple") rather than a shift-drag gesture, because there is no shift key on a phone and a plain finger drag is how the page scrolls. While armed, the editor surface's `touch-action` drops to `none` so the browser can't intercept the drag as a scroll; it's released automatically on leaving the image views specifically so the page can never get stuck unscrollable.
 
-**One seam shows.** Coherence Filter is a generative rewrite that cannot be mapped back to individual words, so in Image format / Full image it silently falls back to Filtered Text's dimming while Text view shows the prose. Both `filter.js` and `main.js` document this as the only sensible fallback — but the UI never says so. A user on Coherence Filter who switches to Image format sees Filtered Text's word set with no indication they've changed levels.
+### 3.4 Accessibility — every named gap addressed
 
-### 3.3 Standout interaction decisions
+All seven items from the prior analysis's gap list were built, in the order the prior analysis assigned them:
 
-**Invisible-until-touched words in Full image.** An untouched OCR word renders `color: transparent` over the real photo, so nothing looks duplicated. It reveals itself on hover, on focus, when selected, and *permanently* once actually edited. This solves the core visual problem of the app's headline feature — editable text over its own source image — with three CSS rules and no JavaScript. It is the single best design decision in the project.
+1. **Keyboard path through the editor**, previously entirely absent: Tab/Shift+Tab traverses objects, Enter/Space selects, arrows nudge (Shift for a coarse step), Alt+arrows resizes, Escape clears, Delete removes (already existed). A run of nudges collapses into one undo entry via an 800ms coalescing window — verified: seven keypresses produce one undo-stack entry, not seven.
+2. **The resize handle** is now `role="slider"`, focusable, with `aria-valuenow`/`aria-valuetext` kept live, on a 28px transparent hit target (the visible square is drawn by `::after` so growing the target didn't have to grow the visual element over the word being resized).
+3. **Selection state** is announced via a live region, deliberately gated to fire only on actual count change — a marquee drag updates the selection on every pointer-move, and re-announcing the same count dozens of times a second would make a screen reader unusable rather than more usable.
+4. **Word spans** now carry `role="textbox"`, `aria-selected`, and an `aria-label` built from the word's text, a plain-language position ("top right," not a percentage), and any state otherwise conveyed only by colour (filtered-out, edited, low-confidence).
+5. **Non-colour signals**: `is-filtered-out` gained a strike-through alongside its opacity; `is-modified` gained a small outline corner-caret — an outline shape rather than a hue, specifically so it survives greyscale and high-contrast rendering.
+6. **Manual theme override** (`js/theme.js`): cycles system → light → dark, where "system" is the *absence* of a `data-theme` attribute rather than a third stored value, so a user who never touches the toggle gets byte-identical behaviour to before. `color-scheme` is now declared for all three states, fixing the flagged gap where form controls and scrollbars ignored a manual override.
+7. **Errors** are categorized rather than interpolated raw: `describeScanError()` in `main.js` maps six failure signatures (corrupt image, tainted canvas, out-of-memory, network, wasm/worker failure, generic) to a sentence that says what happened and what to do, while the real `Error` object still goes to the console. Verified by forcing each signature through the real scan path and confirming none of the six leak internals like `getImageData` or `RuntimeError` into the status text.
 
-**The empty-new-text auto-undo.** Place a "New text" box, click away without typing, and the placement is silently removed *and its undo entry popped* ([editor.js:485-510](js/editor.js#L485)). No invisible empty boxes, no polluted undo history. This is the kind of detail that only gets built after using the thing.
+One bug from building this worth recording as a caution: the first attempt to fix word-span focusability edited a function (`setFullEditorMode`) that had moved to a different file during the Phase 5 split. The edit silently matched nothing (a `.replace()` against a string that no longer existed in that file), and the failure surfaced three assertions later as a generic `focus()` no-op rather than an obvious error. Every subsequent edit in that phase asserts its target string was actually found — the general lesson being that a search-and-replace against a codebase mid-refactor needs its own verification, not just the downstream test's.
 
-**Blur forcing on editor mousedown.** Because drag/resize call `preventDefault()`, the browser's normal focus transfer is suppressed — so an actively-edited word would never blur. The handler explicitly blurs the active contenteditable first, with a comment explaining exactly why. Subtle bug, caught and documented.
+### 3.5 Mobile & the iOS target — the flagged gap is closed and regression-tested
 
-**Selection that behaves.** Shift-click toggles, marquee drag rubber-bands, Escape clears, and a mousedown that doesn't move past a 3px threshold is treated as a click rather than a zero-distance drag. `getActiveResultText` deliberately ignores a selection containing only the background image, so selecting the photo doesn't make Copy return nothing.
+This was the prior analysis's highest-impact UX finding, stated plainly: "Move components," the feature the README leads with, was effectively desktop-only. It's fixed:
 
-**TTS scoped by feature detection *and* by mode.** Hidden entirely if `speechSynthesis` is absent or never yields voices — and hidden in Full image, where the editor toolbar already competes for space, with any in-progress speech stopped on the way out.
+- All three interactions (drag, resize, marquee) rebound from `mousedown`/`mousemove`/`mouseup` to `pointerdown`/`pointermove`/`pointerup`, sharing one `trackPointer` helper rather than three separate implementations. `setPointerCapture` is what makes a drag survive leaving the element; `pointercancel` is handled identically to `pointerup` specifically because iOS fires it whenever the system interrupts a gesture (a second finger starting a pinch, an edge swipe, an incoming call) — without that handling, an object stays visually stuck to a finger that's no longer touching the screen.
+- `touch-action` is **not** blanket `none`, which the prior analysis's suggested fix implied. It's `pan-y pinch-zoom` on the surface by default (so the tall result image can still be scrolled and the already-fixed pinch-to-zoom keeps working) and drops to `pinch-zoom` only in Move mode, where owning the finger drag is the entire point. Marquee mode drops it to `none` outright, since that mode explicitly gives up scrolling in exchange for rubber-band selection (§3.3).
+- The resize handle's hit area grew from 11×11px (well under the 24px minimum the prior analysis flagged) to 28×28px.
+- **Verified with real touch, not renamed mouse events** — see §2.9. This is the one piece of the fix that most directly answers the prior analysis's own implicit warning ("that's exactly how this got missed the first time" — testing with desktop dev tools and a mouse).
 
-**Low-confidence flagging.** Sub-65-confidence words get a dotted red-tinted underline plus a `title` with the actual percentage. Honest, non-destructive, and directly supports the README's "visible confidence flagging" claim — on the web path.
+**What's still unverified: an actual physical device.** Everything above is confirmed in a headless Chromium with a synthetic touch context (`hasTouch: true`, CDP-dispatched touch events), which is a materially better test than mouse events but is not WKWebView. The pinch-vs-drag `touch-action` compromise in particular has never been felt by a human thumb.
 
-### 3.4 Accessibility
+### 3.6 Copy and honesty — both flagged issues fixed, plus a new disclosure
 
-**Present:** `aria-pressed` maintained on every toggle group via a shared `setActiveButton`; `role="group"` with `aria-label` on both toggles; `aria-live="polite"` on progress; `role="status"` on the status region and the coherence status; `tabindex="0"` + `role="button"` + Enter/Space handling on the drop zone; `:focus-visible` styling; `alt` text on both images; a full keyboard path for undo/redo (`Ctrl/Cmd+Z`, `Ctrl/Cmd+Y`, `Shift+Z`) and Delete/Backspace that correctly defers to text editing when a contenteditable is focused.
+Both specific inaccuracies the prior analysis named are corrected:
+- The footer no longer hardcodes "Runs entirely client-side with Tesseract.js" — it reads the actual running engine from `getEngineName()` and fills it in at startup, so it says "Google ML Kit" on the native build and "Tesseract.js" on the web build, correctly, without a build-time branch.
+- "Your images never leave your browser" became "Your images are never uploaded anywhere" — the claim that's actually true on both builds — and the README now states the sharper distinction explicitly: *your image is never uploaded* (true, on both builds) is not the same claim as *the app makes no network requests* (not true, once Coherence Filter/translation and ML Kit's telemetry are counted).
 
-**Gaps, roughly in impact order:**
-
-1. **No keyboard path through the editor.** Move, resize and marquee selection are pointer-only. There is no arrow-key nudge, no keyboard resize, no "select next object". A keyboard-only user can edit word text (contenteditable spans are focusable) but cannot use the feature the product is built around.
-2. **The resize handle is a bare `<div>`** — not focusable, no `role`, no accessible name, and 11×11px, well under the 24px minimum target size.
-3. **Selection state is invisible to assistive tech.** `is-selected` is a class with a visual outline; no `aria-selected`, no live region announcing "3 items selected".
-4. **Word spans have no accessible name or role.** They're contenteditable `<span>`s with no `role="textbox"` and no label, so a screen reader gives no indication that a focused span is editable, let alone that it's a recognized word at a position.
-5. **Colour/opacity-only encoding.** `is-filtered-out` is opacity alone; `is-modified` is colour plus a background tint. No text, icon, or ARIA equivalent.
-6. **Dark mode is `prefers-color-scheme`-only** with no manual override, and no `color-scheme` declaration, so form controls won't follow.
-7. **Errors are generic.** `setStatus` writes into one shared region; scan failures interpolate the raw `err.message` into user-facing copy.
-
-### 3.5 Mobile & the iOS target
-
-This is where the design and the shipping target diverge most sharply.
-
-- The viewport meta is correct and permits zooming, and the native pinch-zoom block has been fixed at the Capacitor config layer.
-- The layout is fluid, `container-type: inline-size` makes the editor surface genuinely resolution-independent, and buttons wrap.
-- **But every editor interaction is bound to `mousedown` / `mousemove` / `mouseup`** ([editor.js:805-912](js/editor.js#L805)). There are no `pointer*` or `touch*` handlers anywhere in the codebase. WKWebView synthesizes a click from a tap, so *tapping* a word to edit it works — but **dragging to move, dragging the resize handle, and marquee selection do not reliably work by touch at all.** "Move components", the feature the README leads with, is effectively desktop-only on an iOS-first product.
-
-  The fix is mechanical — swap the three handlers to `pointerdown`/`pointermove`/`pointerup` with `setPointerCapture`, and add `touch-action: none` to the editor surface — and it is arguably higher-impact than the positioning bug, because it affects a feature that is otherwise finished.
-- Secondary touch issues once that lands: the 11px resize handle needs a larger hit area, and `touch-action` will need care so single-finger drag doesn't fight the newly-enabled two-finger pinch.
-
-### 3.6 Copy and honesty
-
-The product writing is a differentiator. The drop zone warns about cursive before you waste a scan. The README has a section explicitly conceding it does not claim better raw accuracy than Google Lens. The coherence panel restates, every single time it's open, that this is the one thing that leaves your device. The hint text changes with mode *and* with editor state.
-
-Two copy issues:
-- **The footer is now inaccurate on the native build.** "Runs entirely client-side with Tesseract.js" ships inside the iOS app, where recognition is ML Kit and Tesseract never runs.
-- **"Your images never leave your browser"** needs a native-build qualifier (see §4.5).
+**New disclosure, not previously present:** the API key panel now states outright that browser storage is scoped to the whole shared `github.io` origin, not to TextScanner specifically, and recommends a scoped, budget-limited key. This doesn't fix the underlying exposure (§4.3, unchanged) — it makes the existing "commendably candid" disclosure standard the prior analysis praised extend to a risk that was previously undisclosed.
 
 ---
 
 ## 4. Security
 
-### 4.1 Threat model
+### 4.1 Threat model — unchanged, and still well handled
 
-Attack surface is deliberately small: a static site with no backend, no accounts, no server-side state, and no user-generated content shared between users. The realistic threats are (a) compromise of the one third-party script, (b) theft of the stored API key, (c) unintended data egress contradicting the privacy claim, and (d) a hostile image as an input.
+The threat model, and the "no injection surface" finding, are unchanged and were re-verified: still no `innerHTML`/`eval`/`document.write`/`new Function` anywhere in `js/` or `index.html`, across ~2,250 new lines.
 
-**Hostile-image input is well handled.** OCR output is attacker-influenced text, and it is written to the DOM exclusively via `textContent` and to canvas via `fillText`. There is **no `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, or `new Function` anywhere in `js/` or `index.html`** — verified. Filenames are never rendered. Downloads use fixed names. There is no injection path.
+### 4.2 RESOLVED — Subresource Integrity and CSP
 
-### 4.2 High — no Subresource Integrity and no CSP
+The prior analysis's highest-severity finding is closed, and closed more completely than its own suggested fix: rather than add SRI to the CDN tag, **Tesseract.js is vendored** (`vendor/tesseract/`, pinned to the same 5.1.1 that was previously loaded from jsDelivr — a hosting change, not a version bump), which removes the CDN dependency outright rather than merely pinning trust in it. The library's own runtime fetches (its worker, a wasm core, and English language data — none of which markup-level SRI could ever have covered, since they're fetched by the library itself, not by a `<script>` tag) are vendored too, resolved via `tesseractAssetPaths()` in `ocrEngine.js`.
 
-[index.html:179](index.html#L179):
-
-```html
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+The CSP is:
+```
+default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' blob: data:;
+connect-src 'self' https://api.anthropic.com blob:; worker-src 'self' blob:;
+style-src 'self'; object-src 'none'; base-uri 'none'
 ```
 
-No `integrity`, no `crossorigin`. There is also **no Content-Security-Policy** anywhere — not as a meta tag, and GitHub Pages sends none.
+Two things worth flagging about how this was arrived at, because both diverge from what the prior analysis's suggested policy assumed:
 
-This is the app's single highest-leverage weakness. A compromised or substituted jsDelivr response executes with full page privileges and gets: every scanned image (`previewImg`, all canvases), all recognized text, and `localStorage` — including the Anthropic API key. With no CSP, it can exfiltrate to anywhere. The version is pinned, which helps against accidental drift but not against a registry or CDN compromise.
+1. **The prior analysis's suggested `connect-src` allowance for `tessdata.projectnaptha.com` was based on a misconception.** Tesseract.js 5.x doesn't use that host at all — language data comes from `@tesseract.js-data` on jsDelivr (now vendored). A CSP written against the projectnaptha host would have allowed a host the app never contacts while blocking the one it does. The actual host list was determined by running a scan under request logging, not by documentation.
+2. **`'wasm-unsafe-eval'` is required and was not anticipated by the plan.** `script-src 'self'` alone makes Chromium refuse `WebAssembly.instantiate` outright, aborting every scan inside the Tesseract worker. It's the narrow keyword — it permits compiling WebAssembly and nothing else, unlike `'unsafe-eval'`, which would also re-open `eval()`/`new Function()` across the whole page.
 
-**Fix — cheap and complete:**
-```html
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"
-        integrity="sha384-…" crossorigin="anonymous"></script>
-```
-plus a meta CSP roughly:
-```
-default-src 'self'; script-src 'self' https://cdn.jsdelivr.net;
-img-src 'self' blob: data:; connect-src 'self' https://api.anthropic.com
-  https://cdn.jsdelivr.net https://tessdata.projectnaptha.com blob:;
-worker-src 'self' blob:; style-src 'self'; object-src 'none'; base-uri 'none'
-```
-(`connect-src` must allow Tesseract's worker and language-data fetches; verify against a real scan before shipping.)
+**Verified against a real end-to-end scan**: zero external (non-`self`, non-`blob:`) requests, zero CSP console violations, zero console errors, correct recognized text, exercised through Text/Image-format/Full-image/editor-mode. Also verified into the native bundle: the CSP applies identically inside the WKWebView, since `index.html` is the same file on both builds.
 
-Better still for the native build: **vendor Tesseract.js locally**, which resolves this, the offline claim, and §4.4 in one move.
+### 4.3 UNCHANGED but now disclosed — API key in `localStorage` on a shared origin
 
-### 4.3 High — API key in `localStorage` on a shared origin
+This finding is **not fixed**, and shouldn't be read as fixed: it's a property of the hosting choice (a shared `github.io` origin), not of the code, and no code change closes it short of moving to a custom domain. What changed is the disclosure: the Coherence Filter panel now states the risk in a dedicated caveat (§3.6) rather than leaving it implicit. This closes the gap between "the module's own comment is candid about this" (already true in the prior analysis) and "the user sees it" (not true before).
 
-[js/coherence.js](js/coherence.js) stores the user's Anthropic key under `textscanner.anthropicApiKey` and sends it directly from the browser with `anthropic-dangerous-direct-browser-access: true`.
+The combination with §4.2 that the prior analysis flagged — a CDN compromise being a key compromise — is now moot, since there's no CDN in the loop for either the vendored Tesseract or the recognition pipeline. The Coherence Filter's own outbound call to `api.anthropic.com` remains the one legitimate off-device path, unchanged and still correctly scoped by the CSP's `connect-src`.
 
-The module's header is commendably candid about the trade-off ("anyone with access to this browser profile could read the key back out"), and given there is no server, the alternative is not obviously better. But two aspects deserve more weight than the current disclosure gives them:
+### 4.4 RESOLVED — the native app no longer fetches from a CDN
 
-1. **The deployment origin is `https://prashaantm.github.io`, which is shared by every GitHub Pages site the author publishes.** `localStorage` is scoped per origin, not per path. Any other project of theirs served from that same origin — now or in future, including anything that ever pulls in a third-party script — can read the key. This is a property of the hosting choice, not of this code, and it is not mentioned anywhere. A custom domain, or a `github.io` project-scoped origin, is the only real mitigation.
-2. **Combined with §4.2, any CDN compromise is a key compromise.** SRI + CSP is what stops that.
+Closed by the same vendoring that closed §4.2, with one additional decision worth documenting: `sync-web-assets.sh` copies only `tesseract.min.js` (67 KB) into the native bundle, not the ~11 MB of wasm cores and language data the web build needs — because native recognition is ML Kit and `js/recognize.js` never falls back to Tesseract on a native platform, so the rest would be pure dead weight in the App Store binary. The script tag in `index.html` is shared between both builds (one `index.html`, no build-time branch), so the one small file has to ship even though it's never actually executed on iOS.
 
-Minor hardening available regardless: the disclosure could recommend a key scoped and budget-limited to this use; the key input is correctly `type="password"` with `autocomplete="off"`; and the key is never logged, never sent anywhere but `api.anthropic.com`, and error paths never echo it. That part is done right.
+### 4.5 RESEARCHED AND DECIDED, not fixed — ML Kit telemetry vs. the privacy claim
 
-### 4.4 Medium — the native app still fetches from a CDN
+The prior analysis asked for two things: (a) a decision on the documented Info.plist opt-out, and (b) copy that distinguishes the image-privacy claim from the network-silence claim. (b) is done (§3.6). (a) turned out not to be available, and that finding is itself the useful result here.
 
-`sync-web-assets.sh` copies `index.html` verbatim into the bundle, so the shipped iOS app **loads `cdn.jsdelivr.net/tesseract.js` on every launch** — a 3rd-party network request, made by an app that never calls Tesseract, executing untrusted-at-runtime script inside the WKWebView.
+**The documented opt-out (`FirebaseDataCollectionDefaultEnabled`) belongs to Firebase.** This app has no Firebase pod — confirmed by grepping `Podfile.lock`, which contains zero Firebase entries. Searching the shipped `MLKitCommon` binary for a standalone equivalent (`strings` against the framework binary, not guessing from documentation) surfaces only internal proto field names (`isStatsCollectionEnabled`, `isFirelogEnabled`, etc.) and no Info.plist key the app can actually set.
 
-Consequences: an unnecessary third-party dependency in a shipping App Store binary; the app is not actually offline-capable; and the same CDN-compromise path from §4.2 exists in the native context where the user has granted camera and photo-library access. Removing the tag (or vendoring the file) from the native bundle is the cleanest fix, and HANDOFF §Phase 4 already lists "offline asset bundling" — this should be scoped as security work, not just polish.
+**The decision: leave it on, and be exact about what it means rather than ship a switch that doesn't do anything.** `MLKitCommon`'s own `PrivacyInfo.xcprivacy` declares device-ID and diagnostic-data collection for analytics, unlinked and non-tracking. `docs/PRIVACY-DECISIONS.md` (new) records the research, the decision, and the honest way out if this needs to change later: dropping ML Kit for Apple's Vision framework, which removes the telemetry by removing the dependency rather than by claiming an opt-out that doesn't exist. This is the same "candid disclosure over false reassurance" standard the prior analysis praised the codebase for, applied to a case where the fix the reviewer expected to be available simply wasn't.
 
-### 4.5 Medium — ML Kit telemetry vs. the privacy claim
+The four unused script models flagged alongside this finding are removed — see §2.8.
 
-`Podfile.lock` shows `MLKitCommon` pulling in `GoogleDataTransport`, `GoogleUtilities`, `nanopb`, and `GoogleToolboxForMac`. Google's ML Kit performs usage/diagnostic logging to Google by default; `GoogleDataTransport` exists specifically to batch and upload it.
+### 4.6 RESOLVED — the diagnostic dump no longer persists by default
 
-To be precise about what this is and isn't: **image content is not uploaded** — recognition genuinely runs on-device, and the app's own code sends nothing. But "TextScanner never sends anything anywhere except Coherence Filter" is, on the native build, no longer strictly true at the process level. Before App Store submission this needs (a) a decision on whether to disable ML Kit usage logging via its documented Info.plist opt-out, and (b) README/in-app copy that distinguishes *your image never leaves the device* from *the app makes no network requests*. The former is the defensible claim and is still true.
+`js/mlkitDebug.js` is now off by default and genuinely inert until armed: `recordScan()` returns immediately without creating `window.__textscannerDebug` or writing any file unless a `localStorage` flag (`textscanner.debug.mlkit`) is set, either via a `?mlkitDebug=1` URL parameter or directly from the Web Inspector console. This is the "safest interim change" the prior analysis suggested (a build-time flag was the alternative, but this project has no build step to hang one off), not the "correct final change" of deletion — the positioning bug it exists to diagnose is still open (§5.2), so the module survives with its risk substantially reduced rather than eliminated. Its header states plainly why it isn't deleted yet and what the deletion trigger is.
 
-Related: five ML Kit script models (Latin, Chinese, Devanagari, Japanese, Korean) are compiled in while only Latin is ever requested — unnecessary binary size and unnecessary code in the process.
+### 4.7 Lower-severity observations — updates only
 
-### 4.6 Medium — the diagnostic dump persists recognized content
+| Item | 2026-08-28 | Now |
+|---|---|---|
+| `PrivacyInfo.xcprivacy` | App target had none | **Present**, app-target-scoped (no restatement of what dependencies' own manifests already declare), verified in a built app bundle |
+| Decode-size DoS | Unbounded, main-thread | **Bounded**: 12 MP cap, user-visible downscale message (§2.4) |
+| ML Kit script models | 5 compiled, 1 used | **1 compiled** (§2.8) |
+| Everything else in the prior table (ATS, file validation, object URL lifecycle, clipboard fallback, secrets in repo, canvas tainting, hosting) | — | **Unchanged**, re-verified where checkable (no `NSAppTransportSecurity` key present; no secrets found in a repo scan) |
 
-[js/mlkitDebug.js](js/mlkitDebug.js) accumulates every scan of a session into `window.__textscannerDebug` **and writes it to the app's Documents directory** as `textscanner-mlkit-debug.json` — full recognized text plus complete geometry, accumulated across scans, never cleared.
+### 4.8 What the prior "recommended order of work" became
 
-It is correctly built (wrapped so diagnostics can never fail a scan, clearly labelled temporary, deletion already scheduled in HANDOFF's Next action §4). The risks are containment risks, not code defects:
-
-- Documents is included in unencrypted local backups and is retrievable via Xcode's Download Container. `UIFileSharingEnabled` is *not* set, so it is at least not exposed through the Files app.
-- If a user scans a passport, a prescription, or a bank statement during a diagnostic session, that text sits in a plaintext JSON file indefinitely.
-- **This must not reach TestFlight or the App Store.** The safest interim change is a build-time flag or a guard so it only ever activates in a debug build; the correct final change is deletion, as already planned.
-
-### 4.7 Lower-severity observations
-
-| Item | Assessment |
-|---|---|
-| `config.xml` `<access origin="*" />` | Generated Cordova-compat file, gitignored. Inert under Capacitor with no Cordova plugins installed, but it is a permissive default worth not inheriting if a Cordova plugin is ever added. |
-| App Transport Security | **No overrides** — default HTTPS enforcement intact. Correct. |
-| `PrivacyInfo.xcprivacy` | Pods ship their own; **the app target has none.** Required for App Store submission, and required to declare the reasons for any covered APIs. Already flagged in HANDOFF Phase 4. |
-| Permission strings | `NSCameraUsageDescription` / `NSPhotoLibraryUsageDescription` present, specific, and honest about on-device processing. Good. |
-| File validation | `file.type.startsWith("image/")` + a 15 MB cap. Client-side trust is fine here since nothing is uploaded and decode failures are caught. |
-| Decode-size DoS (self-inflicted) | A valid 15 MB image can decode to a very large pixel buffer; `readImagePixels`, `preprocessImage` and `computeInpaintedPatch` are all unbounded in natural dimensions and run on the main thread. Freezes the user's own tab/app only. Worth a megapixel cap. |
-| Object URL lifecycle | Revoked on replace and on reset. Not revoked on unload — harmless. |
-| Clipboard fallback | `document.execCommand("copy")` — deprecated, not a security issue. |
-| Secrets in repo | **None.** `DEVELOPMENT_TEAM = YAQB9K65UT` is committed; that's an Apple Team ID, not a credential, and is standard practice — it does identify the developer account. |
-| Dependency provenance | `package-lock.json` and `Podfile.lock` both committed. Good. No automated vulnerability scanning, no Dependabot, no CI. |
-| Canvas tainting | Blob URLs are same-origin so `getImageData` never taints; every call is nonetheless wrapped in try/catch returning null. Correct defensive posture. |
-| Hosting | GitHub Pages: HTTPS, static, no server-side attack surface. |
-
-### 4.8 Recommended security order of work
-
-1. Add `integrity` + `crossorigin` to the Tesseract tag and a CSP meta. *(highest value, ~15 minutes)*
-2. Remove or vendor the Tesseract script for the native bundle. *(fixes §4.4 and the offline claim together)*
-3. Gate `mlkitDebug.js` behind a debug-only flag now, delete it when the positioning bug closes.
-4. Decide and document the ML Kit usage-logging position; correct the README/footer claims for the native build.
-5. Add the app-level `PrivacyInfo.xcprivacy` before any TestFlight build.
-6. Note the shared-`github.io`-origin caveat in the API key disclosure, or move to a custom domain.
-7. Trim the four unused ML Kit script models.
+Every item completed, most in a different order than listed (SRI/CSP and the CDN removal were combined into one vendoring change rather than sequenced; the privacy manifest and telemetry decision were done together at the end as Phase 7, since both needed the rest of the app's copy to already be accurate). The one item that changed from "do this" to "do this differently than planned" is #4 (ML Kit telemetry) — the plan assumed a settable opt-out existed; it didn't, and the actual work was determining that and disclosing it rather than flipping a switch.
 
 ---
 
-## 5. Consolidated recommendations
+## 5. What's actually left
 
-**Do next (blocks the current phase or ships broken):**
-- Pointer/touch events in the editor — "Move components" does not work by touch on the iOS target (§3.5).
-- SRI + CSP (§4.2).
-- Complete the positioning investigation with the prepared instrumentation; then delete `mlkitDebug.js` (§4.6, HANDOFF Next action).
+This section replaces the prior "Consolidated recommendations" — there's no longer a backlog in the same sense, since the completion plan's full scope shipped. What remains is a shorter, more specific list.
 
-**Do before shipping:**
-- Vendor or drop the CDN script in the native bundle (§4.4).
-- App-level privacy manifest; ML Kit telemetry decision; correct the privacy copy (§4.5, §4.7).
-- Surface the "no confidence signal on this platform" gap in the UI, or suppress the confidence affordances on the native path (§2.5).
+### 5.1 A device run
 
-**Health of the codebase:**
-- Real `playwright-core` dependency + no hardcoded Chromium path, so the benchmark runs anywhere (§2.9).
-- Unit tests for `metrics.js`, `filter.js`, `buildBboxMapper`, `perspective.js` — pure functions, no browser needed.
-- `Map` for object lookup; move `refreshModifiedStates` out of the drag loop (§2.10).
-- Split `editor.js` along its existing section boundaries.
-- Move the test corpus out of `legacy-opencv-scripts/`; prune stale files from the generated `www/` and `public/` trees.
+Nothing in this codebase has executed on a physical iPhone. Specifically unconfirmed: the `touch-action: pinch-zoom` compromise under a real thumb (verified only in a synthetic CDP touch context); the Foundation Models path on an actual Apple Intelligence-eligible device (the Swift compiles, per `xcodebuild`, and the availability logic is verified against a simulated JS-side bridge, but the model has never run); and native network traffic under an actual packet capture, which is the one claim in `docs/PRIVACY-DECISIONS.md` that's verified statically (dependency-tree analysis) rather than empirically.
 
-**Accessibility backlog:**
-- Keyboard path through the editor (arrow-nudge, keyboard resize, focus traversal).
-- Accessible resize handle; `aria-selected` on selection; names/roles on word spans; non-colour encoding for filtered/modified.
+### 5.2 The ML Kit positioning bug — still open, now the oldest item in the project
+
+Untouched by any of the eight phases, and by a wide margin the longest-open finding across both analyses. `js/mlkitDebug.js` is built and gated (§4.6); `test/replay-dump.js` is ready to replay a device dump offline in three variants. The diagnosis from the prior handoff stands unchanged: the renderer is exonerated (`render-fidelity.js`), a fixed coordinate transform is ruled out (some images render correctly, some don't, with no dimension-based pattern), and the remaining question — misplaced boxes vs. correctly-placed boxes flooded with unreadable fine print — needs exactly one instrumented device run to resolve. `js/mlkitDebug.js`, its import, and `test/replay-dump.js` should be deleted once it is.
+
+### 5.3 The benchmark corpus
+
+The hard limit on any further recognition work, stated precisely in §2.4: eight scoring images cannot resolve a one-point CER difference, which is smaller than the effect size of most plausible tuning changes. `test/images/README.md` has the categories and the process; this is the one piece of Phase 3 that was explicitly left blocked because it needs real source photographs no amount of engineering time substitutes for.
+
+### 5.4 Known limitations, carried forward deliberately
+
+Not oversights — each was investigated and the decision is documented where it lives:
+
+- Moving a word doesn't clean up its vacated spot (§2.6) — untouched, longest-standing editor gap.
+- No bold/regular font-weight detection (§2.6) — measured, doesn't work, not shipped.
+- Non-Latin translation output can't be re-scanned on the native build (§3.1) — disclosed at the point of use.
+- ML Kit telemetry has no available opt-out (§4.5) — researched, disclosed, not fixable without dropping the dependency.
+- The web build still requires a BYOK Claude key for both Coherence Filter and translation — there's no on-device model in a browser, and the plan explicitly rejected pretending otherwise.
+- The shared-origin key exposure (§4.3) — disclosed, not fixable without a custom domain.
 
 ---
 
-*Analysis based on a full read of `index.html`, `style.css`, all 14 modules in `js/`, all 5 files in `test/`, the Capacitor and Xcode configuration, `Podfile.lock`, and the git history through `931ddc6`.*
+*This revision is based on a full read of every file touched across `Phase 0` through `Phase 7` of the git history (commits `d77e029` through `9f7990a`), plus `HANDOFF.md`'s post-completion rewrite (`7ff391e`), against the 2026-08-28 analysis it supersedes in structure but not in content — every section above is a delta against that version, not a rewrite from a blank page.*
