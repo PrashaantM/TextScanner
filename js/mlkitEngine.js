@@ -45,12 +45,22 @@ import { recordScan } from "./mlkitDebug.js";
 import { state } from "./state.js";
 
 const CACHE_FILE_PATH = "textscanner-scan-input.jpg";
-// ML Kit gives no per-word confidence score at all (unlike Tesseract). Every
-// word gets this fixed placeholder rather than a fabricated real-looking
-// number - state.js's LOW_CONFIDENCE_THRESHOLD is well below it, so the
-// low-confidence-underline UI simply never flags an ML Kit word, which is
-// honest: there's nothing real to flag it with.
-const PLACEHOLDER_CONFIDENCE = 100;
+// ML Kit gives no per-word confidence score at all (unlike Tesseract), so every
+// word's confidence is null - explicitly absent, not a number.
+//
+// This used to be a fixed placeholder of 100. That was well-intentioned (it
+// avoided inventing a real-looking score) but it read, everywhere downstream,
+// as "the engine was completely certain about every single word": the
+// low-confidence underline never appeared, and its absence is exactly the
+// signal the UI uses to mean "this one is fine". A user had no way to tell
+// "nothing was flagged" from "flagging doesn't work here".
+//
+// null instead says what's true. editor.js already guards its low-confidence
+// styling on `confidence != null`, and filter.js's confidence check is
+// typeof-guarded, so neither fabricates anything from a missing score. The gap
+// is then stated outright in the UI - see engineProvidesConfidence() in
+// js/recognize.js and the note it drives in js/main.js.
+const NO_CONFIDENCE_SIGNAL = null;
 
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -83,7 +93,7 @@ function flattenBlocks(blocks) {
           const box = el.boundingBox;
           return {
             text,
-            confidence: PLACEHOLDER_CONFIDENCE,
+            confidence: NO_CONFIDENCE_SIGNAL,
             bbox: { x0: box.left, y0: box.top, x1: box.right, y1: box.bottom },
           };
         })

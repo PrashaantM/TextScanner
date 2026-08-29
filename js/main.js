@@ -37,12 +37,13 @@ import {
   coherenceDisclosureOrigin,
   coherenceUnavailable,
   newTextBtn,
+  confidenceNote,
   footerEngine,
   ttsControls,
   ttsPlayBtn,
   ttsStopBtn,
 } from "./dom.js";
-import { state, MAX_FILE_BYTES } from "./state.js";
+import { state, MAX_FILE_BYTES, MAX_IMAGE_PIXELS } from "./state.js";
 import {
   setMode,
   clearImageFormatView,
@@ -68,7 +69,7 @@ import {
   show,
   hide,
 } from "./editor.js";
-import { recognizeImage, getEngineName } from "./recognize.js";
+import { recognizeImage, getEngineName, engineProvidesConfidence } from "./recognize.js";
 import { computeInpaintedPatch } from "./inpaint.js";
 import { wordsToFilteredText } from "./filter.js";
 import {
@@ -93,6 +94,12 @@ import {
   setTTSStateChangeHandler,
   TTS_STATE,
 } from "./tts.js";
+
+// ML Kit reports no per-word confidence at all, so on the native build the
+// low-confidence underline can never appear - and an absent underline is
+// exactly how this UI says "this word is fine". Stating the gap once, up
+// front, is the difference between an honest silence and a misleading one.
+if (confidenceNote && !engineProvidesConfidence()) show(confidenceNote);
 
 // The footer claims recognition happens on-device with a named engine. That
 // name differs per build (Tesseract.js on the web, ML Kit inside the iOS app),
@@ -259,6 +266,48 @@ function waitForImageDecode(img) {
   });
 }
 
+// MAX_FILE_BYTES caps what the user can hand us; this caps what we decode. They
+// are unrelated numbers - a well-compressed photo well under 15 MB can still
+// decode into a pixel buffer big enough to lock up the main thread, since
+// readImagePixels, preprocessImage and computeInpaintedPatch each allocate
+// width*height*4 bytes and none of them yields.
+//
+// Downscaling replaces the working image outright (object URL included) rather
+// than keeping a separate "big original", so every later stage - recognition,
+// bbox math, patch sampling, PNG export - operates in one consistent coordinate
+// space. The cost is that an export comes back at the reduced size, which is
+// why this says so out loud instead of quietly shrinking someone's photo.
+//
+// Returns the message to show, or null if the image was left alone.
+async function downscaleIfOversized() {
+  const width = previewImg.naturalWidth;
+  const height = previewImg.naturalHeight;
+  const pixels = width * height;
+  if (!pixels || pixels <= MAX_IMAGE_PIXELS) return null;
+
+  const scale = Math.sqrt(MAX_IMAGE_PIXELS / pixels);
+  const targetWidth = Math.max(1, Math.round(width * scale));
+  const targetHeight = Math.max(1, Math.round(height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  canvas.getContext("2d").drawImage(previewImg, 0, 0, targetWidth, targetHeight);
+
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  // A failed toBlob is not worth aborting a scan over: the original still
+  // works, it just risks being slow. Better a sluggish scan than none.
+  if (!blob) return null;
+
+  if (state.currentObjectUrl) URL.revokeObjectURL(state.currentObjectUrl);
+  state.currentObjectUrl = URL.createObjectURL(blob);
+  previewImg.src = state.currentObjectUrl;
+  await waitForImageDecode(previewImg);
+
+  const mp = (n) => (n / 1_000_000).toFixed(1);
+  return `That image was ${mp(pixels)} MP, large enough to stall the app, so it was scaled down to ${targetWidth}x${targetHeight} (${mp(targetWidth * targetHeight)} MP) for processing.`;
+}
+
 scanBtn.addEventListener("click", async () => {
   if (!state.currentFile) return;
 
@@ -270,6 +319,7 @@ scanBtn.addEventListener("click", async () => {
 
   try {
     await waitForImageDecode(previewImg);
+    const downscaleMessage = await downscaleIfOversized();
 
     const { words, text } = await recognizeImage(previewImg, previewImg.naturalWidth, previewImg.naturalHeight, (msg) => {
       if (msg.status && typeof msg.progress === "number") {
@@ -289,7 +339,9 @@ scanBtn.addEventListener("click", async () => {
       applyFilterLevel(state.activeFilterLevel);
       setMode("text");
       show(resultSection);
-      setStatus("Text extracted successfully.", "success");
+      // The downscale is the more useful thing to say when it happened - the
+      // scan obviously succeeded, since results are on screen.
+      setStatus(downscaleMessage || "Text extracted successfully.", downscaleMessage ? "" : "success");
     }
   } catch (err) {
     hide(progressSection);

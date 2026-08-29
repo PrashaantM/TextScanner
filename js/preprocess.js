@@ -228,6 +228,35 @@ export async function preprocessImage(previewImg, naturalWidth, naturalHeight) {
 // rather than flat, since edge-binarization is a worse choice than
 // background-subtraction on a plain background and there's no reason to spend
 // a second recognize() pass trying it there.
+// Whether the region pass also tries the crop UNTOUCHED (upscaled only, no
+// contrast normalization). The whole-image pass has always worked this way -
+// recognize the raw image first, only try preprocessing if there's room to
+// improve, keep whichever scored higher - on the finding that contrast
+// normalization is a clear loss on already-clean content. The region pass never
+// inherited that rule: every region got normalized whether it needed it or not,
+// with no untouched candidate to lose to.
+//
+// OFF, because it was measured rather than assumed - and the measurement did
+// not support turning it on. Across two full sweeps of the benchmark corpus
+// (test/tune-thresholds.js), enabling it moved CER on the eight
+// complete-ground-truth images by 0.1 points and WER by 0.2 - smaller than the
+// run-to-run variation between two runs of the identical code, which was itself
+// about 0.2 WER. It helped one image (complexPic3) and hurt another
+// (complexPic6) by similar small amounts, and it costs an extra recognize()
+// call on every weak region.
+//
+// Kept as a switch rather than deleted because the corpus, not the idea, is what
+// is inconclusive here: eight scoring images cannot resolve a difference this
+// size. With the corpus grown (see test/images/README.md), flip this to true and
+// re-run the sweep - it is already a variant there.
+//
+// The idea itself is sound: the whole-image pass has always recognized the RAW
+// image first and only kept preprocessing when it scored better, on the finding
+// that contrast normalization is a clear loss on already-clean content. The
+// region pass never inherited that rule - every region gets normalized whether
+// it needs it or not, with no untouched candidate to lose to.
+const REGION_INCLUDE_RAW_CANDIDATE = false;
+
 export function preprocessRegion(cropCanvas) {
   const { width, height } = cropCanvas;
   if (!width || !height) return [];
@@ -240,6 +269,10 @@ export function preprocessRegion(cropCanvas) {
 
     const { canvas: contrastCanvas, backgroundVariance } = normalizeContrast(upscaledCanvas, REGION_BACKGROUND_DOWNSCALE_TARGET);
     const candidates = [{ canvas: contrastCanvas, scaleFactor, kind: "contrast" }];
+
+    if (REGION_INCLUDE_RAW_CANDIDATE) {
+      candidates.push({ canvas: upscaledCanvas, scaleFactor, kind: "raw" });
+    }
 
     if (backgroundVariance > HIGH_BACKGROUND_VARIANCE_THRESHOLD) {
       candidates.push({ canvas: edgeBinarize(upscaledCanvas), scaleFactor, kind: "edge" });

@@ -395,6 +395,19 @@ main {
 
 /* Phase 2's tier indicator: the first thing in the panel, so "which quality
    level am I about to get" is answered before any of the disclosures. */
+/* Sits with the result views, styled like the existing hint text but slightly
+   more prominent - it's a caveat about the result, not an instruction. */
+.confidence-note {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+  padding: 0.5rem 0.7rem;
+  border-left: 3px solid var(--border);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
 .coherence-panel__tier {
   display: flex;
   align-items: center;

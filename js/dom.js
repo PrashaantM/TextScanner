@@ -33,6 +33,9 @@ export const imageFormatBg = document.getElementById("image-format-bg");
 export const resizeHandle = document.getElementById("resize-handle");
 export const marqueeBox = document.getElementById("marquee-box");
 export const imageFormatHint = document.getElementById("image-format-hint");
+// Shown only on an engine with no per-word confidence signal (see
+// engineProvidesConfidence() in js/recognize.js).
+export const confidenceNote = document.getElementById("confidence-note");
 export const editorToolbar = document.getElementById("editor-toolbar");
 export const editorModeBtn = document.getElementById("editor-mode-btn");
 export const newTextBtn = document.getElementById("new-text-btn");

@@ -4,6 +4,16 @@
 // from outside the module that declares them.
 
 export const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15 MB
+// Decoded-pixel cap, which is a different limit from MAX_FILE_BYTES and guards
+// a different failure. A well-compressed 15 MB JPEG can decode to a buffer far
+// larger than its file size suggests, and readImagePixels, preprocessImage and
+// computeInpaintedPatch all allocate width*height*4 bytes and run on the main
+// thread - so a 48 MP photo asks for ~192 MB per pass and freezes the tab (or,
+// on a phone, gets the app killed). 12 MP is chosen so a standard iPhone main
+// camera shot passes through untouched and only genuinely huge images are
+// downscaled; see downscaleIfOversized in js/main.js, which tells the user when
+// it happens rather than quietly changing their image.
+export const MAX_IMAGE_PIXELS = 12 * 1000 * 1000;
 export const MAX_UNDO_STEPS = 100;
 // Tesseract's word bbox height (used directly as a CSS font-size) renders visibly
 // larger than the source text, since a font's em-box is taller than its ink height.

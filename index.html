@@ -212,6 +212,13 @@
         <div id="resize-handle" class="resize-handle"></div>
         <div id="marquee-box" class="marquee-box"></div>
       </div>
+      <!-- Shown only when the active engine reports no per-word confidence at
+           all (ML Kit, on the native build). Without it, the low-confidence
+           underline simply never appears, and its absence reads as "every word
+           scored perfectly" rather than "there is no score here to read". -->
+      <p class="confidence-note hidden" id="confidence-note">
+        This engine doesn't report per-word confidence, so no words are flagged for double-checking. Read the result with that in mind.
+      </p>
       <p class="image-format-hint hidden" id="image-format-hint">
         Text is positioned where it appeared in the source image. Click a word to edit it, or shift-click and drag to select multiple.
       </p>

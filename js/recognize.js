@@ -30,6 +30,14 @@ export function getEngineName() {
   return isNativeEngine() ? "Google ML Kit" : "Tesseract.js";
 }
 
+// Whether the active engine reports a real per-word confidence score.
+// Tesseract does; ML Kit exposes none at all. The UI's low-confidence underline
+// is only meaningful when this is true - otherwise its absence would read as
+// "every word scored perfectly" rather than "there is nothing to score with".
+export function engineProvidesConfidence() {
+  return !isNativeEngine();
+}
+
 export async function recognizeImage(previewImg, naturalWidth, naturalHeight, onProgress) {
   if (isNativeEngine()) {
     return recognizeWithMlKit(previewImg, naturalWidth, naturalHeight, onProgress);
