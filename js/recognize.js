@@ -16,8 +16,22 @@
 import { recognizeImage as recognizeWithTesseract } from "./ocrEngine.js";
 import { recognizeImage as recognizeWithMlKit } from "./mlkitEngine.js";
 
+// The single place that answers "which engine is this build actually running?".
+// Everything else that needs to know - the footer's engine name, the native
+// confidence-signal note - reads it from here rather than re-testing for
+// Capacitor itself, so there's exactly one definition of "native".
+export function isNativeEngine() {
+  return !!window.Capacitor?.isNativePlatform?.();
+}
+
+// Display name for the engine that will handle the next scan. Used in
+// user-facing copy, so it names the product a reader would recognize.
+export function getEngineName() {
+  return isNativeEngine() ? "Google ML Kit" : "Tesseract.js";
+}
+
 export async function recognizeImage(previewImg, naturalWidth, naturalHeight, onProgress) {
-  if (window.Capacitor?.isNativePlatform?.()) {
+  if (isNativeEngine()) {
     return recognizeWithMlKit(previewImg, naturalWidth, naturalHeight, onProgress);
   }
   return recognizeWithTesseract(previewImg, naturalWidth, naturalHeight, onProgress);

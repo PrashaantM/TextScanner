@@ -1,6 +1,16 @@
 // mlkitDebug.js: captures ML Kit's raw, untransformed recognition result so the
 // Image format/Full image positioning bug can be diagnosed OFF the device.
 //
+// OFF BY DEFAULT, AND INERT UNLESS EXPLICITLY ARMED. See "Arming it" below.
+// Until then every export here is a no-op: nothing is recorded, nothing is
+// written to disk, and window.__textscannerDebug is never even created. That
+// matters because what this records is the full recognized text of every scan
+// in a session, and it used to be written unconditionally to the app's
+// Documents directory - which is included in unencrypted local backups and
+// retrievable via Xcode's Download Container. A user who scanned a passport, a
+// prescription or a bank statement left that text sitting in a plaintext JSON
+// file indefinitely, on a build they had no way to tell was instrumented.
+//
 // Why this exists: the on-device run rendered Image format as "gibberish" on
 // complexPic1/2/6/7 and "really good" on 4/5/8/10, with no correlation to image
 // dimensions or EXIF orientation. test/render-fidelity.js has since ruled out the
@@ -16,7 +26,20 @@
 // test/replay-dump.js can replay offline against the same source image, so the
 // diagnosis needs exactly one round trip to the device rather than one per guess.
 //
-// Two ways to get the dump off the device, in preference order:
+// ---- Arming it ----
+//
+// There is no build step in this project to hang a compile-time flag off, so the
+// gate is an explicit runtime opt-in that a shipped build can never satisfy on
+// its own. Either:
+//   - open the app with ?mlkitDebug=1 in the URL (works on the web build, and
+//     persists the flag so it survives the reload), or
+//   - set the flag directly from Safari > Develop > <device> > TextScanner:
+//       localStorage.setItem("textscanner.debug.mlkit", "1")
+//     then rescan. This is the native route, and it costs nothing extra: the
+//     Web Inspector console is already where the dump gets collected from.
+// Disarm with ?mlkitDebug=0, or localStorage.removeItem("textscanner.debug.mlkit").
+//
+// Retrieving a dump, once armed:
 //   1. Safari > Develop > <device> > TextScanner, then in the console:
 //        copy(JSON.stringify(window.__textscannerDebug))
 //   2. The JSON is also written to the app's Documents directory as
@@ -24,18 +47,63 @@
 //      the app > Download Container, then look in AppData/Documents).
 //
 // DIAGNOSTIC ONLY - delete this module, its import in mlkitEngine.js, and
-// test/replay-dump.js once the positioning bug is understood.
+// test/replay-dump.js once the positioning bug is understood. It is gated rather
+// than already deleted because the bug is still open: the one instrumented
+// device run it was built for hasn't happened yet (see HANDOFF.md's Next action).
 
 const DUMP_FILE = "textscanner-mlkit-debug.json";
+const DEBUG_FLAG_KEY = "textscanner.debug.mlkit";
+
+// Resolved once at module load. A scan can't quietly arm itself halfway through
+// a session, and the check can't be re-run per scan on a whim - the flag has to
+// be set deliberately, before the scan, by someone with a console or a URL bar.
+const debugEnabled = resolveDebugFlag();
+
+function resolveDebugFlag() {
+  let enabled = false;
+  try {
+    enabled = localStorage.getItem(DEBUG_FLAG_KEY) === "1";
+  } catch {
+    // Private browsing / storage disabled. Stays off, which is the safe default.
+  }
+
+  try {
+    const param = new URLSearchParams(window.location.search).get("mlkitDebug");
+    if (param === "1" || param === "0") {
+      enabled = param === "1";
+      // Persist so the flag survives the WKWebView's own navigations, and so
+      // disarming actually sticks rather than reverting on the next load.
+      try {
+        if (enabled) localStorage.setItem(DEBUG_FLAG_KEY, "1");
+        else localStorage.removeItem(DEBUG_FLAG_KEY);
+      } catch {
+        // Same as above - the flag just won't persist past this page load.
+      }
+    }
+  } catch {
+    // No URL/searchParams available (shouldn't happen in a browser context).
+  }
+
+  return enabled;
+}
+
+// Exported so mlkitEngine.js and any future UI can tell whether a session is
+// instrumented without duplicating the gate logic.
+export function isMlkitDebugEnabled() {
+  return debugEnabled;
+}
 
 // Accumulates across scans in one session, keyed in order, so all 11 test images
-// can be captured in a single pass rather than one file per image.
-if (!window.__textscannerDebug) window.__textscannerDebug = { scans: [] };
+// can be captured in a single pass rather than one file per image. Only created
+// once armed - an un-armed session leaves no stash to find at all.
+if (debugEnabled && !window.__textscannerDebug) window.__textscannerDebug = { scans: [] };
 
 // The bboxes are what's under investigation, so nothing here is normalized,
 // rounded, or reshaped - ML Kit's JSON is kept as-is and only annotated with the
 // image geometry the renderer positions against.
 export async function recordScan({ label, naturalWidth, naturalHeight, rawResult, imageByteLength }) {
+  if (!debugEnabled) return null;
+
   const entry = {
     label,
     at: new Date().toISOString(),

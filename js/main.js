@@ -31,6 +31,7 @@ import {
   coherenceChangeKeyBtn,
   coherenceStatus,
   newTextBtn,
+  footerEngine,
   ttsControls,
   ttsPlayBtn,
   ttsStopBtn,
@@ -61,7 +62,7 @@ import {
   show,
   hide,
 } from "./editor.js";
-import { recognizeImage } from "./recognize.js";
+import { recognizeImage, getEngineName } from "./recognize.js";
 import { computeInpaintedPatch } from "./inpaint.js";
 import { wordsToFilteredText } from "./filter.js";
 import { getStoredApiKey, setStoredApiKey, clearStoredApiKey, reconstructCoherentText } from "./coherence.js";
@@ -76,6 +77,12 @@ import {
   setTTSStateChangeHandler,
   TTS_STATE,
 } from "./tts.js";
+
+// The footer claims recognition happens on-device with a named engine. That
+// name differs per build (Tesseract.js on the web, ML Kit inside the iOS app),
+// and the old hardcoded "Tesseract.js" was simply false in the shipped app, so
+// it's filled in from the dispatcher that actually decides.
+if (footerEngine) footerEngine.textContent = getEngineName();
 
 function setStatus(message, kind) {
   statusSection.textContent = message;

@@ -55,6 +55,10 @@ export const coherenceGenerateBtn = document.getElementById("coherence-generate-
 export const coherenceChangeKeyBtn = document.getElementById("coherence-change-key-btn");
 export const coherenceStatus = document.getElementById("coherence-status");
 
+// Filled in at startup with whichever recognition engine this build actually
+// runs (see js/main.js) - Tesseract.js on the web, ML Kit inside the iOS app.
+export const footerEngine = document.getElementById("footer-engine");
+
 export const ttsControls = document.getElementById("tts-controls");
 export const ttsPlayBtn = document.getElementById("tts-play-btn");
 export const ttsStopBtn = document.getElementById("tts-stop-btn");

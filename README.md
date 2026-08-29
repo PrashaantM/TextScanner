@@ -19,7 +19,7 @@ What this doesn't claim: better raw recognition accuracy than those tools on har
 ## Features
 
 - Drag and drop, click to browse, paste from clipboard, or capture a photo on mobile
-- Optical character recognition powered by [Tesseract.js](https://github.com/naptha/tesseract.js), running fully client-side via WebAssembly
+- Optical character recognition powered by [Tesseract.js](https://github.com/naptha/tesseract.js), running fully client-side via WebAssembly, and served from this origin rather than a CDN (see [`vendor/tesseract/`](vendor/tesseract)). The iOS app uses Google's ML Kit instead, on the same code path - see `js/recognize.js`
 - Before recognition, each image is auto-deskewed and, when it looks like it would help (low OCR confidence on the raw image), also run through contrast-normalizing preprocessing, to cut down on the garbled/junk characters that plain OCR produces on low-contrast, uneven-lighting, skewed, or busy-background photos. Preprocessing is only kept when it actually scores better than the raw image, so it never makes a clean image worse
 - Beyond that whole-image pass, each recognized text block that scored poorly is individually re-cropped and re-recognized with settings tuned to that block alone (its own local contrast, its own upscale, and - for a text-over-photo/textured background - an edge-based binarization candidate as well), rather than treating a poster's title, body copy, and fine print identically. A block whose own line geometry shows a consistent keystone (shallow-angle-photo) tilt is corrected before that re-recognition; detecting the physical edges of a photographed page/sign in a cluttered photo and fully flattening it is not attempted, since that's a much harder problem this project doesn't tackle
 - Handwriting recognition is weak, especially cursive - Tesseract.js is a print-text engine and this project doesn't change that
@@ -38,7 +38,7 @@ What this doesn't claim: better raw recognition accuracy than those tools on har
 - Live progress feedback while the OCR engine loads and processes the image
 - Copy the extracted text to your clipboard or download it as a `.txt` file, from any view
 - A built-in sample image so you can try it out with no image of your own
-- Everything runs on-device and works offline after the first load, except Coherence Filter, which needs a network call to Claude's API and is entirely opt-in - the rest of the app, including recognition itself, never sends anything anywhere
+- Everything runs on-device, and the web app works offline outright: Tesseract.js, its worker, its WebAssembly core and its English language data are all served from this repository rather than a CDN, so the first scan needs no network either. The precise, honest claim is that **your image is never uploaded** - recognition happens on the device and the picture itself goes nowhere. The app is not, however, wholly silent on the network: Coherence Filter makes an opt-in call to Claude's API with your extracted text (disclosed every time the panel is open), and the iOS build links Google's ML Kit, which performs its own usage logging (see `ios/` notes and the App Store readiness work)
 - Responsive layout with automatic light and dark themes
 
 ## How it works
@@ -81,6 +81,8 @@ js/perspective.js    Keystone correction (line-geometry-based) and the generic
 js/filter.js         Raw / Filtered Text level logic (noise stripping over OCR words)
 js/coherence.js      Coherence Filter: API key storage and the Claude API call that
                      reconstructs Filtered Text into prose
+vendor/tesseract/    Tesseract.js 5.1.1, its worker, wasm cores and English language
+                     data, served from this origin instead of a CDN (see its README)
 docs/origins/        Early OpenCV exploration scripts from this project's origins,
                      plus the sample media they read (history, not a dependency)
 test/                CER/WER benchmark harness (Playwright-driven), unit tests for the
@@ -95,7 +97,7 @@ TextScanner started as a set of Python and OpenCV exercises exploring computer v
 ## Tech stack
 
 - HTML, CSS, and vanilla JavaScript
-- [Tesseract.js](https://github.com/naptha/tesseract.js) for in-browser OCR
+- [Tesseract.js](https://github.com/naptha/tesseract.js) for in-browser OCR, vendored locally rather than loaded from a CDN
 - [GitHub Pages](https://pages.github.com/) for hosting
 
 ## License

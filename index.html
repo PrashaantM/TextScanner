@@ -1,15 +1,44 @@
 <!--
   index.html: markup and static structure for TextScanner.
-  Loads Tesseract.js from a CDN (see the script tags near the end of body) followed
-  by js/main.js (an ES module; see js/dom.js for the full set of element ids/classes
+  Loads the locally vendored Tesseract.js (see the script tag near the end of body,
+  and vendor/tesseract/README.md for what's in there and why) followed by
+  js/main.js (an ES module; see js/dom.js for the full set of element ids/classes
   it and its sibling modules look up), which wires up all interaction (drag/drop
   input, OCR, results, and the image editor). style.css provides the visual styling
   for these same elements.
+
+  The Content-Security-Policy below is enforced by the browser on the GitHub Pages
+  deployment (which sends no CSP header of its own) and inside the iOS WKWebView
+  alike. Every directive is deliberately tight; see the comment above it for what
+  each one is actually carrying.
 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <!--
+    Verified against a real end-to-end scan, not written from memory:
+    - script-src 'self' is enough for scripts now that Tesseract.js is vendored.
+      No CDN host remains, so a CDN compromise can no longer reach the scanned
+      image, the recognized text, or the stored API key.
+    - 'wasm-unsafe-eval' is required and was found the hard way: without it,
+      Chromium blocks WebAssembly.instantiate outright and every scan aborts
+      inside the Tesseract worker. It is the narrow keyword - it permits
+      compiling WebAssembly and nothing else, unlike 'unsafe-eval', which would
+      also re-open eval()/new Function() across the whole page. Safari only
+      began enforcing CSP against WebAssembly in 16.4, the same release that
+      added this keyword, so older WKWebViews are unaffected either way.
+    - worker-src blob: is required: tesseract.js fetches worker.min.js and wraps
+      it in a Blob worker (its workerBlobURL default), so the worker's own URL is
+      a blob:, not the file it came from.
+    - img-src blob: is the selected image (an object URL) and the inpainted patch
+      fills; data: is the inline SVG favicon and the patch canvases' toDataURL().
+    - connect-src blob: covers mlkitEngine.js re-reading the preview image via
+      fetch(); api.anthropic.com is the Coherence Filter's BYOK call, the one
+      deliberate off-device request in the app.
+    - object-src/base-uri are locked off outright; neither is used.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' blob: data:; connect-src 'self' https://api.anthropic.com blob:; worker-src 'self' blob:; style-src 'self'; object-src 'none'; base-uri 'none'" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TextScanner</title>
   <meta name="description" content="Extract text from any image, right in your browser. No upload, no server, no account." />
@@ -106,6 +135,17 @@
             Coherence Filter sends your extracted text to Anthropic's Claude API to rewrite it as prose &mdash;
             the only thing in TextScanner that leaves your device. Your API key is stored only in this browser.
           </p>
+          <!-- Not a hypothetical: browser storage is scoped per origin, not per
+               path, and the web build is served from a github.io origin shared
+               with every other project published under the same account. Saying
+               so plainly is the same standard the rest of this app's copy holds
+               itself to. -->
+          <p class="coherence-panel__disclosure coherence-panel__disclosure--caveat">
+            One caveat worth knowing: on the web version, that storage belongs to the whole
+            <code>github.io</code> origin, not just to TextScanner &mdash; any other site published
+            at the same origin can read the key back. Use a key scoped and budget-limited to this,
+            and remove it with &ldquo;Change key&rdquo; when you're done.
+          </p>
           <div id="coherence-key-row" class="coherence-panel__row">
             <input id="coherence-api-key" class="coherence-panel__key-input" type="password" placeholder="Anthropic API key (sk-ant-...)" autocomplete="off" />
             <button id="coherence-save-key-btn" class="btn btn--secondary" type="button">Save key</button>
@@ -165,18 +205,29 @@
     </section>
   </main>
 
+  <!-- Both claims here have to stay true on BOTH builds. Recognition is
+       Tesseract.js on the web and Google's ML Kit inside the iOS app (see
+       js/recognize.js), so the engine is named by whichever actually ran -
+       js/main.js fills #footer-engine in at startup. And the honest privacy
+       claim is about the image, not about network silence: the image itself is
+       read and recognized on the device and is never uploaded, but the app is
+       not wholly silent - the Coherence Filter's opt-in Claude call, and ML
+       Kit's own bundled usage logging on the native build, both exist. -->
   <footer class="site-footer">
     <p>
-      Runs entirely client-side with <a href="https://github.com/naptha/tesseract.js" target="_blank" rel="noopener noreferrer">Tesseract.js</a>.
-      Your images never leave your browser.
+      Recognition runs on your device, using <span id="footer-engine">Tesseract.js</span>.
+      Your images are never uploaded anywhere.
       &middot;
       <a href="https://github.com/PrashaantM/TextScanner" target="_blank" rel="noopener noreferrer">View source</a>
     </p>
   </footer>
 
-  <!-- Tesseract.js is loaded from the jsDelivr CDN before js/main.js so the global
-       Tesseract object it exposes is available when js/ocrEngine.js calls it. -->
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+  <!-- Tesseract.js is served from this origin (vendored at the exact version that
+       was previously pinned on jsDelivr) before js/main.js, so the global Tesseract
+       object it exposes is available when js/ocrEngine.js calls it. The worker,
+       wasm core and language data it pulls in at scan time are vendored too - see
+       TESSERACT_ASSETS in js/ocrEngine.js. -->
+  <script src="vendor/tesseract/tesseract.min.js"></script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

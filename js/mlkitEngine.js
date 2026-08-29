@@ -39,7 +39,8 @@
 
 // DIAGNOSTIC, temporary: see js/mlkitDebug.js. Records ML Kit's raw result so
 // the Image format positioning bug can be replayed off-device. Changes nothing
-// about what this module returns.
+// about what this module returns, and is OFF unless explicitly armed - on a
+// shipped build recordScan is a no-op that records and writes nothing.
 import { recordScan } from "./mlkitDebug.js";
 import { state } from "./state.js";
 

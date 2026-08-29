@@ -34,11 +34,36 @@ import { preprocessImage, preprocessRegion } from "./preprocess.js";
 import { detectKeystoneQuad, warpPerspective } from "./perspective.js";
 
 // Tesseract.js's PSM constants (see naptha/tesseract.js src/constants/PSM.js) are
-// exposed as Tesseract.PSM at runtime; this mirrors that file in case a future CDN
+// exposed as Tesseract.PSM at runtime; this mirrors that file in case a future
 // build ever omits the export, so a missing global degrades gracefully instead of
 // throwing before OCR can even start.
 const FALLBACK_PSM = { AUTO: "3", SPARSE_TEXT: "11", SINGLE_BLOCK: "6", SINGLE_LINE: "7" };
 
+// Everything Tesseract.js needs at runtime is vendored into vendor/tesseract/
+// and served from this origin. Left to its own defaults, tesseract.js@5.1.1
+// fetches four things from jsDelivr on the first scan - the worker script, a
+// core .wasm.js build, and the English language data - which meant the shipped
+// iOS app reached out to a CDN mid-scan, there was no way to add SRI to files
+// the library requests itself, and "runs entirely offline" was only aspirational.
+// These three paths turn all of that off; the CSP in index.html then has no
+// third-party host left to allow.
+//
+// The exact filenames are not guesses: a scan was run with request logging and
+// these are the four URLs it actually hit (see vendor/tesseract/README.md).
+// - workerPath: fetched, then wrapped in a Blob worker (workerBlobURL defaults
+//   to true), which is why index.html's CSP needs worker-src blob:.
+// - corePath: a DIRECTORY. The worker appends its own filename based on runtime
+//   SIMD detection and the LSTM-only flag implied by oem 1 below, so both LSTM
+//   builds are vendored. The two legacy (non-LSTM) builds are deliberately not:
+//   nothing here requests oem 0/2. Add them here if that ever changes.
+// - langPath: also a directory; the worker appends "eng.traineddata.gz". The
+//   _best_int variant is the one oem 1 resolves to, so vendoring it keeps
+//   recognition byte-identical to what the CDN was serving.
+const TESSERACT_ASSETS = {
+  workerPath: new URL("vendor/tesseract/worker.min.js", document.baseURI).href,
+  corePath: new URL("vendor/tesseract/core/", document.baseURI).href,
+  langPath: new URL("vendor/tesseract/tessdata/", document.baseURI).href,
+};
 
 // Below this mean confidence, the raw pass is considered to have real room for
 // improvement, and preprocessing is worth trying as a second candidate.
@@ -331,7 +356,7 @@ async function reprocessRegion(worker, PSM, previewImg, naturalWidth, naturalHei
 // UI-agnostic and leaves rendering the progress bar to the caller.
 export async function recognizeImage(previewImg, naturalWidth, naturalHeight, onProgress) {
   const PSM = { ...FALLBACK_PSM, ...((window.Tesseract && window.Tesseract.PSM) || {}) };
-  const worker = await window.Tesseract.createWorker("eng", 1, { logger: onProgress });
+  const worker = await window.Tesseract.createWorker("eng", 1, { ...TESSERACT_ASSETS, logger: onProgress });
 
   const runPass = async (source, width, height, psm, preprocessed) => {
     await worker.setParameters({ tessedit_pageseg_mode: psm });
