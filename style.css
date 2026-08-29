@@ -562,13 +562,20 @@ main {
   pointer-events: none;
 }
 
+/* --word-color and --word-bg are written per word by js/editor.js from colour
+   sampled out of the source image (see sampleInkAppearance). They are custom
+   properties rather than an inline `color` on purpose: the rules further down
+   decide WHEN a word is visible (an untouched word over a photo is deliberately
+   transparent), and an inline colour would override that. These decide only what
+   colour it is once shown, and fall back to the theme for user-added words,
+   which have no source pixels to sample. */
 .image-format-word {
   position: absolute;
   z-index: 2;
   display: inline-block;
   white-space: pre;
   line-height: 1.15;
-  color: var(--text);
+  color: var(--word-color, var(--text));
   background: transparent;
   border: none;
   border-radius: 3px;
@@ -620,14 +627,24 @@ main {
   color: transparent;
 }
 
-.image-format-view.show-bg .image-format-word:hover,
-.image-format-view.show-bg .image-format-word.is-modified:not(:empty) {
-  color: var(--text);
+/* An edited word over the photo. The backing box used to be a flat slab of the
+   app's surface colour on every word - the single most obvious tell that a word
+   had been retyped. It is now the colour sampled from around that word, and only
+   when the sampled ink doesn't already contrast enough to be read without one
+   (js/editor.js decides, and writes `transparent` when it isn't needed). Hover
+   keeps a faint box regardless, since that one is feedback, not legibility. */
+.image-format-view.show-bg .image-format-word:hover {
+  color: var(--word-color, var(--text));
   background: color-mix(in srgb, var(--surface) 90%, transparent);
 }
 
+.image-format-view.show-bg .image-format-word.is-modified:not(:empty) {
+  color: var(--word-color, var(--text));
+  background: var(--word-bg, color-mix(in srgb, var(--surface) 90%, transparent));
+}
+
 .image-format-view.show-bg .image-format-word:focus {
-  color: var(--text);
+  color: var(--word-color, var(--text));
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   box-shadow: 0 0 0 1px var(--accent);
 }

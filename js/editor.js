@@ -385,6 +385,20 @@ export function applyObjectStyle(obj) {
   if (obj.type === "word") {
     obj.el.style.fontSize = `${obj.fontSizePct}cqw`;
     obj.el.style.minWidth = `${obj.w}%`;
+    // Written as custom properties rather than as `color` directly, and that
+    // distinction matters: in Full image mode an untouched word is deliberately
+    // `color: transparent` so it doesn't read as a duplicate of the photo's own
+    // text. An inline `color` would beat that rule and make every recognized
+    // word visible over the image. A custom property feeds the existing rules
+    // instead of overriding them, so each keeps deciding *when* to show a word
+    // while this decides *what colour* it is when shown.
+    if (obj.textColor) obj.el.style.setProperty("--word-color", obj.textColor);
+    // The backing box exists only for legibility. When the sampled ink already
+    // contrasts with its surroundings, the word sits straight on the image,
+    // which is the whole point of matching the colour.
+    if (obj.textColor) {
+      obj.el.style.setProperty("--word-bg", obj.needsBackingBox ? obj.textBackgroundColor || obj.patchColor || "transparent" : "transparent");
+    }
   } else {
     obj.el.style.width = `${obj.w}%`;
     obj.el.style.height = `${obj.h}%`;
@@ -444,6 +458,13 @@ export function createWordObject({ text, x, y, w, h, fontSizePct, origin, confid
     originalBbox: bbox || null,
     confidence: typeof confidence === "number" ? confidence : null,
     patchColor: null,
+    // Filled in by renderImageFormatView from the source pixels (see
+    // sampleInkAppearance). A user-added word has no source to sample, so these
+    // stay null and it renders in the theme's own text colour and weight.
+    textColor: null,
+    textBackgroundColor: null,
+    needsBackingBox: false,
+    inkFraction: null,
     patchEl,
     modified: false,
     el: span,
@@ -597,6 +618,230 @@ export function sampleNearbyColor(imageData, naturalWidth, naturalHeight, x0, y0
   return `rgb(${Math.round(r / count)}, ${Math.round(g / count)}, ${Math.round(b / count)})`;
 }
 
+// ---- Sampling a word's actual appearance from the image (Phase 4b) ----
+//
+// Every rendered word used to come out in one system font stack in one theme
+// colour, whatever the source looked like. That is the difference between a
+// clever demo and an edit that blends in: retype a word on a red sign and it
+// came back near-black on a grey slab.
+//
+// What's sampled here is deliberately coarse - an ink colour and a
+// bold-or-not - because that is what can be recovered reliably from a word-sized
+// crop. Font-family classification is not attempted: getting it wrong looks far
+// worse than a neutral stack, and there is no way to verify a guess.
+
+// WCAG relative luminance and contrast ratio. Used to decide whether a sampled
+// ink colour is actually legible against its own background, rather than
+// assuming it is because it came from the image.
+function relativeLuminance([r, g, b]) {
+  const channel = (v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+function contrastRatio(a, b) {
+  const la = relativeLuminance(a);
+  const lb = relativeLuminance(b);
+  const lighter = Math.max(la, lb);
+  const darker = Math.min(la, lb);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+// Below this the sampled ink is replaced with plain black or white - whichever
+// contrasts better with the background.
+//
+// Deliberately below the WCAG large-text bar of 3.0, which was the first value
+// tried and was wrong here. This isn't a design being authored from scratch: the
+// colours came out of an image where somebody chose them and a human is reading
+// them. Dark text on saturated red sits at about 2.5 and is perfectly legible,
+// yet a 3.0 bar replaced it with white - overriding the source to "fix"
+// something that wasn't broken, which is the opposite of blending in. The
+// fallback is for samples that are genuinely unreadable or genuinely wrong.
+const MIN_INK_CONTRAST = 2;
+// Above this, the word needs no backing box at all and can sit directly on the
+// image, which is the whole point of matching the colour in the first place.
+const NO_BACKING_BOX_CONTRAST = 4.5;
+// NO BOLD/REGULAR DETECTION, and that is a measured decision rather than an
+// omission. The obvious proxy is how much of a word's box is ink, so it was
+// tried and measured against test/render-fidelity.js, which knows the weight it
+// drew every word in:
+//
+//   system stack   weight 500: ink fraction 0.368-0.578   weight 700: 0.421-0.518
+//   display face   weight 500: ink fraction 0.638-0.835   weight 700: 0.619-0.721
+//
+// The ranges overlap almost entirely, and in the display face bold text has a
+// LOWER ink fraction than medium - the signal is inverted. Ink coverage is
+// dominated by the typeface and by which letters a word happens to contain, not
+// by its weight. There is no threshold that works, so guessing would just
+// render some words wrongly bold for the appearance of doing something.
+//
+// The size half of "match the font" is already handled and does work: a word's
+// font size is derived from its bbox height (see renderImageFormatView), and
+// render-fidelity measures the resulting width ratio at a mean of 1.00.
+// inkFraction is still reported by the sampler so that harness can keep
+// measuring this if a better idea comes along.
+
+// Splits the pixels inside a word's bbox into ink and background, and reports
+// the ink's mean colour, the background's mean colour, and what fraction of the
+// box the ink covers.
+//
+// Self-contained on purpose. The first version compared each pixel against the
+// background sampled just OUTSIDE the box (sampleNearbyColor, which prefers a
+// strip above). That inverted - reporting the background as the ink - whenever a
+// word sat near a change in background, because the strip above the box belonged
+// to the old background while the word sat on the new one. Cream text at the top
+// of a dark panel came back near-black.
+//
+// Otsu's method on the box's own luminance histogram has no such dependency: it
+// finds the split that best separates the two populations actually present. The
+// smaller population is the ink, because within a word's own tight bounding box
+// the letterforms always cover less area than the space around them - which also
+// makes the background estimate a by-product rather than an input.
+// Median luminance of a thin ring just outside a box, on all four sides. The
+// median (rather than a mean) is the point: it ignores a minority of the ring
+// that has strayed onto a different background.
+function medianSurroundingLuma(imageData, naturalWidth, naturalHeight, left, top, right, bottom) {
+  const { data, width } = imageData;
+  const margin = Math.max(2, Math.round(Math.min(right - left, bottom - top) * 0.35));
+  const samples = [];
+  const push = (x, y) => {
+    if (x < 0 || y < 0 || x >= naturalWidth || y >= naturalHeight) return;
+    const i = (y * width + x) * 4;
+    samples.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+  };
+  for (let x = left - margin; x <= right + margin; x++) {
+    for (let d = 1; d <= margin; d++) {
+      push(x, top - d);
+      push(x, bottom + d);
+    }
+  }
+  for (let y = top; y <= bottom; y++) {
+    for (let d = 1; d <= margin; d++) {
+      push(left - d, y);
+      push(right + d, y);
+    }
+  }
+  if (!samples.length) return null;
+  samples.sort((a, b) => a - b);
+  return samples[Math.floor(samples.length / 2)];
+}
+
+function sampleInkAppearance(imageData, naturalWidth, naturalHeight, x0, y0, x1, y1) {
+  if (!imageData) return null;
+
+  const left = Math.max(0, Math.floor(x0));
+  const right = Math.min(naturalWidth - 1, Math.ceil(x1));
+  const top = Math.max(0, Math.floor(y0));
+  const bottom = Math.min(naturalHeight - 1, Math.ceil(y1));
+  if (right <= left || bottom <= top) return null;
+
+  const { data, width } = imageData;
+  const histogram = new Uint32Array(256);
+  let total = 0;
+  for (let y = top; y <= bottom; y++) {
+    for (let x = left; x <= right; x++) {
+      const i = (y * width + x) * 4;
+      const luma = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+      histogram[luma]++;
+      total++;
+    }
+  }
+  if (!total) return null;
+
+  // Otsu: the threshold maximizing between-class variance.
+  let sum = 0;
+  for (let v = 0; v < 256; v++) sum += v * histogram[v];
+  let sumBelow = 0;
+  let countBelow = 0;
+  let bestVariance = -1;
+  let threshold = 0;
+  for (let v = 0; v < 256; v++) {
+    countBelow += histogram[v];
+    if (!countBelow) continue;
+    const countAbove = total - countBelow;
+    if (!countAbove) break;
+    sumBelow += v * histogram[v];
+    const meanBelow = sumBelow / countBelow;
+    const meanAbove = (sum - sumBelow) / countAbove;
+    const variance = countBelow * countAbove * (meanBelow - meanAbove) ** 2;
+    if (variance > bestVariance) {
+      bestVariance = variance;
+      threshold = v;
+    }
+  }
+
+  // A box with no real two-tone structure - blank, or a flat fill. Guessing an
+  // ink colour out of noise is worse than declining to.
+  let meanAll = 0;
+  for (let v = 0; v < 256; v++) meanAll += v * histogram[v];
+  meanAll /= total;
+  let spread = 0;
+  for (let v = 0; v < 256; v++) spread += histogram[v] * (v - meanAll) ** 2;
+  if (Math.sqrt(spread / total) < 12) return null;
+
+  let darkR = 0, darkG = 0, darkB = 0, darkCount = 0;
+  let lightR = 0, lightG = 0, lightB = 0, lightCount = 0;
+  for (let y = top; y <= bottom; y++) {
+    for (let x = left; x <= right; x++) {
+      const i = (y * width + x) * 4;
+      const luma = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      if (luma <= threshold) {
+        darkR += data[i]; darkG += data[i + 1]; darkB += data[i + 2]; darkCount++;
+      } else {
+        lightR += data[i]; lightG += data[i + 1]; lightB += data[i + 2]; lightCount++;
+      }
+    }
+  }
+  if (!darkCount || !lightCount) return null;
+
+  const dark = [Math.round(darkR / darkCount), Math.round(darkG / darkCount), Math.round(darkB / darkCount)];
+  const light = [Math.round(lightR / lightCount), Math.round(lightG / lightCount), Math.round(lightB / lightCount)];
+
+  // Which class is the background is decided by what SURROUNDS the word, not by
+  // which is larger. "Ink is the minority" was the first rule tried and it fails
+  // exactly where it matters most: in a heavy display face at poster size, the
+  // letterforms cover more than half of their own tight bounding box, so the
+  // rule inverts and the headline comes out in its background colour.
+  //
+  // The ring outside the box is read as a MEDIAN, not a mean, which is what
+  // makes this survive a word sitting near a change of background - the case
+  // that broke the previous attempt at using the surroundings. A minority of the
+  // ring falling on the neighbouring colour moves a mean and doesn't move a
+  // median.
+  const surroundingLuma = medianSurroundingLuma(imageData, naturalWidth, naturalHeight, left, top, right, bottom);
+  const darkLuma = 0.299 * dark[0] + 0.587 * dark[1] + 0.114 * dark[2];
+  const lightLuma = 0.299 * light[0] + 0.587 * light[1] + 0.114 * light[2];
+  const inkIsDark =
+    surroundingLuma == null
+      ? darkCount <= lightCount // no usable ring (word at the image edge): fall back to the size rule
+      : Math.abs(lightLuma - surroundingLuma) < Math.abs(darkLuma - surroundingLuma);
+  let ink = inkIsDark ? dark : light;
+  const background = inkIsDark ? light : dark;
+  const inkCount = inkIsDark ? darkCount : lightCount;
+
+  let fallbackUsed = false;
+  // Sampled from the image is no guarantee of readable once the original pixels
+  // underneath have been inpainted away.
+  if (contrastRatio(ink, background) < MIN_INK_CONTRAST) {
+    const black = [0, 0, 0];
+    const white = [255, 255, 255];
+    ink = contrastRatio(black, background) >= contrastRatio(white, background) ? black : white;
+    fallbackUsed = true;
+  }
+
+  return {
+    color: `rgb(${ink[0]}, ${ink[1]}, ${ink[2]})`,
+    backgroundColor: `rgb(${background[0]}, ${background[1]}, ${background[2]})`,
+    // Only worth a backing box when the text would otherwise be hard to read;
+    // otherwise the word sits straight on the image, which is the point.
+    needsBackingBox: contrastRatio(ink, background) < NO_BACKING_BOX_CONTRAST,
+    inkFraction: inkCount / total,
+    fallbackUsed,
+  };
+}
+
 export function isWordModified(obj) {
   if (obj.origin === "user") return true;
   return (
@@ -703,6 +948,22 @@ export function renderImageFormatView(previewImg, ocrWords, naturalWidth, natura
     });
     obj.patchColor = sampleNearbyColor(pixels, naturalWidth, naturalHeight, x0, y0, x1, y1);
     if (obj.patchColor) obj.patchEl.style.background = obj.patchColor;
+
+    // Sampled from the ORIGINAL pixels, here, before anything covers them - the
+    // patch is drawn over this exact region the moment the word is edited, so
+    // this is the only point at which the word's real appearance is still
+    // readable from the image.
+    const appearance = sampleInkAppearance(pixels, naturalWidth, naturalHeight, x0, y0, x1, y1);
+    if (appearance) {
+      obj.textColor = appearance.color;
+      obj.needsBackingBox = appearance.needsBackingBox;
+      // The backing box, on the rare occasions one is needed, should match what
+      // surrounds the word rather than the app's own surface colour - and this
+      // background came from inside the box, so it holds even where
+      // sampleNearbyColor's strip-above would have looked at the wrong thing.
+      obj.textBackgroundColor = appearance.backgroundColor;
+      obj.inkFraction = appearance.inkFraction;
+    }
 
     state.editorObjects.push(obj);
     applyObjectStyle(obj);
@@ -1113,7 +1374,7 @@ export function buildResultCanvas() {
     });
   }
 
-  const textColor = getComputedStyle(document.body).color;
+  const defaultTextColor = getComputedStyle(document.body).color;
   state.editorObjects.forEach((obj) => {
     if (obj.type !== "word") return;
     // In Full image mode, an untouched OCR word stays invisible on screen (the real
@@ -1124,10 +1385,17 @@ export function buildResultCanvas() {
     if (!text) return;
     const fontPx = (obj.fontSizePct / 100) * canvas.width;
     ctx.font = `${fontPx}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
-    ctx.fillStyle = textColor || "#111111";
-    ctx.textBaseline = "top";
     const wx = (obj.x / 100) * canvas.width;
     const wy = (obj.y / 100) * canvas.height;
+    ctx.textBaseline = "top";
+    // The legibility box, when the sampled ink needs one, is drawn the same way
+    // and for the same reason as on screen.
+    if (obj.textColor && obj.needsBackingBox && (obj.textBackgroundColor || obj.patchColor)) {
+      const metrics = ctx.measureText(text);
+      ctx.fillStyle = obj.textBackgroundColor || obj.patchColor;
+      ctx.fillRect(wx, wy, metrics.width, fontPx * 1.15);
+    }
+    ctx.fillStyle = obj.textColor || defaultTextColor || "#111111";
     ctx.fillText(text, wx, wy);
   });
 
