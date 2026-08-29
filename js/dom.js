@@ -39,6 +39,11 @@ export const confidenceNote = document.getElementById("confidence-note");
 // Arms rubber-band selection (see setMarqueeMode in js/editorInteractions.js). Needed for
 // touch, where a plain drag belongs to the page's scrolling.
 export const selectMultiBtn = document.getElementById("select-multi-btn");
+// Phase 6 accessibility: a live region for selection changes, the editor's
+// keyboard hint, and the manual theme toggle.
+export const selectionStatus = document.getElementById("selection-status");
+export const editorKeyboardHint = document.getElementById("editor-keyboard-hint");
+export const themeBtn = document.getElementById("theme-btn");
 export const editorToolbar = document.getElementById("editor-toolbar");
 export const editorModeBtn = document.getElementById("editor-mode-btn");
 export const newTextBtn = document.getElementById("new-text-btn");

@@ -21,6 +21,7 @@
 // is recreated. It calls a function somebody else registered.
 
 import {
+  selectionStatus,
   imageFormatView,
   imageFormatBg,
   resizeHandle,
@@ -138,10 +139,61 @@ export function toggleSelection(id) {
 
 export function updateSelectionVisuals() {
   state.editorObjects.forEach((obj) => {
-    obj.el.classList.toggle("is-selected", state.selectedObjectIds.has(obj.id));
+    const selected = state.selectedObjectIds.has(obj.id);
+    obj.el.classList.toggle("is-selected", selected);
+    // Selection was a class and an outline - nothing an assistive technology
+    // could read.
+    if (obj.type === "word") obj.el.setAttribute("aria-selected", String(selected));
   });
   updateResizeHandle();
   updateDeleteButton();
+  announceSelection();
+}
+
+// Announces the selection count into the live region. Only on CHANGE: a
+// marquee drag updates the selection on every pointer-move, and re-announcing
+// the same count dozens of times a second would make a screen reader unusable.
+let lastAnnouncedCount = null;
+
+function announceSelection() {
+  if (!selectionStatus) return;
+  const count = state.selectedObjectIds.size;
+  if (count === lastAnnouncedCount) return;
+  lastAnnouncedCount = count;
+  if (count === 0) {
+    selectionStatus.textContent = "Nothing selected";
+    return;
+  }
+  if (count === 1) {
+    const obj = getObjectById([...state.selectedObjectIds][0]);
+    selectionStatus.textContent = obj ? `Selected: ${describeWordObject(obj)}` : "1 item selected";
+    return;
+  }
+  selectionStatus.textContent = `${count} items selected`;
+}
+
+// A word's accessible name: what it says, roughly where it is, and any state
+// that is otherwise conveyed only by colour or opacity. Position is given in
+// plain words rather than percentages, since "top left" is what a person needs
+// and "x 12.4%" is not.
+export function describeWordObject(obj) {
+  if (obj.type === "image") return "Background image";
+  const vertical = obj.y < 33 ? "top" : obj.y < 66 ? "middle" : "bottom";
+  const horizontal = obj.x < 33 ? "left" : obj.x < 66 ? "centre" : "right";
+  const text = obj.el.textContent.trim();
+  const parts = [text ? `"${text}"` : "empty text box", `${vertical} ${horizontal}`];
+  if (obj.el.classList.contains("is-filtered-out")) parts.push("hidden by the current filter");
+  if (obj.modified) parts.push("edited");
+  if (obj.confidence != null && obj.confidence < LOW_CONFIDENCE_THRESHOLD) parts.push("low confidence, worth checking");
+  return parts.join(", ");
+}
+
+// Keeps each word's accessible name in step with its text, position and state.
+// Called from refreshModifiedStatesFor, which already runs whenever any of the
+// three can have changed.
+function updateWordLabel(obj) {
+  if (obj.type !== "word") return;
+  obj.el.setAttribute("aria-label", describeWordObject(obj));
 }
 
 export function objectsFromSelection() {
@@ -370,6 +422,18 @@ export function createWordObject({ text, x, y, w, h, fontSizePct, origin, confid
   span.contentEditable = String(!state.fullEditorMode);
   span.spellcheck = false;
   span.textContent = text;
+  // A contenteditable <span> with no role and no name tells a screen reader
+  // nothing: not that it is editable, not that it is a recognized word, not
+  // where on the image it came from. The label is filled in by
+  // describeWordObject once the object's geometry exists.
+  span.setAttribute("role", "textbox");
+  span.setAttribute("aria-multiline", "false");
+  span.setAttribute("aria-selected", "false");
+  // Explicit, and set here rather than per mode. contentEditable is what makes
+  // a span focusable, and Move mode turns it off - which silently removed every
+  // word from the tab order in exactly the mode a keyboard user most needs to
+  // reach them in.
+  span.tabIndex = 0;
 
   const patchEl = document.createElement("div");
   patchEl.className = "image-format-patch";
@@ -767,6 +831,7 @@ export function refreshModifiedStatesFor(objects) {
       isWordTextEdited(obj)
     );
     obj.el.classList.toggle("is-filtered-out", !passesFilter);
+    updateWordLabel(obj);
 
     if (!obj.patchEl) return;
     if (modified && obj.origin === "ocr") {

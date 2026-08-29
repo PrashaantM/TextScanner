@@ -40,6 +40,8 @@ import {
   newTextBtn,
   selectMultiBtn,
   confidenceNote,
+  editorKeyboardHint,
+  themeBtn,
   translateControls,
   translateTarget,
   translateBtn,
@@ -92,6 +94,7 @@ import {
 import { recognizeImage, getEngineName, engineProvidesConfidence } from "./recognize.js";
 import { computeInpaintedPatch } from "./inpaint.js";
 import { wordsToFilteredText } from "./filter.js";
+import { getTheme, cycleTheme, themeLabel } from "./theme.js";
 import {
   translateLines,
   resolveTranslateTier,
@@ -134,6 +137,37 @@ if (confidenceNote && !engineProvidesConfidence()) show(confidenceNote);
 // and the old hardcoded "Tesseract.js" was simply false in the shipped app, so
 // it's filled in from the dispatcher that actually decides.
 if (footerEngine) footerEngine.textContent = getEngineName();
+
+// Scan failures used to interpolate err.message straight into user-facing copy,
+// which produced things like "Something went wrong while scanning: Failed to
+// execute 'getImageData' on 'CanvasRenderingContext2D'". That tells a user
+// nothing they can act on, and leaks internals into the UI.
+//
+// These map the failures that actually happen to a sentence that says what went
+// wrong and what to do about it. The raw error still goes to the console, where
+// it belongs and where it's useful.
+function describeScanError(err) {
+  const raw = String(err?.message || err || "");
+
+  if (/Failed to load the selected image/i.test(raw)) {
+    return "That image couldn't be opened. It may be corrupted, or in a format this browser doesn't support.";
+  }
+  if (/getImageData|tainted|SecurityError/i.test(raw)) {
+    return "That image couldn't be read for processing. Try saving it to your device first, then choosing it again.";
+  }
+  // Recognition is memory-hungry; a very large or very dense image can exhaust
+  // what the tab is allowed, especially on a phone.
+  if (/out of memory|Array buffer allocation|Aborted|memory access out of bounds/i.test(raw)) {
+    return "The app ran out of memory on this image. Try a smaller or less detailed one.";
+  }
+  if (/NetworkError|Failed to fetch|Load failed/i.test(raw)) {
+    return "Part of the OCR engine couldn't load. Reload the page and try again.";
+  }
+  if (/worker|wasm|WebAssembly/i.test(raw)) {
+    return "The OCR engine couldn't start in this browser. Reload the page, or try a different browser.";
+  }
+  return "Something went wrong while scanning this image. Try again, or try a different image.";
+}
 
 function setStatus(message, kind) {
   statusSection.textContent = message;
@@ -373,7 +407,10 @@ scanBtn.addEventListener("click", async () => {
     }
   } catch (err) {
     hide(progressSection);
-    setStatus(`Something went wrong while scanning: ${err.message || err}`, "error");
+    // The categorized sentence goes to the user; the real error goes to the
+    // console, which is where it's actually diagnosable.
+    console.error("TextScanner scan failed:", err);
+    setStatus(describeScanError(err), "error");
   } finally {
     scanBtn.disabled = false;
     resetBtn.disabled = false;
@@ -885,7 +922,29 @@ function updateSelectMultiVisibility() {
   }
 }
 
+// The editor's keyboard bindings, shown where they're discoverable rather than
+// left to be guessed - and only in the views they apply to.
+function updateKeyboardHintVisibility() {
+  if (!editorKeyboardHint) return;
+  if (state.activeMode === "image" || state.activeMode === "full") show(editorKeyboardHint);
+  else hide(editorKeyboardHint);
+}
+
+document.addEventListener("mode-changed", updateKeyboardHintVisibility);
+
 document.addEventListener("mode-changed", updateSelectMultiVisibility);
+
+// ---- Theme (Phase 6) ----
+//
+// Cycles system -> light -> dark. js/theme.js applies the stored choice at
+// module load, so this only has to keep the button's label truthful.
+
+if (themeBtn) {
+  themeBtn.textContent = themeLabel(getTheme());
+  themeBtn.addEventListener("click", () => {
+    themeBtn.textContent = themeLabel(cycleTheme());
+  });
+}
 
 document.addEventListener("mode-changed", updateTTSVisibility);
 

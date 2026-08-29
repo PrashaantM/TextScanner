@@ -49,6 +49,10 @@
   <header class="site-header">
     <h1>TextScanner</h1>
     <p class="tagline">Extract text from any image, right in your browser.</p>
+    <!-- Cycles system / light / dark. The app followed prefers-color-scheme with
+         no way to disagree, which matters most to the people most likely to need
+         to. See js/theme.js. -->
+    <button id="theme-btn" class="btn btn--ghost btn--small" type="button">Theme: system</button>
   </header>
 
   <main>
@@ -230,9 +234,17 @@
            background <img> for Full image mode), reproducing each word's original position
            in the source image. resize-handle and marquee-box are editor-mode overlays for
            resizing a selected word and rubber-band selecting multiple words. -->
+      <!-- Selection state was an outline and nothing else: no aria-selected, and
+           no announcement when it changed. This region is what a screen reader
+           reads when the selection count moves. -->
+      <p id="selection-status" class="visually-hidden" role="status" aria-live="polite"></p>
       <div id="image-format-view" class="image-format-view hidden">
         <img id="image-format-bg" class="image-format-bg" alt="Scanned image" />
-        <div id="resize-handle" class="resize-handle"></div>
+        <!-- Was a bare, unfocusable <div>. As a slider it has a name, a role,
+             a keyboard path (arrow keys resize the selection) and a tab stop. -->
+        <div id="resize-handle" class="resize-handle" role="slider" tabindex="0"
+             aria-label="Resize selected item" aria-valuemin="20" aria-valuemax="600" aria-valuenow="100"
+             aria-valuetext="100 percent"></div>
         <div id="marquee-box" class="marquee-box"></div>
       </div>
       <!-- Shown only when the active engine reports no per-word confidence at
@@ -241,6 +253,12 @@
            scored perfectly" rather than "there is no score here to read". -->
       <p class="confidence-note hidden" id="confidence-note">
         This engine doesn't report per-word confidence, so no words are flagged for double-checking. Read the result with that in mind.
+      </p>
+      <!-- The keyboard path through the editor, stated where it's discoverable
+           rather than left to be found. -->
+      <p class="image-format-hint hidden" id="editor-keyboard-hint">
+        Keyboard: Tab moves between items, Enter selects, arrow keys move the selection
+        (hold Shift for larger steps), Alt with arrow keys resizes it, and Delete removes it.
       </p>
       <p class="image-format-hint hidden" id="image-format-hint">
         Text is positioned where it appeared in the source image. Click a word to edit it, or shift-click and drag to select multiple.

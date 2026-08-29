@@ -8,7 +8,19 @@
   the variables rather than hardcoding colors.
 */
 
+/*
+  Theme resolution has three states, and the selectors below implement all three:
+  no choice made (follow the OS), explicitly light, explicitly dark. js/theme.js
+  writes data-theme on <html> for the latter two; with nothing written, only the
+  media query applies. Every colour is defined here on bare :root first, so no
+  colour has its ONLY definition inside a media query or an attribute selector.
+
+  color-scheme matters as much as the custom properties: without it the browser
+  keeps painting form controls, scrollbars and focus rings from the OS setting,
+  so a manual override would leave the page dark and its <select> light.
+*/
 :root {
+  color-scheme: light;
   --bg: #f7f7f9;
   --surface: #ffffff;
   --border: #d9d9e0;
@@ -22,9 +34,11 @@
   --radius: 12px;
 }
 
-/* Dark-mode overrides for the same custom properties defined on :root above. */
+/* Dark palette, defined once and applied from two places: the OS preference
+   (unless the user has explicitly chosen light), and an explicit dark choice. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #14141a;
     --surface: #1e1e26;
     --border: #33333e;
@@ -36,6 +50,36 @@
     --success: #4fd08c;
     --error: #ff6b6b;
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #14141a;
+  --surface: #1e1e26;
+  --border: #33333e;
+  --text: #f2f2f5;
+  --text-muted: #a3a3af;
+  --accent: #7f9cff;
+  --accent-hover: #a2b8ff;
+  --accent-contrast: #101018;
+  --success: #4fd08c;
+  --error: #ff6b6b;
+}
+
+/* An explicit light choice has to win over a dark OS setting, which means
+   restating the light palette rather than relying on :root alone. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7f7f9;
+  --surface: #ffffff;
+  --border: #d9d9e0;
+  --text: #1a1a1f;
+  --text-muted: #5c5c66;
+  --accent: #3457d5;
+  --accent-hover: #2a45ac;
+  --accent-contrast: #ffffff;
+  --success: #1b8a5a;
+  --error: #c23434;
 }
 
 * {
@@ -420,6 +464,22 @@ main {
   color: var(--text-muted);
 }
 
+/* Available to assistive technology, invisible on screen. Used for the
+   selection-count live region, which has nothing to show sighted users that the
+   selection outlines don't already. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 .confidence-note {
   margin: 0 0 0.5rem;
   font-size: 0.8rem;
@@ -640,6 +700,31 @@ main {
    always switch back to Raw to see it at full strength. */
 .image-format-word.is-filtered-out {
   opacity: 0.35;
+  /* Opacity alone was the only signal, which is invisible to anyone who can't
+     perceive the difference and carries nothing at all to a screen reader. The
+     strike-through is a second, non-colour channel; the aria-label written by
+     js/editorObjects.js is the third. */
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+/* A word that has been edited, moved or resized. Was colour-plus-tint only. The
+   marker is a small caret in the corner - deliberately an outline shape rather
+   than a hue, so it survives greyscale and high-contrast modes. */
+.image-format-word.is-modified::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 0;
+  height: 0;
+  border-top: 7px solid var(--accent);
+  border-left: 7px solid transparent;
+  pointer-events: none;
+}
+
+.image-format-word.is-modified {
+  position: absolute;
 }
 
 /* Full image mode: an untouched word stays invisible against the real photo
@@ -695,6 +780,17 @@ main {
   cursor: nwse-resize;
   touch-action: none;
   z-index: 4;
+}
+
+/* It's a focusable control now, so it needs a visible focus state of its own -
+   the visible square is drawn by ::after, which a default outline would sit far
+   away from. */
+.resize-handle:focus-visible {
+  outline: none;
+}
+
+.resize-handle:focus-visible::after {
+  box-shadow: 0 0 0 3px var(--accent), 0 0 0 5px var(--accent-contrast);
 }
 
 .resize-handle::after {

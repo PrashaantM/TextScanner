@@ -18,6 +18,7 @@ import {
   modeButtons,
   resultText,
   imageFormatView,
+  resizeHandle,
   imageFormatBg,
   marqueeBox,
   imageFormatHint,
@@ -152,6 +153,9 @@ export function setFullEditorMode(on) {
   state.editorObjects.forEach((obj) => {
     if (obj.type === "word") {
       obj.el.contentEditable = String(!on);
+      // Kept explicitly: turning contentEditable off would otherwise drop the
+      // span out of the tab order (see createWordObject).
+      obj.el.tabIndex = 0;
     }
   });
   editorModeBtn.textContent = on ? "Done moving" : "Move components";
@@ -329,6 +333,153 @@ imageFormatView.addEventListener("focusout", (e) => {
 // way, any Phase 4 user-added words are appended as trailing lines in creation
 // order (they live outside ocrWords/imageFormatLines entirely, so no other path
 // would otherwise surface them) - restricted to the selection too, if one exists.
+
+// ---- Keyboard path through the editor ----
+//
+// Move, resize and selection were pointer-only. A keyboard user could edit a
+// word's text (contenteditable spans take focus) but could not use the feature
+// the product is built around - which is the accessibility gap that matters
+// most here, because it isn't a missing label, it's a missing capability.
+//
+// The bindings are chosen to match what people already expect from any canvas
+// or design tool, so there is nothing app-specific to learn:
+//
+//   Tab / Shift+Tab   move between items (word spans are in the tab order in
+//                     both modes now - see setFullEditorMode)
+//   Enter / Space     select the focused item
+//   Arrows            nudge the selection
+//   Shift + arrows    nudge in larger steps
+//   Alt + arrows      resize the selection
+//   Escape            clear the selection
+//   Delete            remove it (already existed)
+//
+// One nudge is one undo step, but a run of them is not: holding an arrow key
+// would otherwise push a hundred snapshots and make Undo useless. See
+// commitKeyboardNudge.
+
+// Percent of the image per keypress. The fine step is deliberately small enough
+// to align a word by eye; Shift is for crossing the image.
+const NUDGE_STEP_PCT = 0.5;
+const NUDGE_STEP_COARSE_PCT = 3;
+// Multiplier per Alt+arrow press.
+const KEYBOARD_RESIZE_STEP = 1.08;
+// A run of nudges collapses into one undo entry if they're this close together.
+const NUDGE_COALESCE_MS = 800;
+
+let nudgeSnapshot = null;
+let nudgeTimer = null;
+
+// Takes a snapshot at the start of a run of keyboard adjustments and pushes it
+// once the run stops, so holding an arrow key produces one undo step rather
+// than one per repeat.
+function commitKeyboardNudge(preSnapshot) {
+  if (!nudgeSnapshot) nudgeSnapshot = preSnapshot;
+  clearTimeout(nudgeTimer);
+  nudgeTimer = setTimeout(() => {
+    if (nudgeSnapshot) pushUndo(nudgeSnapshot);
+    nudgeSnapshot = null;
+    refreshModifiedStates();
+  }, NUDGE_COALESCE_MS);
+}
+
+function nudgeSelection(dxPct, dyPct) {
+  const objects = objectsFromSelection();
+  if (!objects.length) return false;
+  const preSnapshot = snapshotState();
+  objects.forEach((obj) => {
+    obj.x = clampPosition(obj.x + dxPct, obj.w);
+    obj.y = clampPosition(obj.y + dyPct, obj.h);
+    applyObjectStyle(obj);
+  });
+  updateResizeHandle();
+  refreshModifiedStatesFor(objects);
+  commitKeyboardNudge(preSnapshot);
+  return true;
+}
+
+function resizeSelection(factor) {
+  const objects = objectsFromSelection();
+  if (!objects.length) return false;
+  const preSnapshot = snapshotState();
+  objects.forEach((obj) => {
+    obj.w = clamp(obj.w * factor, MIN_OBJECT_SIZE_PCT, MAX_OBJECT_SIZE_PCT);
+    obj.h = clamp(obj.h * factor, MIN_OBJECT_SIZE_PCT, MAX_OBJECT_SIZE_PCT);
+    if (obj.type === "word") obj.fontSizePct = Math.max(obj.fontSizePct * factor, MIN_FONT_SIZE_PCT);
+    applyObjectStyle(obj);
+  });
+  updateResizeHandle();
+  refreshModifiedStatesFor(objects);
+  commitKeyboardNudge(preSnapshot);
+  return true;
+}
+
+// The resize handle is a real slider now, so it reports where it is. Expressed
+// relative to the object's original size, which is the number a user is
+// actually adjusting.
+export function updateResizeHandleValue() {
+  const obj = getObjectById([...state.selectedObjectIds][0]);
+  if (!obj || !resizeHandle) return;
+  const percent = obj.originalW ? Math.round((obj.w / obj.originalW) * 100) : 100;
+  resizeHandle.setAttribute("aria-valuenow", String(percent));
+  resizeHandle.setAttribute("aria-valuetext", `${percent} percent`);
+}
+
+// Arrow keys on the focused handle resize, matching the slider role it now
+// advertises. Handled here rather than in the document-level handler below so
+// it works whether or not the editor is in Move mode.
+if (resizeHandle) {
+  resizeHandle.addEventListener("keydown", (e) => {
+    const grow = e.key === "ArrowRight" || e.key === "ArrowUp";
+    const shrink = e.key === "ArrowLeft" || e.key === "ArrowDown";
+    if (!grow && !shrink) return;
+    e.preventDefault();
+    if (resizeSelection(grow ? KEYBOARD_RESIZE_STEP : 1 / KEYBOARD_RESIZE_STEP)) updateResizeHandleValue();
+  });
+}
+
+document.addEventListener("keydown", (e) => {
+  if (state.activeMode !== "image" && state.activeMode !== "full") return;
+
+  const active = document.activeElement;
+  const editingText = active && active.isContentEditable && !state.fullEditorMode;
+
+  // Enter or Space on a focused word selects it - the keyboard equivalent of
+  // clicking it - except while its text is being edited, where Space is a space.
+  if ((e.key === "Enter" || e.key === " ") && active && active.classList?.contains("image-format-word")) {
+    if (editingText) return;
+    const obj = getObjectByElement(active);
+    if (!obj) return;
+    e.preventDefault();
+    if (e.shiftKey) {
+      toggleSelection(obj.id);
+    } else {
+      state.selectedObjectIds.clear();
+      state.selectedObjectIds.add(obj.id);
+      updateSelectionVisuals();
+    }
+    return;
+  }
+
+  if (!e.key.startsWith("Arrow")) return;
+  // Arrow keys inside a word being edited move the caret, which is what a user
+  // typing expects; they only move the object once the selection is the subject.
+  if (editingText) return;
+  if (!state.selectedObjectIds.size) return;
+
+  const step = e.shiftKey ? NUDGE_STEP_COARSE_PCT : NUDGE_STEP_PCT;
+  const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+  const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+  if (!dx && !dy) return;
+
+  e.preventDefault();
+  if (e.altKey) {
+    // Alt turns the same keys into a resize, so there is a keyboard path to
+    // resizing without having to reach the handle first.
+    if (resizeSelection(dx > 0 || dy > 0 ? KEYBOARD_RESIZE_STEP : 1 / KEYBOARD_RESIZE_STEP)) updateResizeHandleValue();
+    return;
+  }
+  nudgeSelection(dx, dy);
+});
 
 // ---- Pointer interactions: select, drag, resize, marquee ----
 //
