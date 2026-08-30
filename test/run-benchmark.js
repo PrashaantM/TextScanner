@@ -8,6 +8,10 @@
 //   cd test && npm install && npm run install-browser   # once, per clone
 //   node test/run-benchmark.js                          # from the repo root
 //   node test/run-benchmark.js --json out.json          # also write a baseline file
+//   node test/run-benchmark.js --check-regression --baseline test/baseline-2026-08-28.json --tolerance 2.0
+//                                                        # exit non-zero if average CER or WER
+//                                                        # regresses by more than --tolerance
+//                                                        # percentage points versus the baseline file
 //
 // The browser is resolved by playwright-core's own registry (see test/package.json's
 // devDependency and its install-browser script), so this runs from a fresh clone on
@@ -82,6 +86,18 @@ async function main() {
   const jsonFlagIndex = process.argv.indexOf("--json");
   const jsonOutPath = jsonFlagIndex !== -1 ? process.argv[jsonFlagIndex + 1] : null;
 
+  const checkRegression = process.argv.includes("--check-regression");
+  const baselineFlagIndex = process.argv.indexOf("--baseline");
+  const baselinePath = baselineFlagIndex !== -1 ? process.argv[baselineFlagIndex + 1] : null;
+  const toleranceFlagIndex = process.argv.indexOf("--tolerance");
+  const tolerance = toleranceFlagIndex !== -1 ? Number(process.argv[toleranceFlagIndex + 1]) : 2.0;
+
+  if (checkRegression && !baselinePath) {
+    console.error("--check-regression requires --baseline <path>");
+    process.exitCode = 1;
+    return;
+  }
+
   const server = serveStatic();
   const files = (await readdir(GROUNDTRUTH_DIR)).filter((f) => f.endsWith(".txt")).sort();
 
@@ -151,6 +167,21 @@ async function main() {
       )}\n`
     );
     console.log(`Wrote ${jsonOutPath}\n`);
+  }
+
+  if (checkRegression) {
+    const baseline = JSON.parse(await readFile(baselinePath, "utf8"));
+    const cerDeltaPts = avgCer * 100 - baseline.averageCer * 100;
+    const werDeltaPts = avgWer * 100 - baseline.averageWer * 100;
+    console.log(`Baseline: ${baselinePath}`);
+    console.log(`CER delta: ${cerDeltaPts >= 0 ? "+" : ""}${cerDeltaPts.toFixed(2)}pts (tolerance ${tolerance}pts)`);
+    console.log(`WER delta: ${werDeltaPts >= 0 ? "+" : ""}${werDeltaPts.toFixed(2)}pts (tolerance ${tolerance}pts)`);
+    if (cerDeltaPts > tolerance || werDeltaPts > tolerance) {
+      console.error(`\nRegression: average CER/WER worsened by more than ${tolerance} percentage points versus baseline.`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log("\nNo regression beyond tolerance.\n");
   }
 }
 

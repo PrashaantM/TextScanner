@@ -21,6 +21,10 @@ node_modules
 # into (e.g. from an on-device ML Kit run) - private test data, not source.
 /test/manual-output/
 
+# Raw mitmproxy device-network captures (Phase 8 of the hardening plan) may
+# carry an Authorization/x-api-key header in transit - never committed raw.
+/test/artifacts/*.mitm
+
 # legacy-opencv-scripts/ is a couple of plain Python exercises, no framework
 # or virtualenv involved - just their bytecode cache.
 __pycache__/

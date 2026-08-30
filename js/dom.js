@@ -90,3 +90,8 @@ export const translateStatus = document.getElementById("translate-status");
 export const ttsControls = document.getElementById("tts-controls");
 export const ttsPlayBtn = document.getElementById("tts-play-btn");
 export const ttsStopBtn = document.getElementById("tts-stop-btn");
+
+// User-triggered diagnostic export (Phase 15). See js/diagnostics.js.
+export const diagnosticsExportBtn = document.getElementById("diagnostics-export-btn");
+export const diagnosticsIncludeImage = document.getElementById("diagnostics-include-image");
+export const diagnosticsStatus = document.getElementById("diagnostics-status");

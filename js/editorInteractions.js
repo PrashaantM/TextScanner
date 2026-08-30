@@ -34,6 +34,7 @@ import {
   clamp,
   show,
   hide,
+  revealFlowPanel,
   setActiveButton,
   clampPosition,
   applyObjectStyle,
@@ -56,6 +57,7 @@ import {
   refreshModifiedStatesFor,
   registerModeReset,
 } from "./editorObjects.js";
+import { hapticLight } from "./haptics.js";
 
 
 const MIN_OBJECT_SIZE_PCT = 1.5;
@@ -90,12 +92,12 @@ export function setMode(mode) {
   hide(downloadImageBtn);
 
   if (mode === "text") {
-    show(resultText);
+    revealFlowPanel(resultText);
     // Marquee mode takes scrolling away from the surface; it must not survive
     // into a view that has no marquee.
     if (state.marqueeMode) setMarqueeMode(false);
   } else {
-    show(imageFormatView);
+    revealFlowPanel(imageFormatView);
     show(imageFormatHint);
     show(downloadImageBtn);
     imageFormatView.classList.toggle("show-bg", mode === "full");
@@ -312,6 +314,15 @@ imageFormatView.addEventListener("focusin", (e) => {
   editingSpan = span;
   editingOriginalText = span.textContent;
   editingPreSnapshot = snapshotState();
+  // On native, the software keyboard's default scroll-into-view is often an
+  // abrupt jump, and can undershoot a word near the bottom of the viewport
+  // since it doesn't know the keyboard is about to cover it. A deliberate,
+  // centered smooth scroll reads as an intentional response to the tap rather
+  // than the page lurching once the keyboard finishes animating in. Web-only
+  // scroll-into-view behavior (already reasonable there) is left alone.
+  if (window.Capacitor?.isNativePlatform?.()) {
+    span.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 });
 
 imageFormatView.addEventListener("focusout", (e) => {
@@ -552,42 +563,74 @@ function beginObjectDrag(e, obj, additive) {
     state.selectedObjectIds.add(obj.id);
     updateSelectionVisuals();
     selectionChangedAtDown = true;
+    hapticLight();
   }
 
   const startX = e.clientX;
   const startY = e.clientY;
   const rect = imageFormatView.getBoundingClientRect();
+  // Captured once, not re-queried per pointermove: the selection doesn't
+  // change mid-drag, and the transform-then-commit approach below needs a
+  // fixed list of elements to apply/clear the transform on and compute final
+  // positions for.
+  const moving = objectsFromSelection();
   const starts = new Map();
-  objectsFromSelection().forEach((o) => starts.set(o.id, { x: o.x, y: o.y }));
+  moving.forEach((o) => starts.set(o.id, { x: o.x, y: o.y }));
   const preSnapshot = snapshotState();
+  const showsResizeHandle = state.fullEditorMode && state.selectedObjectIds.size === 1;
   let moved = false;
+  let lastDx = 0;
+  let lastDy = 0;
 
   function onMove(ev) {
     const dx = ev.clientX - startX;
     const dy = ev.clientY - startY;
-    if (!moved && Math.hypot(dx, dy) > 3) moved = true;
+    if (!moved && Math.hypot(dx, dy) > 3) {
+      moved = true;
+      moving.forEach((o) => {
+        o.el.style.willChange = "transform";
+      });
+      if (showsResizeHandle) resizeHandle.style.willChange = "transform";
+    }
     if (!moved) return;
-    const dxPct = (dx / rect.width) * 100;
-    const dyPct = (dy / rect.height) * 100;
-    const moving = objectsFromSelection();
+    lastDx = dx;
+    lastDy = dy;
+    // Position during the gesture is a pure compositor transform, not a
+    // percentage-based left/top write - the latter forces a full layout on
+    // every pointermove tick, which is the stutter this replaces. obj.x/obj.y
+    // (and therefore isWordModified/the inpainted-patch reveal, and clamping
+    // to stay on-canvas) only update once, in onUp, from the accumulated
+    // delta - see this function's header note in editorObjects.js's
+    // revealFlowPanel for the same "commit once on release" idea applied here.
+    const transform = `translate(${dx}px, ${dy}px)`;
     moving.forEach((o) => {
-      const s = starts.get(o.id);
-      if (!s) return;
-      o.x = clampPosition(s.x + dxPct, o.w);
-      o.y = clampPosition(s.y + dyPct, o.h);
-      applyObjectStyle(o);
+      o.el.style.transform = transform;
     });
-    updateResizeHandle();
-    // Only the objects being dragged can have changed, so reconcile just those.
-    // This used to be a full pass over every object on every pointer-move tick.
-    refreshModifiedStatesFor(moving);
+    if (showsResizeHandle) resizeHandle.style.transform = transform;
   }
 
   function onUp() {
-    // One full reconciliation at the end of the gesture, not hundreds during it.
-    if (moved) refreshModifiedStates();
     if (moved) {
+      const dxPct = (lastDx / rect.width) * 100;
+      const dyPct = (lastDy / rect.height) * 100;
+      moving.forEach((o) => {
+        const s = starts.get(o.id);
+        o.el.style.transform = "";
+        o.el.style.willChange = "";
+        if (!s) return;
+        o.x = clampPosition(s.x + dxPct, o.w);
+        o.y = clampPosition(s.y + dyPct, o.h);
+        applyObjectStyle(o);
+      });
+      if (showsResizeHandle) {
+        resizeHandle.style.transform = "";
+        resizeHandle.style.willChange = "";
+      }
+      updateResizeHandle();
+      // One full reconciliation at the end of the gesture, not hundreds during it.
+      refreshModifiedStates();
       pushUndo(preSnapshot);
+      hapticLight();
     } else if (!selectionChangedAtDown) {
       if (additive) {
         state.selectedObjectIds.delete(obj.id);
@@ -615,29 +658,48 @@ function beginResize(e) {
   const startFontSizePct = obj.fontSizePct;
   const preSnapshot = snapshotState();
   let changed = false;
+  let lastScale = 1;
+
+  // Same transform-then-commit approach as beginObjectDrag: a live width/
+  // fontSize write on every pointermove forces a full layout recompute of
+  // this word (and can reflow neighbors); a transform: scale() preview from
+  // the object's own top-left - the same corner obj.x/obj.y already anchor
+  // the real resize to - does not. The real w/h/fontSizePct are computed from
+  // the final scale and committed once, in onUp.
+  obj.el.style.transformOrigin = "top left";
+  obj.el.style.willChange = "transform";
 
   function onMove(ev) {
     const dxPct = ((ev.clientX - startX) / rect.width) * 100;
     const dyPct = ((ev.clientY - startY) / rect.height) * 100;
     const scaleX = (startW + dxPct) / startW;
     const scaleY = (startH + dyPct) / startH;
-    let scale = clamp((scaleX + scaleY) / 2, MIN_RESIZE_SCALE, MAX_RESIZE_SCALE);
-
-    obj.w = clamp(startW * scale, MIN_OBJECT_SIZE_PCT, MAX_OBJECT_SIZE_PCT);
-    obj.h = clamp(startH * scale, MIN_OBJECT_SIZE_PCT, MAX_OBJECT_SIZE_PCT);
-    if (obj.type === "word") {
-      obj.fontSizePct = Math.max(startFontSizePct * scale, MIN_FONT_SIZE_PCT);
-    }
+    lastScale = clamp((scaleX + scaleY) / 2, MIN_RESIZE_SCALE, MAX_RESIZE_SCALE);
     changed = true;
-    applyObjectStyle(obj);
-    updateResizeHandle();
-    refreshModifiedStatesFor([obj]);
+    obj.el.style.transform = `scale(${lastScale})`;
+    // The resize handle isn't a child of obj.el, so it has no transform of
+    // its own to inherit - reading the live (transformed) rect back keeps it
+    // glued to the corner during the preview. Cheap here specifically because
+    // scale() is a compositor-only change with nothing new to lay out.
+    const objRect = obj.el.getBoundingClientRect();
+    resizeHandle.style.left = `${((objRect.right - rect.left) / rect.width) * 100}%`;
+    resizeHandle.style.top = `${((objRect.bottom - rect.top) / rect.height) * 100}%`;
   }
 
   function onUp() {
+    obj.el.style.transform = "";
+    obj.el.style.willChange = "";
     if (changed) {
+      obj.w = clamp(startW * lastScale, MIN_OBJECT_SIZE_PCT, MAX_OBJECT_SIZE_PCT);
+      obj.h = clamp(startH * lastScale, MIN_OBJECT_SIZE_PCT, MAX_OBJECT_SIZE_PCT);
+      if (obj.type === "word") {
+        obj.fontSizePct = Math.max(startFontSizePct * lastScale, MIN_FONT_SIZE_PCT);
+      }
+      applyObjectStyle(obj);
+      updateResizeHandle();
       refreshModifiedStates();
       pushUndo(preSnapshot);
+      hapticLight();
     }
   }
 

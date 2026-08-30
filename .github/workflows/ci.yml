@@ -1,0 +1,26 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: test/package.json
+      - run: npm ci
+        working-directory: test
+      - run: npx playwright install --with-deps chromium
+        working-directory: test
+      - run: node --test test/unit/*.test.js
+      - run: node test/run-benchmark.js --check-regression --baseline test/baseline-2026-08-28.json --tolerance 2.0
+      - run: node test/touch-interactions.js
+      - run: node test/malformed-input.js
+      - run: node test/exif-orientation.js
+      - run: node test/move-inpaint.js

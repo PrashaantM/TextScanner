@@ -52,6 +52,9 @@ import {
   ttsControls,
   ttsPlayBtn,
   ttsStopBtn,
+  diagnosticsExportBtn,
+  diagnosticsIncludeImage,
+  diagnosticsStatus,
 } from "./dom.js";
 import { state, MAX_FILE_BYTES, MAX_IMAGE_PIXELS } from "./state.js";
 // editor.js was split into three modules (Phase 5); main.js imports from each
@@ -74,6 +77,7 @@ import {
   setActiveButton,
   show,
   hide,
+  revealFlowPanel,
 } from "./editorObjects.js";
 import {
   setMode,
@@ -92,6 +96,8 @@ import {
   applyTranslatedLines,
 } from "./editorExport.js";
 import { recognizeImage, getEngineName, engineProvidesConfidence } from "./recognize.js";
+import { exportDiagnosticReport } from "./diagnostics.js";
+import { hapticLight, hapticMedium } from "./haptics.js";
 import { computeInpaintedPatch } from "./inpaint.js";
 import { wordsToFilteredText } from "./filter.js";
 import { getTheme, cycleTheme, themeLabel } from "./theme.js";
@@ -186,6 +192,10 @@ function setStatus(message, kind) {
 // whenever a fresh scan replaces the current result.
 const patchCache = new Map();
 
+// Top-level flow panel transitions (Phase 17): revealFlowPanel (see
+// editorObjects.js) drives the preview/progress/results fade+lift on reveal;
+// concealing them is a plain hide(), see revealFlowPanel's comment for why.
+
 function resetResult() {
   patchCache.clear();
   stopTTS();
@@ -222,7 +232,7 @@ function loadFile(file) {
   previewImg.src = state.currentObjectUrl;
 
   resetResult();
-  show(previewSection);
+  revealFlowPanel(previewSection);
   previewSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
@@ -321,7 +331,16 @@ function formatStatus(status) {
 }
 
 function waitForImageDecode(img) {
-  if (img.complete && img.naturalWidth) return Promise.resolve();
+  // img.complete goes true once loading finishes, success OR failure - a failed
+  // load leaves naturalWidth at 0. Loading finishes as soon as the object URL is
+  // assigned in loadFile(), well before the user gets to Scan text, so by the
+  // time this runs the load/error event has usually already fired. Attaching
+  // fresh listeners at that point waits for an event that already happened and
+  // will never fire again, hanging the scan forever with no status update -
+  // this has to resolve the already-settled case synchronously instead.
+  if (img.complete) {
+    return img.naturalWidth ? Promise.resolve() : Promise.reject(new Error("Failed to load the selected image."));
+  }
   return new Promise((resolve, reject) => {
     img.addEventListener("load", () => resolve(), { once: true });
     img.addEventListener("error", () => reject(new Error("Failed to load the selected image.")), { once: true });
@@ -376,7 +395,7 @@ scanBtn.addEventListener("click", async () => {
   scanBtn.disabled = true;
   resetBtn.disabled = true;
   resetResult();
-  show(progressSection);
+  revealFlowPanel(progressSection);
   progressLabel.textContent = "Loading OCR engine...";
 
   try {
@@ -400,7 +419,8 @@ scanBtn.addEventListener("click", async () => {
       renderImageFormatView(previewImg, words, previewImg.naturalWidth, previewImg.naturalHeight, state.currentObjectUrl);
       applyFilterLevel(state.activeFilterLevel);
       setMode("text");
-      show(resultSection);
+      revealFlowPanel(resultSection);
+      hapticMedium();
       // The downscale is the more useful thing to say when it happened - the
       // scan obviously succeeded, since results are on screen.
       setStatus(downscaleMessage || "Text extracted successfully.", downscaleMessage ? "" : "success");
@@ -410,7 +430,9 @@ scanBtn.addEventListener("click", async () => {
     // The categorized sentence goes to the user; the real error goes to the
     // console, which is where it's actually diagnosable.
     console.error("TextScanner scan failed:", err);
-    setStatus(describeScanError(err), "error");
+    const message = describeScanError(err);
+    state.lastScanError = message;
+    setStatus(message, "error");
   } finally {
     scanBtn.disabled = false;
     resetBtn.disabled = false;
@@ -449,7 +471,10 @@ function applyFilterLevel(level) {
 }
 
 filterButtons.forEach((btn) => {
-  btn.addEventListener("click", () => applyFilterLevel(btn.dataset.level));
+  btn.addEventListener("click", () => {
+    applyFilterLevel(btn.dataset.level);
+    hapticLight();
+  });
 });
 
 // Phase 2: which tier the user has asked for. Defaults to on-device, so anyone
@@ -732,6 +757,7 @@ setDeleteHandler(async (selectedObjects) => {
   if (!changed) return;
   pushUndo(preSnapshot);
   clearSelection();
+  hapticMedium();
   // Before the refresh, so the patches it asks for are already cached and it
   // doesn't trigger the serialized run this exists to avoid.
   await precomputePatches(cleared);
@@ -970,3 +996,27 @@ ttsStopBtn.addEventListener("click", () => stopTTS());
   setTTSStateChangeHandler(updateTTSButtons);
   updateTTSVisibility();
 })();
+
+// ---- Diagnostic export (Phase 15): opt-in, user-triggered, no automatic collection ----
+
+if (diagnosticsExportBtn) {
+  diagnosticsExportBtn.addEventListener("click", async () => {
+    diagnosticsExportBtn.disabled = true;
+    diagnosticsStatus.textContent = "Building report…";
+    try {
+      await exportDiagnosticReport(diagnosticsIncludeImage.checked);
+      diagnosticsStatus.textContent = "Report ready — choose a destination in the share sheet.";
+    } catch (err) {
+      // AbortError means the person closed the share sheet without picking a
+      // destination - not a failure, nothing to tell them went wrong.
+      if (err?.name === "AbortError") {
+        diagnosticsStatus.textContent = "";
+      } else {
+        console.error("Diagnostic export failed:", err);
+        diagnosticsStatus.textContent = "Couldn't build the diagnostic report. Try again.";
+      }
+    } finally {
+      diagnosticsExportBtn.disabled = false;
+    }
+  });
+}

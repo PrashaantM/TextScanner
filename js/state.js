@@ -58,4 +58,10 @@ export const state = {
   // changed since). Cached here rather than regenerated on every level switch
   // so tabbing back to Coherence Filter doesn't re-fire a billed API call.
   coherentText: null,
+
+  // The categorized message from the most recent scan failure this session
+  // (see describeScanError in main.js), or null if none occurred yet. Read by
+  // js/diagnostics.js's opt-in export - not shown anywhere else, and not
+  // itself sent anywhere the person didn't choose via the share sheet.
+  lastScanError: null,
 };

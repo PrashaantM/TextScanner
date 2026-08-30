@@ -1,5 +1,7 @@
 # TextScanner
 
+![CI](https://github.com/PrashaantM/TextScanner/actions/workflows/ci.yml/badge.svg)
+
 Extract text from any image, right in your browser. Drag in a photo, screenshot, or scan, and TextScanner reads the text out for you, no upload, no server, no account.
 
 **Live app:** https://prashaantm.github.io/TextScanner/

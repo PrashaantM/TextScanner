@@ -79,7 +79,7 @@
 
     <!-- Shown once a file is chosen: displays the image and lets the user trigger the
          OCR scan or go back and pick a different image. -->
-    <section id="preview-section" class="preview-section hidden">
+    <section id="preview-section" class="preview-section flow-panel hidden">
       <div class="preview-card">
         <img id="preview-img" alt="Selected image preview" />
       </div>
@@ -91,7 +91,7 @@
 
     <!-- Progress bar shown while Tesseract.js is loading/recognizing; js/main.js updates
          progress-fill's width and progress-label's text from the recognizer's logger callback. -->
-    <section id="progress-section" class="progress-section hidden" aria-live="polite">
+    <section id="progress-section" class="progress-section flow-panel hidden" aria-live="polite">
       <div class="progress-bar">
         <div id="progress-fill" class="progress-fill"></div>
       </div>
@@ -106,7 +106,7 @@
          Text (plain textarea), Image format (words laid out on a blank canvas at their
          original position), and Full image (words overlaid on the actual image, editable
          and, in "Move components" mode, draggable/resizable with undo/redo). -->
-    <section id="result-section" class="result-section hidden">
+    <section id="result-section" class="result-section flow-panel hidden">
       <div class="result-toolbar">
         <div class="result-toolbar__row">
           <h2>Extracted text</h2>
@@ -227,7 +227,7 @@
       </div>
 
       <!-- Text mode: read-only textarea filled with the raw recognized text. -->
-      <textarea id="result-text" readonly placeholder="Extracted text will appear here..."></textarea>
+      <textarea id="result-text" class="flow-panel" readonly placeholder="Extracted text will appear here..."></textarea>
 
       <!-- Image format / Full image modes: js/editorObjects.js populates this container at scan
            time with one absolutely-positioned, contenteditable span per recognized word (plus a
@@ -238,7 +238,7 @@
            no announcement when it changed. This region is what a screen reader
            reads when the selection count moves. -->
       <p id="selection-status" class="visually-hidden" role="status" aria-live="polite"></p>
-      <div id="image-format-view" class="image-format-view hidden">
+      <div id="image-format-view" class="image-format-view flow-panel hidden">
         <img id="image-format-bg" class="image-format-bg" alt="Scanned image" />
         <!-- Was a bare, unfocusable <div>. As a slider it has a name, a role,
              a keyboard path (arrow keys resize the selection) and a tab stop. -->
@@ -281,6 +281,20 @@
       &middot;
       <a href="https://github.com/PrashaantM/TextScanner" target="_blank" rel="noopener noreferrer">View source</a>
     </p>
+    <details class="diagnostics-panel" id="diagnostics-panel">
+      <summary>Diagnostics</summary>
+      <p class="diagnostics-panel__hint">
+        Builds a report (timestamp, recognition engine, device/browser info, and the last
+        scan error if there was one) and hands it to your device's share sheet or a
+        download &mdash; nothing is sent anywhere on its own; you choose the destination.
+      </p>
+      <label class="diagnostics-panel__checkbox">
+        <input type="checkbox" id="diagnostics-include-image" />
+        Include the image that caused this issue
+      </label>
+      <button id="diagnostics-export-btn" class="btn btn--secondary" type="button">Export diagnostic report</button>
+      <p class="diagnostics-panel__status" id="diagnostics-status" role="status"></p>
+    </details>
   </footer>
 
   <!-- Tesseract.js is served from this origin (vendored at the exact version that

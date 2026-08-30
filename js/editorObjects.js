@@ -107,6 +107,30 @@ export function show(el) {
 
 export function hide(el) {
   el.classList.add("hidden");
+  // Harmless no-op for the many elements show()/hide() manage that never carry
+  // `is-visible` (see revealFlowPanel below); for one that does, this resets it
+  // so the next reveal actually transitions in rather than popping straight to
+  // its already-`is-visible` end state.
+  el.classList.remove("is-visible");
+}
+
+// Phase 17: fade+lift reveal for any element with the `.flow-panel` CSS class,
+// paired with plain hide() (immediately, not a delayed opposite of this
+// function) to conceal it. That asymmetry is deliberate, not an oversight:
+// every one of this app's panel swaps (progress -> results, Text -> Image
+// format, ...) is two flex-column siblings changing state in the same tick -
+// a delayed hide would leave the outgoing one fading out while the incoming
+// one simultaneously fades in, and since neither is absolutely positioned,
+// both being un-hidden at once briefly doubles the page's height, then jumps
+// again once the outgoing one finishes. Reveal still gets the real motion
+// treatment, since a new view sliding smoothly into place is the half of this
+// pattern that actually reads as "continuous" - a panel disappearing
+// instantly, with nothing else moving into its place at that exact instant,
+// isn't the jarring part.
+export function revealFlowPanel(el) {
+  el.classList.remove("hidden");
+  void el.offsetWidth; // force layout so the hidden state registers before is-visible transitions from it
+  el.classList.add("is-visible");
 }
 
 // Shared by any button group that reflects a single active selection (mode

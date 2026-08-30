@@ -32,6 +32,22 @@
   --success: #1b8a5a;
   --error: #c23434;
   --radius: 12px;
+  --motion-fast: 120ms;
+  --motion-medium: 200ms;
+  --motion-slow: 320ms;
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Every transition below references these tokens rather than a hardcoded
+   duration, so a person who's set the OS-level "reduce motion" preference
+   gets every one of them disabled from this single block - no per-rule
+   exceptions to track down. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-medium: 0ms;
+    --motion-slow: 0ms;
+  }
 }
 
 /* Dark palette, defined once and applied from two places: the OS preference
@@ -96,6 +112,11 @@ body {
   flex-direction: column;
   align-items: center;
   padding: 0 1.25rem 3rem;
+  /* This app's only scroll container - no inner overflow:auto panel exists.
+     Stops an over-scroll at the top/bottom from rubber-banding content behind
+     it on native. No -webkit-overflow-scrolling: touch anywhere in this file
+     to remove - modern WKWebView never needed it, and it would fight this. */
+  overscroll-behavior: contain;
 }
 
 .site-header {
@@ -189,6 +210,7 @@ main {
   font-weight: 500;
   cursor: pointer;
   transition: background 0.15s ease, opacity 0.15s ease, transform 0.05s ease;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .btn:active {
@@ -281,7 +303,7 @@ main {
   height: 100%;
   width: 0%;
   background: var(--accent);
-  transition: width 0.2s ease;
+  transition: width var(--motion-medium) linear;
 }
 
 .progress-label {
@@ -364,6 +386,13 @@ main {
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mode-toggle__btn:active,
+.filter-toggle__btn:active {
+  transform: scale(0.97);
+  transition: transform 80ms var(--ease-standard);
 }
 
 .mode-toggle__btn.is-active {
@@ -395,6 +424,7 @@ main {
   font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .filter-toggle__btn.is-active {
@@ -700,6 +730,7 @@ main {
    always switch back to Raw to see it at full strength. */
 .image-format-word.is-filtered-out {
   opacity: 0.35;
+  transition: opacity var(--motion-fast) var(--ease-standard);
   /* Opacity alone was the only signal, which is invisible to anyone who can't
      perceive the difference and carries nothing at all to a screen reader. The
      strike-through is a second, non-colour channel; the aria-label written by
@@ -841,6 +872,50 @@ main {
   text-decoration: underline;
 }
 
+.diagnostics-panel {
+  margin: 1rem auto 0;
+  max-width: 28rem;
+  text-align: left;
+}
+
+.diagnostics-panel summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.diagnostics-panel__hint {
+  margin: 0.75rem 0;
+}
+
+.diagnostics-panel__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.diagnostics-panel__status {
+  margin: 0.5rem 0 0;
+  min-height: 1.2em;
+}
+
 .hidden {
   display: none !important;
+}
+
+/* Top-level flow panels (preview, progress, results) and the result content
+   area (Text / Image format / Full image) - see editorObjects.js's
+   revealFlowPanel: fades and lifts in on reveal instead of snapping in with
+   `.hidden`. Concealing is a plain, immediate hide() (see editorObjects.js's
+   comment on revealFlowPanel for why fade-out isn't symmetric here). */
+.flow-panel {
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity var(--motion-medium) var(--ease-standard), transform var(--motion-medium) var(--ease-standard);
+}
+
+.flow-panel.is-visible {
+  opacity: 1;
+  transform: translateY(0);
 }
