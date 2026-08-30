@@ -12,9 +12,6 @@ def capacitor_pods
   pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'
   pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
   pod 'CapacitorFilesystem', :path => '../../node_modules/@capacitor/filesystem'
-  # Its podspec is patched at install time to drop the four ML Kit script models
-  # the app never requests - see scripts/trim-mlkit-scripts.js, which npm runs
-  # as a postinstall step.
   pod 'CapacitorMlkitTextRecognition', :path => '../../node_modules/@capacitor-mlkit/text-recognition'
 end
 
