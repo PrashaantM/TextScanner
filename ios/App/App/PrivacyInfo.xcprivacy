@@ -10,9 +10,27 @@
 
 	  This declares what THIS TARGET's own code does, which is deliberately very
 	  little. Dependencies' collection is declared by their manifests, not
-	  restated here - in particular MLKitCommon declares the device ID and
-	  diagnostic data it sends to Google, which is the app's one piece of
-	  telemetry and is documented in docs/PRIVACY-DECISIONS.md.
+	  restated here.
+
+	  What those manifests actually say was verified against the installed Pods
+	  on 2026-09-09, and it is more than this comment previously claimed (it said
+	  "device ID and diagnostic data", which understated it). MLKitCommon and
+	  MLKitTextRecognitionCommon each declare SIX collected data types, all
+	  unlinked and none used for tracking:
+
+	    DeviceID, OtherDataTypes, OtherUserContent, PerformanceData,
+	    ProductInteraction   - purposes: Analytics, App Functionality
+	    OtherDiagnosticData  - purpose:  Analytics
+
+	  GoogleDataTransport additionally declares OtherDiagnosticData (Analytics).
+	  Every other Pod - GoogleUtilities, GTMSessionFetcher, GoogleToolboxForMac,
+	  PromisesObjC, nanopb - declares no collection at all.
+
+	  OtherUserContent is the one worth reading twice, since this app's user
+	  content is photographs of text. See docs/APP-STORE-SUBMISSION.md for what
+	  that means for the nutrition label (it has to be declared, and the label
+	  cannot claim the app collects nothing) and docs/PRIVACY-DECISIONS.md for
+	  the standing decision about the dependency itself.
 	-->
 
 	<!--

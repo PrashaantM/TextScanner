@@ -219,7 +219,7 @@ nothing to the binary. The saving is larger than the trim was.
 | **Gains** | Multi-script recognition, per-word confidence, Apple's rotation/handwriting improvements |
 | **Costs** | A hand-written native plugin, the per-word range walk (§3), a y-flip and a denormalization |
 | **Risks** | Per-word boxes Apple explicitly does not guarantee for image processing, feeding this app's colour sampling and inpainting; recognition accuracy against the corpus is unmeasured and could be worse |
-| **Floor** | iOS 16 for `automaticallyDetectsLanguage`. Worth confirming against the deployment target before committing |
+| **Floor** | **iOS 16 for `automaticallyDetectsLanguage`, and the project's deployment target is iOS 15.5** (`ios/App/Podfile`, confirmed 2026-09-09) — so at the current floor it is *not* available. Either raise the target to 16, or set `recognitionLanguages` explicitly and lose auto-detection. Not a blocker, but it is a real cost that §6's non-Latin argument has to absorb. |
 
 ---
 
