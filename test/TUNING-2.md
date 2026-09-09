@@ -68,6 +68,36 @@ added (low light, steep skew) are exactly the ones that produce marginal images.
 floor is still zero across 25 images, that is a much stronger claim than this
 one.
 
+### It disagrees with the previously recorded figure, and that is unresolved
+
+The 2026-08-29 handoff (recoverable at `git show 7ff391e:HANDOFF.md`) recorded:
+
+> *"Run-to-run noise is about ±0.3 WER. Established by running the identical
+> code twice. Any smaller delta means nothing."*
+
+That is the same experiment, described the same way, with a different answer.
+Two runs here were **bit-identical on every image** — not merely within ±0.3.
+
+This is not reconciled, and it should not be papered over by preferring the
+newer number. Possible explanations, none verified:
+
+- **A different machine.** Tesseract.js's worker count can vary with available
+  cores, and a different decomposition of the same work can produce different
+  scoring on marginal candidates.
+- **A different measurement.** "Identical code twice" may have spanned an
+  environment change rather than a true repeat.
+- **Corpus-dependent determinism.** If none of the 11 images is marginal, the
+  floor is zero *here* and non-zero on a corpus that has one — which is exactly
+  what the expansion would reveal.
+
+**Practical consequence:** do not adopt 0.00 as the operative floor for merge
+decisions yet. The safest reading is that the true floor is somewhere in
+`[0.00, 0.3]` WER, and the honest merge rule until the corpus expands is the
+stricter of the two — **require an improvement to clear 0.6 WER points and
+reproduce**, which is twice the larger of the two measurements. Re-measure on
+the expanded corpus and on the machine that will own the benchmark, then pick a
+number with evidence behind it.
+
 ---
 
 ## 2. Non-Latin script (Phase 2, step 6)
