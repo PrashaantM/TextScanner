@@ -37,14 +37,19 @@
 // option - fine for the English-text validation images, a real gap for
 // non-Latin text to revisit once the core approach is validated.
 
-// DIAGNOSTIC, temporary: see js/mlkitDebug.js. Records ML Kit's raw result so
-// the Image format positioning bug can be replayed off-device. Changes nothing
-// about what this module returns, and is OFF unless explicitly armed - on a
-// shipped build recordScan is a no-op that records and writes nothing.
-import { recordScan } from "./mlkitDebug.js";
-import { state } from "./state.js";
 
 const CACHE_FILE_PATH = "textscanner-scan-input.jpg";
+// Re-encode quality for the upright JPEG handed to ML Kit (see
+// encodeUprightJpeg). High enough that the re-encode is not a second
+// generation of visible compression damage on text edges - which is what the
+// recognizer actually reads - while keeping the cache write small.
+const CACHE_JPEG_QUALITY = 0.92;
+// Below this many degrees of baseline tilt, a word is treated as axis-aligned
+// and rendered exactly as it always was. ML Kit reports a fraction of a degree
+// of tilt on plenty of genuinely straight text (its corner points come from a
+// fitted quad, not from an exact grid), and rotating a span by 0.3 degrees
+// buys nothing while making every word's transform non-identity.
+const MIN_MEANINGFUL_ROTATION_DEG = 0.75;
 // ML Kit gives no per-word confidence score at all (unlike Tesseract), so every
 // word's confidence is null - explicitly absent, not a number.
 //
@@ -62,6 +67,49 @@ const CACHE_FILE_PATH = "textscanner-scan-input.jpg";
 // js/recognize.js and the note it drives in js/main.js.
 const NO_CONFIDENCE_SIGNAL = null;
 
+// Re-encodes the already-decoded preview image as an upright JPEG with no EXIF
+// metadata, and that is a correctness fix rather than a convenience.
+//
+// This used to send ML Kit the raw original file bytes. Those bytes carry the
+// camera's EXIF orientation tag, and the two sides of the pipeline resolve that
+// tag in different places:
+//
+//   - The web side never sees it. previewImg is a real <img>, and every engine
+//     since Safari 13.1 / Chromium 81 decodes an <img> pre-rotated per its EXIF
+//     tag, so naturalWidth/naturalHeight are already the corrected, possibly
+//     dimension-swapped size. That is the space renderImageFormatView renders
+//     into (see test/exif-orientation.js, which asserts exactly this invariant
+//     across all 8 orientation values).
+//   - The native side sees it and resolves it as metadata, not pixels. The
+//     plugin's createVisionImageFromFilePath does
+//     `UIImage(contentsOfFile:)` then `visionImage.orientation =
+//     image.imageOrientation` (TextRecognition.swift). UIImage does NOT rotate
+//     the pixel buffer on load: for a portrait photo tagged orientation 6 the
+//     backing CGImage stays landscape and the rotation lives only in
+//     imageOrientation.
+//
+// So the coordinate space ML Kit reports into is a function of how ML Kit
+// chooses to reconcile a rotated buffer with an orientation flag - an internal
+// detail of a third-party SDK that this app cannot pin down and must not
+// depend on. Drawing through a canvas resolves the tag into the pixels
+// themselves: the exported JPEG is upright, carries no orientation tag for
+// UIImage to find, and its dimensions are naturalWidth x naturalHeight exactly.
+// Both spaces then coincide by construction rather than by coincidence.
+function encodeUprightJpeg(previewImg, naturalWidth, naturalHeight) {
+  const canvas = document.createElement("canvas");
+  canvas.width = naturalWidth;
+  canvas.height = naturalHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(previewImg, 0, 0, naturalWidth, naturalHeight);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("Failed to encode the image for recognition."))),
+      "image/jpeg",
+      CACHE_JPEG_QUALITY
+    );
+  });
+}
+
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -77,27 +125,121 @@ function blobToBase64(blob) {
   });
 }
 
+// ML Kit reports each element's geometry twice: `boundingBox`, the axis-aligned
+// rectangle, and `cornerPoints`, the four-point quad following the text's actual
+// baseline (top-left first, then clockwise). For level text the two agree. For
+// tilted text they diverge badly, and the divergence is what this function
+// exists to preserve - see quadGeometry below for why it matters.
+//
+// Returns null unless the quad is complete and finite, so a malformed or absent
+// cornerPoints array falls back to boundingBox rather than producing NaN
+// coordinates that would place a word nowhere at all.
+function normalizeQuad(cornerPoints) {
+  if (!Array.isArray(cornerPoints) || cornerPoints.length !== 4) return null;
+  const points = cornerPoints.map((p) => ({ x: Number(p?.x), y: Number(p?.y) }));
+  if (points.some((p) => !Number.isFinite(p.x) || !Number.isFinite(p.y))) return null;
+  return points;
+}
+
+// The word's own frame, read off the quad: where its top-left corner actually
+// sits, how long its baseline actually is, how tall its glyphs actually are,
+// and how far it is tilted.
+//
+// This is the fix for the positioning bug. Rendering used to derive both the
+// word's position and its font size from the axis-aligned `boundingBox`, and
+// for tilted text that box is the *envelope* of the rotated word, not the word:
+// its height is h*cos(t) + w*sin(t). A 400x60 word tilted 10 degrees has an
+// envelope 129px tall, so the span rendered at 2.1x the correct font size,
+// anchored at a top-left corner well above and left of where the word starts.
+// Long words inflate worst, neighbouring words then overlap, and the result is
+// the "gibberish" reported on-device - on exactly the images whose text is
+// tilted (the angled posters), while flat-on screenshots looked "really good".
+// test/unit/mlkit-geometry.test.js pins the arithmetic; the derivation of the
+// inflation factor is asserted there directly rather than described.
+export function quadGeometry(quad) {
+  const [topLeft, topRight, , bottomLeft] = quad;
+  const baselineX = topRight.x - topLeft.x;
+  const baselineY = topRight.y - topLeft.y;
+  const sideX = bottomLeft.x - topLeft.x;
+  const sideY = bottomLeft.y - topLeft.y;
+  return {
+    x: topLeft.x,
+    y: topLeft.y,
+    width: Math.hypot(baselineX, baselineY),
+    height: Math.hypot(sideX, sideY),
+    rotationDeg: (Math.atan2(baselineY, baselineX) * 180) / Math.PI,
+  };
+}
+
+function envelopeOfQuad(quad) {
+  const xs = quad.map((p) => p.x);
+  const ys = quad.map((p) => p.y);
+  return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+}
+
+function envelopeOfBoundingBox(box) {
+  if (!box) return null;
+  const x0 = Number(box.left);
+  const y0 = Number(box.top);
+  const x1 = Number(box.right);
+  const y1 = Number(box.bottom);
+  if (![x0, y0, x1, y1].every(Number.isFinite)) return null;
+  // ML Kit is documented to report left <= right and top <= bottom, but a
+  // normalized box costs one comparison and means a downstream width is never
+  // negative even if that ever stops holding.
+  return { x0: Math.min(x0, x1), y0: Math.min(y0, y1), x1: Math.max(x0, x1), y1: Math.max(y0, y1) };
+}
+
 // Walks ML Kit's block -> line -> element hierarchy into a flat word list,
 // assigning a fresh sequential lineIndex per line (mirrors
 // ocrEngine.js's flattenRegions - each block/line already comes back in
 // ML Kit's own reading order, no re-sorting needed).
-function flattenBlocks(blocks) {
+//
+// Each word carries `bbox`, the axis-aligned envelope every existing consumer
+// already understands (js/filter.js, js/editorExport.js, the editor's own
+// move/resize maths), and additionally `quad`/`rotationDeg`/`frame` when ML Kit
+// supplied usable corner points. Consumers that only understand rectangles are
+// unaffected; renderImageFormatView uses the frame when it is there and falls
+// back to the envelope when it is not, which is also what happens on the
+// Tesseract path, where there are no corner points at all.
+//
+// Exported for test/unit/mlkit-geometry.test.js. The justification is the same
+// one already written into ocrEngine.js for transformBboxCorners: this is
+// coordinate maths that silently misplaces every word on screen when it is
+// wrong, and it has no DOM dependency, so it is worth testing in isolation
+// rather than only through a full device scan.
+export function flattenBlocks(blocks) {
   const words = [];
   let lineIndex = -1;
   (blocks || []).forEach((block) => {
     (block.lines || []).forEach((line) => {
-      const lineWords = (line.elements || [])
-        .map((el) => {
-          const text = (el.text || "").trim();
-          if (!text) return null;
-          const box = el.boundingBox;
-          return {
-            text,
-            confidence: NO_CONFIDENCE_SIGNAL,
-            bbox: { x0: box.left, y0: box.top, x1: box.right, y1: box.bottom },
-          };
-        })
-        .filter(Boolean);
+      const lineWords = [];
+      (line.elements || []).forEach((el) => {
+        const text = (el.text || "").trim();
+        if (!text) return;
+
+        const quad = normalizeQuad(el.cornerPoints);
+        const bbox = quad ? envelopeOfQuad(quad) : envelopeOfBoundingBox(el.boundingBox);
+        // No usable geometry from either source: there is nowhere to put this
+        // word, and inventing a position would be worse than dropping it.
+        if (!bbox) return;
+
+        const word = { text, confidence: NO_CONFIDENCE_SIGNAL, bbox };
+
+        if (quad) {
+          const frame = quadGeometry(quad);
+          // A degenerate quad (a zero-area element, which ML Kit does
+          // occasionally emit) has no meaningful baseline direction - atan2 of
+          // 0,0 is 0, but the width/height are useless. Keep the envelope.
+          if (frame.width > 0 && frame.height > 0) {
+            word.quad = quad;
+            word.frame = frame;
+            word.rotationDeg = Math.abs(frame.rotationDeg) >= MIN_MEANINGFUL_ROTATION_DEG ? frame.rotationDeg : 0;
+          }
+        }
+
+        lineWords.push(word);
+      });
       if (!lineWords.length) return;
       lineIndex++;
       lineWords.forEach((w) => words.push({ lineIndex, ...w }));
@@ -112,7 +254,7 @@ export async function recognizeImage(previewImg, naturalWidth, naturalHeight, on
   const { Filesystem, TextRecognition } = window.Capacitor.Plugins;
 
   if (onProgress) onProgress({ status: "loading image", progress: 0.1 });
-  const blob = await (await fetch(previewImg.src)).blob();
+  const blob = await encodeUprightJpeg(previewImg, naturalWidth, naturalHeight);
   const base64 = await blobToBase64(blob);
 
   if (onProgress) onProgress({ status: "writing to device", progress: 0.3 });
@@ -125,18 +267,6 @@ export async function recognizeImage(previewImg, naturalWidth, naturalHeight, on
   try {
     if (onProgress) onProgress({ status: "recognizing text", progress: 0.5 });
     const result = await TextRecognition.processImage({ path: uri, script: "LATIN" });
-
-    try {
-      await recordScan({
-        label: state.currentFile?.name || "unknown",
-        naturalWidth,
-        naturalHeight,
-        rawResult: result,
-        imageByteLength: blob.size,
-      });
-    } catch {
-      // Diagnostics must never be able to fail a scan that otherwise worked.
-    }
 
     if (onProgress) onProgress({ status: "done", progress: 1 });
     return {

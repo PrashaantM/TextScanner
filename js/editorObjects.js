@@ -277,6 +277,7 @@ export function snapshotState() {
     w: obj.w,
     h: obj.h,
     fontSizePct: obj.fontSizePct,
+    rotationDeg: obj.rotationDeg,
     text: obj.type === "word" ? obj.el.textContent : undefined,
   }));
 }
@@ -307,6 +308,7 @@ export function restoreSnapshot(snapshot) {
     obj.w = s.w;
     obj.h = s.h;
     if (s.fontSizePct != null) obj.fontSizePct = s.fontSizePct;
+    if (s.rotationDeg != null) obj.rotationDeg = s.rotationDeg;
     if (obj.type === "word" && s.text != null && obj.el.textContent !== s.text) {
       obj.el.textContent = s.text;
     }
@@ -398,6 +400,15 @@ export function applyObjectStyle(obj) {
   if (obj.type === "word") {
     obj.el.style.fontSize = `${obj.fontSizePct}cqw`;
     obj.el.style.minWidth = `${obj.w}%`;
+    // .image-format-word already sets transform-origin: top left, which is the
+    // same corner obj.x/obj.y anchor - so the span pivots about the word's own
+    // start rather than drifting away from it. Left unset (rather than set to
+    // rotate(0deg)) for level words so the common case keeps an identity
+    // transform and stays out of the compositor.
+    if (obj.rotationDeg) {
+      obj.el.style.transform = `rotate(${obj.rotationDeg}deg)`;
+      if (obj.patchEl) obj.patchEl.style.transform = `rotate(${obj.rotationDeg}deg)`;
+    }
     // Written as custom properties rather than as `color` directly, and that
     // distinction matters: in Full image mode an untouched word is deliberately
     // `color: transparent` so it doesn't read as a duplicate of the photo's own
@@ -440,7 +451,7 @@ export function clearImageFormatView() {
 // tool / Phase 2's undo-recreate path, so every word object is constructed the same
 // way regardless of where it came from.
 
-export function createWordObject({ text, x, y, w, h, fontSizePct, origin, confidence, bbox }) {
+export function createWordObject({ text, x, y, w, h, fontSizePct, rotationDeg, origin, confidence, bbox }) {
   const span = document.createElement("span");
   span.className = "image-format-word";
   span.contentEditable = String(!state.fullEditorMode);
@@ -466,6 +477,9 @@ export function createWordObject({ text, x, y, w, h, fontSizePct, origin, confid
   patchEl.style.width = `${w}%`;
   patchEl.style.height = `${h}%`;
   imageFormatView.appendChild(patchEl);
+  // The patch covers the word's own pixels the moment it is edited, so on a
+  // tilted word it has to be tilted the same way - an axis-aligned patch over
+  // rotated text either misses the ink or paints over its neighbours.
 
   const obj = {
     id: `obj-${++state.objectIdCounter}`,
@@ -476,6 +490,11 @@ export function createWordObject({ text, x, y, w, h, fontSizePct, origin, confid
     w,
     h,
     fontSizePct,
+    // Baseline tilt in degrees, 0 for the overwhelming majority of words and
+    // for every word on the Tesseract path. Set once at recognition time and
+    // never changed by dragging or resizing, both of which move the word's own
+    // frame without re-levelling it.
+    rotationDeg: rotationDeg || 0,
     originalX: x,
     originalY: y,
     originalW: w,
@@ -902,11 +921,19 @@ export function renderImageFormatView(previewImg, ocrWords, naturalWidth, natura
     }
 
     const { x0, y0, x1, y1 } = word.bbox;
-    const width = Math.max(x1 - x0, 1);
-    const height = Math.max(y1 - y0, 1);
+    // A word the engine reported corner points for carries its own frame: the
+    // true top-left, baseline length and glyph height of the tilted word,
+    // rather than the axis-aligned envelope drawn around it. Sizing a span from
+    // the envelope is what produced the on-device "gibberish" - see
+    // quadGeometry in js/mlkitEngine.js for the arithmetic. Tesseract reports
+    // no corner points, so its words fall back to the envelope exactly as
+    // before and nothing on that path changes.
+    const frame = word.frame || null;
+    const width = Math.max(frame ? frame.width : x1 - x0, 1);
+    const height = Math.max(frame ? frame.height : y1 - y0, 1);
 
-    const x = (x0 / naturalWidth) * 100;
-    const y = (y0 / naturalHeight) * 100;
+    const x = ((frame ? frame.x : x0) / naturalWidth) * 100;
+    const y = ((frame ? frame.y : y0) / naturalHeight) * 100;
     const w = (width / naturalWidth) * 100;
     const h = (height / naturalHeight) * 100;
     const fontSizePct = (height / naturalWidth) * 100 * FONT_SIZE_CORRECTION;
@@ -918,6 +945,7 @@ export function renderImageFormatView(previewImg, ocrWords, naturalWidth, natura
       w,
       h,
       fontSizePct,
+      rotationDeg: word.rotationDeg || 0,
       origin: "ocr",
       confidence: word.confidence,
       bbox: { x0, y0, x1, y1 },

@@ -1,0 +1,385 @@
+{
+  "label": "axis-aligned",
+  "naturalWidth": 1200,
+  "naturalHeight": 800,
+  "rawResult": {
+    "text": "THE QUICK BROWN FOX\nJUMPS OVER THE DOG",
+    "blocks": [
+      {
+        "text": "THE QUICK BROWN FOX\nJUMPS OVER THE DOG",
+        "lines": [
+          {
+            "text": "THE QUICK BROWN FOX",
+            "elements": [
+              {
+                "text": "THE",
+                "cornerPoints": [
+                  {
+                    "x": 100,
+                    "y": 120
+                  },
+                  {
+                    "x": 300,
+                    "y": 120
+                  },
+                  {
+                    "x": 300,
+                    "y": 180
+                  },
+                  {
+                    "x": 100,
+                    "y": 180
+                  }
+                ],
+                "boundingBox": {
+                  "left": 100,
+                  "top": 120,
+                  "right": 300,
+                  "bottom": 180
+                }
+              },
+              {
+                "text": "QUICK",
+                "cornerPoints": [
+                  {
+                    "x": 312,
+                    "y": 120
+                  },
+                  {
+                    "x": 512,
+                    "y": 120
+                  },
+                  {
+                    "x": 512,
+                    "y": 180
+                  },
+                  {
+                    "x": 312,
+                    "y": 180
+                  }
+                ],
+                "boundingBox": {
+                  "left": 312,
+                  "top": 120,
+                  "right": 512,
+                  "bottom": 180
+                }
+              },
+              {
+                "text": "BROWN",
+                "cornerPoints": [
+                  {
+                    "x": 524,
+                    "y": 120
+                  },
+                  {
+                    "x": 724,
+                    "y": 120
+                  },
+                  {
+                    "x": 724,
+                    "y": 180
+                  },
+                  {
+                    "x": 524,
+                    "y": 180
+                  }
+                ],
+                "boundingBox": {
+                  "left": 524,
+                  "top": 120,
+                  "right": 724,
+                  "bottom": 180
+                }
+              },
+              {
+                "text": "FOX",
+                "cornerPoints": [
+                  {
+                    "x": 736,
+                    "y": 120
+                  },
+                  {
+                    "x": 936,
+                    "y": 120
+                  },
+                  {
+                    "x": 936,
+                    "y": 180
+                  },
+                  {
+                    "x": 736,
+                    "y": 180
+                  }
+                ],
+                "boundingBox": {
+                  "left": 736,
+                  "top": 120,
+                  "right": 936,
+                  "bottom": 180
+                }
+              }
+            ],
+            "boundingBox": {
+              "left": 100,
+              "top": 120,
+              "right": 936,
+              "bottom": 180
+            },
+            "cornerPoints": [
+              {
+                "x": 100,
+                "y": 120
+              },
+              {
+                "x": 936,
+                "y": 120
+              },
+              {
+                "x": 936,
+                "y": 180
+              },
+              {
+                "x": 100,
+                "y": 180
+              }
+            ]
+          },
+          {
+            "text": "JUMPS OVER THE DOG",
+            "elements": [
+              {
+                "text": "JUMPS",
+                "cornerPoints": [
+                  {
+                    "x": 100,
+                    "y": 260
+                  },
+                  {
+                    "x": 300,
+                    "y": 260
+                  },
+                  {
+                    "x": 300,
+                    "y": 320
+                  },
+                  {
+                    "x": 100,
+                    "y": 320
+                  }
+                ],
+                "boundingBox": {
+                  "left": 100,
+                  "top": 260,
+                  "right": 300,
+                  "bottom": 320
+                }
+              },
+              {
+                "text": "OVER",
+                "cornerPoints": [
+                  {
+                    "x": 312,
+                    "y": 260
+                  },
+                  {
+                    "x": 512,
+                    "y": 260
+                  },
+                  {
+                    "x": 512,
+                    "y": 320
+                  },
+                  {
+                    "x": 312,
+                    "y": 320
+                  }
+                ],
+                "boundingBox": {
+                  "left": 312,
+                  "top": 260,
+                  "right": 512,
+                  "bottom": 320
+                }
+              },
+              {
+                "text": "THE",
+                "cornerPoints": [
+                  {
+                    "x": 524,
+                    "y": 260
+                  },
+                  {
+                    "x": 724,
+                    "y": 260
+                  },
+                  {
+                    "x": 724,
+                    "y": 320
+                  },
+                  {
+                    "x": 524,
+                    "y": 320
+                  }
+                ],
+                "boundingBox": {
+                  "left": 524,
+                  "top": 260,
+                  "right": 724,
+                  "bottom": 320
+                }
+              },
+              {
+                "text": "DOG",
+                "cornerPoints": [
+                  {
+                    "x": 736,
+                    "y": 260
+                  },
+                  {
+                    "x": 936,
+                    "y": 260
+                  },
+                  {
+                    "x": 936,
+                    "y": 320
+                  },
+                  {
+                    "x": 736,
+                    "y": 320
+                  }
+                ],
+                "boundingBox": {
+                  "left": 736,
+                  "top": 260,
+                  "right": 936,
+                  "bottom": 320
+                }
+              }
+            ],
+            "boundingBox": {
+              "left": 100,
+              "top": 260,
+              "right": 936,
+              "bottom": 320
+            },
+            "cornerPoints": [
+              {
+                "x": 100,
+                "y": 260
+              },
+              {
+                "x": 936,
+                "y": 260
+              },
+              {
+                "x": 936,
+                "y": 320
+              },
+              {
+                "x": 100,
+                "y": 320
+              }
+            ]
+          }
+        ],
+        "boundingBox": {
+          "left": 100,
+          "top": 120,
+          "right": 936,
+          "bottom": 320
+        },
+        "cornerPoints": [
+          {
+            "x": 100,
+            "y": 120
+          },
+          {
+            "x": 936,
+            "y": 120
+          },
+          {
+            "x": 936,
+            "y": 320
+          },
+          {
+            "x": 100,
+            "y": 320
+          }
+        ]
+      }
+    ]
+  },
+  "groundTruth": {
+    "lines": [
+      [
+        {
+          "text": "THE",
+          "x": 100,
+          "y": 120,
+          "w": 200,
+          "h": 60,
+          "rotationDeg": 0
+        },
+        {
+          "text": "QUICK",
+          "x": 312,
+          "y": 120,
+          "w": 200,
+          "h": 60,
+          "rotationDeg": 0
+        },
+        {
+          "text": "BROWN",
+          "x": 524,
+          "y": 120,
+          "w": 200,
+          "h": 60,
+          "rotationDeg": 0
+        },
+        {
+          "text": "FOX",
+          "x": 736,
+          "y": 120,
+          "w": 200,
+          "h": 60,
+          "rotationDeg": 0
+        }
+      ],
+      [
+        {
+          "text": "JUMPS",
+          "x": 100,
+          "y": 260,
+          "w": 200,
+          "h": 60,
+          "rotationDeg": 0
+        },
+        {
+          "text": "OVER",
+          "x": 312,
+          "y": 260,
+          "w": 200,
+          "h": 60,
+          "rotationDeg": 0
+        },
+        {
+          "text": "THE",
+          "x": 524,
+          "y": 260,
+          "w": 200,
+          "h": 60,
+          "rotationDeg": 0
+        },
+        {
+          "text": "DOG",
+          "x": 736,
+          "y": 260,
+          "w": 200,
+          "h": 60,
+          "rotationDeg": 0
+        }
+      ]
+    ]
+  }
+}

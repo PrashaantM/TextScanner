@@ -24,3 +24,18 @@ jobs:
       - run: node test/malformed-input.js
       - run: node test/exif-orientation.js
       - run: node test/move-inpaint.js
+      # Native-path geometry. The unit test above pins flattenBlocks' arithmetic;
+      # this drives the whole chain through the real renderer in a real browser
+      # and fails on any word placed away from its fixture's ground truth.
+      - run: node test/render-fidelity.js
+      # Pins a documented limitation rather than an accuracy target: non-Latin
+      # text must keep failing SAFELY, and the Latin control must keep working.
+      - run: node test/non-latin-limitation.js
+      # HEIC, the iPhone camera default. CI has no codec, so this asserts the
+      # failure is graceful; the other half (it must SUCCEED on device, where
+      # WKWebView does have the codec) is in the device checklist.
+      - run: node test/heic-input.js
+      # The web-reachable features nothing else in CI imports: both Claude tiers
+      # (api.anthropic.com is mocked - never called for real, never billed), TTS,
+      # and the export path.
+      - run: node test/web-tier-smoke.js

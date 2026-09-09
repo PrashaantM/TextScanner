@@ -18,10 +18,22 @@ import { createServer } from "node:http";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { FIXTURES } from "./make-mlkit-fixture.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const OUT = join(ROOT, "test/manual-output");
 const PORT = 8124;
+
+// Placement error budget for the ML Kit fixture replay, as a percentage of the
+// image's own width/height. The numbers this actually produces are ~1e-13 (the
+// path is pure arithmetic, and the fixtures carry exact ground truth), so this
+// is not a tuned tolerance - it is a tripwire wide enough that floating-point
+// noise can never trip it and narrow enough that any real coordinate error will.
+const MAX_PLACEMENT_ERROR_PCT = 0.05;
+// Same idea for font size: the rendered size divided by the size the word's true
+// glyph height calls for. This is the number that was 2.12x at 15 degrees and
+// 3.18x at 40 before the frame fix (see test/unit/mlkit-geometry.test.js).
+const MAX_FONT_SIZE_RATIO_ERROR = 0.01;
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".jpeg": "image/jpeg", ".jpg": "image/jpeg", ".png": "image/png" };
 
@@ -156,6 +168,142 @@ async function run(page, fontMode) {
   return built;
 }
 
+// Replays the ML Kit fixture corpus (test/make-mlkit-fixture.js) through the
+// REAL renderer in a real browser, and turns geometry error on the native path
+// into a tracked number rather than a visual impression.
+//
+// This is the DOM-level counterpart to test/unit/mlkit-geometry.test.js. That
+// test pins the arithmetic of flattenBlocks in isolation; this one proves the
+// whole chain - flattenBlocks -> renderImageFormatView -> CSS - puts each word
+// where its ground truth says it belongs, including the transform that carries
+// a tilted word's rotation.
+//
+// It replaces test/replay-dump.js, which could only replay a device dump that
+// had no ground truth to compare against.
+async function replayMlkitFixtures(page) {
+  const rows = [];
+  const failures = [];
+
+  for (const [name, fixture] of Object.entries(FIXTURES)) {
+    await page.goto(`http://localhost:${PORT}/index.html`);
+
+    const measured = await page.evaluate(async ({ fixture }) => {
+      const dom = await import("/js/dom.js");
+      const objects = await import("/js/editorObjects.js");
+      const interactions = await import("/js/editorInteractions.js");
+      const { flattenBlocks } = await import("/js/mlkitEngine.js");
+      const { state } = await import("/js/state.js");
+
+      const { naturalWidth: W, naturalHeight: H } = fixture;
+      // A blank ground: this measures where words land, and a backdrop would
+      // only make the screenshots prettier.
+      const canvas = document.createElement("canvas");
+      canvas.width = W;
+      canvas.height = H;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, W, H);
+      const src = canvas.toDataURL("image/png");
+
+      dom.previewImg.src = src;
+      await dom.previewImg.decode();
+      document.getElementById("result-section").classList.remove("hidden");
+
+      // The real production call, fed the real production flattener.
+      const words = flattenBlocks(fixture.rawResult.blocks);
+      objects.renderImageFormatView(dom.previewImg, words, W, H, src);
+      interactions.setMode("image");
+
+      const view = document.getElementById("image-format-view");
+      const vb = view.getBoundingClientRect();
+      const scale = vb.width / W;
+
+      return state.editorObjects
+        .filter((o) => o.type === "word")
+        .map((obj) => {
+          // obj.x/obj.y are the renderer's own output, in percent. The rect is
+          // what the browser actually painted, which is the half that proves the
+          // CSS rotation landed rather than being computed and dropped.
+          const r = obj.el.getBoundingClientRect();
+          return {
+            text: obj.el.textContent,
+            xPct: obj.x,
+            yPct: obj.y,
+            fontSizePct: obj.fontSizePct,
+            rotationDeg: obj.rotationDeg || 0,
+            renderedEnvelopeW: r.width / scale,
+            renderedEnvelopeH: r.height / scale,
+            transform: getComputedStyle(obj.el).transform,
+          };
+        });
+    }, { fixture });
+
+    const truth = fixture.groundTruth.lines.flat();
+    if (measured.length !== truth.length) {
+      failures.push(`${name}: rendered ${measured.length} words, ground truth has ${truth.length}`);
+      continue;
+    }
+
+    let worstPlacement = 0;
+    let worstFont = 0;
+    let rotationsApplied = 0;
+
+    measured.forEach((m, i) => {
+      const t = truth[i];
+      // Ground truth converted into the same percentage space the renderer
+      // positions in.
+      const expectedXPct = (t.x / fixture.naturalWidth) * 100;
+      const expectedYPct = (t.y / fixture.naturalHeight) * 100;
+      // FONT_SIZE_CORRECTION (0.8) is applied to the word's TRUE glyph height.
+      const expectedFontPct = (t.h / fixture.naturalWidth) * 100 * 0.8;
+
+      const placementError = Math.max(Math.abs(m.xPct - expectedXPct), Math.abs(m.yPct - expectedYPct));
+      const fontRatioError = Math.abs(m.fontSizePct / expectedFontPct - 1);
+      worstPlacement = Math.max(worstPlacement, placementError);
+      worstFont = Math.max(worstFont, fontRatioError);
+
+      if (placementError > MAX_PLACEMENT_ERROR_PCT) {
+        failures.push(
+          `${name}/"${m.text}": placed at ${m.xPct.toFixed(3)},${m.yPct.toFixed(3)}% but belongs at ` +
+            `${expectedXPct.toFixed(3)},${expectedYPct.toFixed(3)}% (error ${placementError.toFixed(4)}%)`
+        );
+      }
+      if (fontRatioError > MAX_FONT_SIZE_RATIO_ERROR) {
+        failures.push(
+          `${name}/"${m.text}": font size ${(m.fontSizePct / expectedFontPct).toFixed(3)}x the size its true ` +
+            `glyph height calls for - this is the envelope-inflation bug`
+        );
+      }
+
+      // A word the fixture tilted must actually carry a non-identity transform.
+      // Without this the renderer could compute the right rotation and never
+      // apply it, and every placement assertion above would still pass.
+      if (Math.abs(t.rotationDeg) >= 1) {
+        if (m.transform === "none" || m.transform === "matrix(1, 0, 0, 1, 0, 0)") {
+          failures.push(`${name}/"${m.text}": tilted ${t.rotationDeg} degrees but rendered with no transform`);
+        } else {
+          rotationsApplied++;
+        }
+      }
+    });
+
+    rows.push({
+      fixture: name,
+      words: measured.length,
+      image: `${fixture.naturalWidth}x${fixture.naturalHeight}`,
+      "worst placement error %": +worstPlacement.toFixed(5),
+      "worst font size error": +worstFont.toFixed(5),
+      "rotated words": rotationsApplied,
+    });
+  }
+
+  console.log("\n=== ML Kit fixture replay (native path geometry) ===");
+  console.table(rows);
+  await writeFile(join(OUT, "mlkit-fixture-replay.json"), JSON.stringify(rows, null, 2));
+
+  return failures;
+}
+
 async function main() {
   const server = serveStatic();
   await mkdir(OUT, { recursive: true });
@@ -258,9 +406,22 @@ async function main() {
     await writeFile(join(OUT, `fidelity-${fontMode}.json`), JSON.stringify(report, null, 2));
   }
 
+  const failures = await replayMlkitFixtures(page);
+
   await browser.close();
   server.close();
   console.log(`\nPNGs + JSON in ${OUT}`);
+
+  // The colour/weight/width tables above are a report - they describe fidelity
+  // that is inherently approximate (font metrics differ from the source art's).
+  // The fixture replay is not: its ground truth is exact, so it is the half of
+  // this harness that can fail a build, and does.
+  if (failures.length) {
+    console.error("\nML Kit fixture replay FAILED:");
+    for (const f of failures) console.error("  -", f);
+    process.exit(1);
+  }
+  console.log("ML Kit fixture replay: every word placed within its ground truth budget.");
 }
 
 main().catch((e) => {

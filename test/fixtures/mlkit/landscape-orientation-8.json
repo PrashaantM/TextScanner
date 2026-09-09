@@ -1,0 +1,179 @@
+{
+  "label": "landscape-orientation-8",
+  "naturalWidth": 4032,
+  "naturalHeight": 3024,
+  "rawResult": {
+    "text": "LANDSCAPE PHONE PHOTO",
+    "blocks": [
+      {
+        "text": "LANDSCAPE PHONE PHOTO",
+        "lines": [
+          {
+            "text": "LANDSCAPE PHONE PHOTO",
+            "elements": [
+              {
+                "text": "LANDSCAPE",
+                "cornerPoints": [
+                  {
+                    "x": 300,
+                    "y": 400
+                  },
+                  {
+                    "x": 1100,
+                    "y": 400
+                  },
+                  {
+                    "x": 1100,
+                    "y": 550
+                  },
+                  {
+                    "x": 300,
+                    "y": 550
+                  }
+                ],
+                "boundingBox": {
+                  "left": 300,
+                  "top": 400,
+                  "right": 1100,
+                  "bottom": 550
+                }
+              },
+              {
+                "text": "PHONE",
+                "cornerPoints": [
+                  {
+                    "x": 1112,
+                    "y": 400
+                  },
+                  {
+                    "x": 1912,
+                    "y": 400
+                  },
+                  {
+                    "x": 1912,
+                    "y": 550
+                  },
+                  {
+                    "x": 1112,
+                    "y": 550
+                  }
+                ],
+                "boundingBox": {
+                  "left": 1112,
+                  "top": 400,
+                  "right": 1912,
+                  "bottom": 550
+                }
+              },
+              {
+                "text": "PHOTO",
+                "cornerPoints": [
+                  {
+                    "x": 1924,
+                    "y": 400
+                  },
+                  {
+                    "x": 2724,
+                    "y": 400
+                  },
+                  {
+                    "x": 2724,
+                    "y": 550
+                  },
+                  {
+                    "x": 1924,
+                    "y": 550
+                  }
+                ],
+                "boundingBox": {
+                  "left": 1924,
+                  "top": 400,
+                  "right": 2724,
+                  "bottom": 550
+                }
+              }
+            ],
+            "boundingBox": {
+              "left": 300,
+              "top": 400,
+              "right": 2724,
+              "bottom": 550
+            },
+            "cornerPoints": [
+              {
+                "x": 300,
+                "y": 400
+              },
+              {
+                "x": 2724,
+                "y": 400
+              },
+              {
+                "x": 2724,
+                "y": 550
+              },
+              {
+                "x": 300,
+                "y": 550
+              }
+            ]
+          }
+        ],
+        "boundingBox": {
+          "left": 300,
+          "top": 400,
+          "right": 2724,
+          "bottom": 550
+        },
+        "cornerPoints": [
+          {
+            "x": 300,
+            "y": 400
+          },
+          {
+            "x": 2724,
+            "y": 400
+          },
+          {
+            "x": 2724,
+            "y": 550
+          },
+          {
+            "x": 300,
+            "y": 550
+          }
+        ]
+      }
+    ]
+  },
+  "groundTruth": {
+    "lines": [
+      [
+        {
+          "text": "LANDSCAPE",
+          "x": 300,
+          "y": 400,
+          "w": 800,
+          "h": 150,
+          "rotationDeg": 0
+        },
+        {
+          "text": "PHONE",
+          "x": 1112,
+          "y": 400,
+          "w": 800,
+          "h": 150,
+          "rotationDeg": 0
+        },
+        {
+          "text": "PHOTO",
+          "x": 1924,
+          "y": 400,
+          "w": 800,
+          "h": 150,
+          "rotationDeg": 0
+        }
+      ]
+    ]
+  }
+}

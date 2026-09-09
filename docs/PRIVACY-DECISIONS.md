@@ -121,12 +121,26 @@ This is a size fix, not a policy about languages. Non-Latin recognition is a
 real gap; shipping four models the app cannot reach did not make it any smaller
 a gap.
 
-## The diagnostic dump
+## The diagnostic dump — removed
 
-`js/mlkitDebug.js` records every scan's full recognized text and writes it to the
-app's Documents directory — which is included in unencrypted backups and
-retrievable through Xcode's Download Container. It is **off by default and inert
-until explicitly armed** (a URL parameter or a localStorage flag set from the Web
-Inspector), creating no window stash and writing no file otherwise. Deleting it
-outright is still the plan; it survives only because the positioning bug it was
-built to diagnose is still open. See its header, and HANDOFF's Next action.
+**Deleted.** `js/mlkitDebug.js` and `test/replay-dump.js` no longer exist.
+
+The module recorded every scan's full recognized text and wrote it to the app's
+Documents directory — included in unencrypted backups and retrievable through
+Xcode's Download Container. It had been reduced to off-by-default and inert
+until explicitly armed (a URL parameter or a localStorage flag set from the Web
+Inspector), with deletion held back only because the Image format positioning
+bug it was built to diagnose was still open.
+
+That bug is now closed without it. `test/make-mlkit-fixture.js` generates
+ML-Kit-shaped recognition results with exact ground truth, and
+`test/unit/mlkit-geometry.test.js` plus the fixture replay in
+`test/render-fidelity.js` assert the native path's coordinates analytically. A
+synthetic fixture is strictly better evidence than a device dump here — the dump
+had no ground truth to compare against, so it could only ever be eyeballed —
+and it carries none of the privacy cost, because it contains no user text at
+all.
+
+There is now no code path, armed or otherwise, that persists recognized text
+anywhere. The `?mlkitDebug=1` parameter and the `textscanner.debug.mlkit`
+localStorage key are both gone and do nothing.

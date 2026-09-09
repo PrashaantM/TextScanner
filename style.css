@@ -162,7 +162,7 @@ main {
   padding: 2.5rem 1.5rem;
   text-align: center;
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);
 }
 
 .drop-zone:hover,
@@ -209,7 +209,8 @@ main {
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease, opacity 0.15s ease, transform 0.05s ease;
+  transition: background var(--motion-fast) var(--ease-standard), opacity var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -392,7 +393,7 @@ main {
 .mode-toggle__btn:active,
 .filter-toggle__btn:active {
   transform: scale(0.97);
-  transition: transform 80ms var(--ease-standard);
+  transition: transform var(--motion-fast) var(--ease-standard);
 }
 
 .mode-toggle__btn.is-active {
@@ -673,6 +674,11 @@ main {
   position: absolute;
   z-index: 1;
   pointer-events: none;
+  /* Matches .image-format-word below. A patch for a tilted word is rotated to
+     the same angle as the word it covers, and both have to pivot about the
+     corner their left/top already anchor - the default `center` would swing the
+     patch off the ink it exists to hide. */
+  transform-origin: top left;
 }
 
 /* --word-color and --word-bg are written per word by js/editor.js from colour

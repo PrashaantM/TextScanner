@@ -57,8 +57,14 @@ For each photo scanned, note pass/fail on whether the recognized result visually
 - [ ] mitmweb capture stopped and exported (`.mitm` format)
 - [ ] Capture saved as `test/artifacts/device-network-capture-<date>.mitm`, with `Authorization`/`x-api-key` header values stripped before committing (or not committed raw at all — host list summarized into `docs/PRIVACY-DECISIONS.md` instead)
 - [ ] `test/artifacts/*.mitm` covered by `.gitignore`
-- [ ] `localStorage.setItem('textscanner.debug.mlkit', '1')` set via Safari Web Inspector, app reloaded, same 15-20 photos re-scanned
-- [ ] ML Kit debug dump exported and saved as `test/artifacts/mlkit-dump-<date>.json`, transferred off device
+The ML Kit debug dump steps that used to sit here are **gone, deliberately**.
+`js/mlkitDebug.js` and `test/replay-dump.js` were deleted once the positioning
+bug was closed offline against synthetic fixtures with exact ground truth
+(`test/make-mlkit-fixture.js`, `test/unit/mlkit-geometry.test.js`, and the
+fixture replay in `test/render-fidelity.js`). There is no debug flag to arm and
+no dump to export. Positioning is confirmed by eye against the checklist item
+above, and any disagreement with it is a contradiction to investigate per the
+plan's §8.5 — not a new diagnosis to start from scratch.
 
 ## Motion/interaction feel (Phase 17)
 
@@ -74,3 +80,6 @@ For each photo scanned, note pass/fail on whether the recognized result visually
 
 - [ ] Take a real photo on the device (produces a `.heic` file by default on iOS) and scan it directly, without converting it first. Confirm it decodes and recognizes normally.
   - Headless Chromium (the browser CI runs against) does not support HEIC decoding, so this cannot be verified in CI — it can only be confirmed here, on-device. If it fails, capture the exact `describeScanError()` message shown and note it below rather than leaving this unchecked.
+  - **This is the device half of a two-part case.** The CI half is `test/heic-input.js`, which asserts that where the codec is *missing* the app fails safely: a categorized message, no uncaught error, no hang, and specifically **not** a silent success that would scan an undecoded image and report that it worked. Measured 2026-09-09 in headless Chromium: `categorized-error`, *"That image couldn't be opened. It may be corrupted, or in a format this browser doesn't support."*
+  - So the contradiction to watch for here is the opposite one: this device **has** the codec, so anything other than a clean success is a real failure. If you see that same "couldn't be opened" message on device, HEIC decoding is broken in WKWebView and `test/heic-input.js`'s premise check (`canDecodeHeic`) is the thing to re-run against the device's own engine.
+  - [ ] Also scan a HEIC shot in **portrait**, so this covers an EXIF-orientation-carrying HEIC rather than only the format. That combination is the one real-world input that exercises both `encodeUprightJpeg` and the native decoder at once.
