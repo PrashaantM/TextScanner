@@ -16,7 +16,15 @@ jobs:
           cache-dependency-path: test/package.json
       - run: npm ci
         working-directory: test
-      - run: npx playwright install --with-deps chromium
+      # playwright-core, NOT playwright. test/package.json depends on
+      # playwright-core, and `npx playwright install` resolves a DIFFERENT
+      # package from npm at run time, pinned to whatever browser revision that
+      # package's latest release wants. The two agreed until they didn't, and
+      # this step then installed a revision playwright-core would not look for:
+      #   Executable doesn't exist at .../chromium_headless_shell-1234/...
+      # Installing through the same package the tests resolve through makes the
+      # revisions agree by construction rather than by coincidence.
+      - run: npx playwright-core install --with-deps chromium
         working-directory: test
       - run: node --test test/unit/*.test.js
       - run: node test/run-benchmark.js --check-regression --baseline test/baseline-2026-08-28.json --tolerance 2.0
