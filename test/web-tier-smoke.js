@@ -244,6 +244,11 @@ const exported = await page.evaluate(async () => {
   const interactions = await import("/js/editorInteractions.js");
   const exp = await import("/js/editorExport.js");
   const { state } = await import("/js/state.js");
+  const views = await import("/js/views.js");
+  // The editor lives inside the scan view. Driving it directly means switching
+  // to that view first, or its container is display:none and buildResultCanvas
+  // measures a zero-sized surface.
+  views.showView("scan", {}, { push: false });
 
   const W = 400;
   const H = 200;

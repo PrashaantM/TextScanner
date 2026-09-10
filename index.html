@@ -1,11 +1,19 @@
 <!--
   index.html: markup and static structure for TextScanner.
-  Loads the locally vendored Tesseract.js (see the script tag near the end of body,
-  and vendor/tesseract/README.md for what's in there and why) followed by
+
+  The app has five views - library, scan, document, crop, settings - and
+  **every one of them is present in this file at all times**, hidden with a
+  class rather than created on demand. js/views.js's header explains why in
+  full; the short version is that the scan flow's element ids are the app's
+  de-facto public interface (ten CI gates drive it through them, and
+  js/dom.js resolves them once at module load), the editor holds live state
+  that would be lost on a teardown, and toggling a class is far cheaper than
+  rebuilding hundreds of nodes.
+
+  Loads the locally vendored Tesseract.js (see the script tag near the end of
+  body, and vendor/tesseract/README.md for what's in there and why) followed by
   js/main.js (an ES module; see js/dom.js for the full set of element ids/classes
-  it and its sibling modules look up), which wires up all interaction (drag/drop
-  input, OCR, results, and the image editor). style.css provides the visual styling
-  for these same elements.
+  it and its sibling modules look up). style.css provides the visual styling.
 
   The Content-Security-Policy below is enforced by the browser on the GitHub Pages
   deployment (which sends no CSP header of its own) and inside the iOS WKWebView
@@ -31,271 +39,547 @@
     - worker-src blob: is required: tesseract.js fetches worker.min.js and wraps
       it in a Blob worker (its workerBlobURL default), so the worker's own URL is
       a blob:, not the file it came from.
-    - img-src blob: is the selected image (an object URL) and the inpainted patch
-      fills; data: is the inline SVG favicon and the patch canvases' toDataURL().
+    - img-src blob: is the selected image, every stored page and thumbnail read
+      back out of IndexedDB, and the inpainted patch fills; data: is the inline
+      SVG favicon and the patch canvases' toDataURL().
     - connect-src blob: covers mlkitEngine.js re-reading the preview image via
-      fetch(); api.anthropic.com is the Coherence Filter's BYOK call, the one
-      deliberate off-device request in the app.
+      fetch(); api.anthropic.com is the Coherence Filter's and translation's BYOK
+      call, the one deliberate off-device request in the app.
     - object-src/base-uri are locked off outright; neither is used.
+
+    Note what is NOT here: no new directive was needed for the library, the
+    document store or PDF export. IndexedDB is not subject to CSP, and the PDF
+    writer is hand-written (js/pdf.js) precisely so no external script has to be
+    allowed in to produce one.
   -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' blob: data:; connect-src 'self' https://api.anthropic.com blob:; worker-src 'self' blob:; style-src 'self'; object-src 'none'; base-uri 'none'" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>TextScanner</title>
-  <meta name="description" content="Extract text from any image, right in your browser. No upload, no server, no account." />
+  <meta name="description" content="Scan documents, take notes, and translate text - all on your device. No upload, no server, no account." />
+  <meta name="theme-color" content="#f7f7f9" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#14141a" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔎</text></svg>" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header class="site-header">
-    <h1>TextScanner</h1>
-    <p class="tagline">Extract text from any image, right in your browser.</p>
-    <!-- Cycles system / light / dark. The app followed prefers-color-scheme with
-         no way to disagree, which matters most to the people most likely to need
-         to. See js/theme.js. -->
-    <button id="theme-btn" class="btn btn--ghost btn--small" type="button">Theme: system</button>
-  </header>
+  <!-- Skip link, first in the tab order. The app bar has several controls before
+       the content on every view, and without this a keyboard user tabs through
+       all of them on every navigation. -->
+  <a class="skip-link" href="#app-main">Skip to content</a>
 
-  <main>
-    <!-- Drop zone: click, drag-and-drop, or paste target for choosing an image.
-         js/main.js binds click/keydown/dragover/drop/paste handlers to this section
-         and the hidden file-input below it. -->
-    <section id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Choose or drop an image to scan">
-      <div class="drop-zone__content">
-        <p class="drop-zone__icon" aria-hidden="true">&#128247;</p>
-        <p class="drop-zone__text">Drag &amp; drop an image here, or click to choose one</p>
-        <p class="drop-zone__hint">JPG, PNG, WEBP, or BMP</p>
-        <p class="drop-zone__hint">Works best on printed text; handwriting, especially cursive, is not reliably recognized</p>
-      </div>
-      <input type="file" id="file-input" accept="image/*" hidden />
-    </section>
+  <!-- Persistent chrome. Contents are contextual - js/main.js sets the title and
+       shows or hides the back button per view - so navigation stays in one place
+       rather than each view growing its own header. -->
+  <header class="app-bar" id="app-bar">
+    <button id="app-back" class="app-bar__back hidden" type="button" aria-label="Back">
+      <span aria-hidden="true">&#8249;</span> Back
+    </button>
 
-    <!-- Alternate ways to supply an image: capture via device camera, or generate a
-         built-in sample image (js/main.js draws the sample on a canvas, no network call). -->
-    <div class="actions">
-      <button id="camera-btn" class="btn btn--secondary" type="button">Use camera</button>
-      <input type="file" id="camera-input" accept="image/*" capture="environment" hidden />
-      <button id="sample-btn" class="btn btn--secondary" type="button">Try a sample image</button>
+    <div class="app-bar__heading">
+      <h1 id="app-title" class="app-bar__title">TextScanner</h1>
+      <p id="app-subtitle" class="app-bar__subtitle">Everything stays on this device</p>
     </div>
 
-    <!-- Shown once a file is chosen: displays the image and lets the user trigger the
-         OCR scan or go back and pick a different image. -->
-    <section id="preview-section" class="preview-section flow-panel hidden">
-      <div class="preview-card">
-        <img id="preview-img" alt="Selected image preview" />
+    <nav class="app-bar__actions" aria-label="Main">
+      <button id="nav-library" class="btn btn--ghost btn--small" type="button">Library</button>
+      <button id="nav-new-scan" class="btn btn--primary btn--small" type="button">Scan</button>
+      <button id="nav-new-note" class="btn btn--secondary btn--small" type="button">Note</button>
+      <button id="nav-settings" class="btn btn--ghost btn--small" type="button" aria-label="Settings">
+        <span aria-hidden="true">&#9881;</span>
+      </button>
+      <!-- Cycles system / light / dark. The app followed prefers-color-scheme with
+           no way to disagree, which matters most to the people most likely to need
+           to. See js/theme.js. -->
+      <button id="theme-btn" class="btn btn--ghost btn--small" type="button">Theme: system</button>
+    </nav>
+  </header>
+
+  <!-- Announces the view to a screen reader on every navigation. Without it,
+       switching views is silent and the only cue is focus moving. -->
+  <p id="view-status" class="visually-hidden" role="status" aria-live="polite"></p>
+
+  <main id="app-main">
+
+    <!-- ============================================================
+         LIBRARY - the home screen. js/library.js owns everything here.
+         ============================================================ -->
+    <section id="view-library" data-view="library" class="view view--library hidden">
+      <div class="library-toolbar">
+        <div class="library-search">
+          <span class="library-search__icon" aria-hidden="true">&#9906;</span>
+          <input id="library-search" class="library-search__input" type="search"
+                 placeholder="Search titles, tags and scanned text" data-autofocus
+                 aria-label="Search your documents" autocomplete="off" />
+          <button id="library-clear-search" class="library-search__clear hidden" type="button" aria-label="Clear search">&times;</button>
+        </div>
+        <div class="library-toolbar__actions">
+          <span id="library-count" class="library-toolbar__count"></span>
+          <button id="library-layout-btn" class="btn btn--ghost btn--small" type="button" aria-label="Switch to grid view">Grid</button>
+          <button id="library-empty-trash" class="btn btn--ghost btn--small hidden" type="button">Empty trash</button>
+        </div>
       </div>
-      <div class="preview-actions">
-        <button id="scan-btn" class="btn btn--primary" type="button">Scan text</button>
-        <button id="reset-btn" class="btn btn--ghost" type="button">Choose a different image</button>
+
+      <div class="library-body">
+        <!-- Folders, tags and Recently Deleted. Rendered by js/library.js so the
+             counts stay in step with the store rather than with the markup. -->
+        <aside id="library-sidebar" class="library-sidebar" aria-label="Filters"></aside>
+        <div id="library-list" class="library-list library-list--list" role="list"></div>
       </div>
     </section>
 
-    <!-- Progress bar shown while Tesseract.js is loading/recognizing; js/main.js updates
-         progress-fill's width and progress-label's text from the recognizer's logger callback. -->
-    <section id="progress-section" class="progress-section flow-panel hidden" aria-live="polite">
-      <div class="progress-bar">
-        <div id="progress-fill" class="progress-fill"></div>
+    <!-- ============================================================
+         SCAN - the capture and recognition flow.
+
+         This is the app's original single flow, preserved element-for-element.
+         Every id here is depended on by js/dom.js and by the CI gates in test/;
+         js/main.js's loadFile() switches to this view when a file arrives, so
+         choosing an image works from anywhere in the app.
+         ============================================================ -->
+    <section id="view-scan" data-view="scan" class="view view--scan hidden">
+
+      <!-- Drop zone: click, drag-and-drop, or paste target for choosing an image.
+           js/main.js binds click/keydown/dragover/drop/paste handlers to this section
+           and the hidden file-input below it. -->
+      <section id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Choose or drop an image to scan">
+        <div class="drop-zone__content">
+          <p class="drop-zone__icon" aria-hidden="true">&#128247;</p>
+          <p class="drop-zone__text">Drag &amp; drop an image here, or click to choose one</p>
+          <p class="drop-zone__hint">JPG, PNG, WEBP, or BMP</p>
+          <p class="drop-zone__hint">Works best on printed text; handwriting, especially cursive, is not reliably recognized</p>
+        </div>
+        <input type="file" id="file-input" accept="image/*" hidden />
+      </section>
+
+      <!-- Alternate ways to supply an image: capture via device camera, or generate a
+           built-in sample image (js/main.js draws the sample on a canvas, no network call). -->
+      <div class="actions">
+        <button id="camera-btn" class="btn btn--secondary" type="button">Use camera</button>
+        <input type="file" id="camera-input" accept="image/*" capture="environment" hidden />
+        <button id="sample-btn" class="btn btn--secondary" type="button">Try a sample image</button>
       </div>
-      <p id="progress-label" class="progress-label">Preparing...</p>
+
+      <!-- Shown once a file is chosen: displays the image and lets the user trigger the
+           OCR scan or go back and pick a different image.
+
+           "Add to document" is the bridge into the library: it runs edge
+           detection, offers the crop screen, and appends the result as a page -
+           which is what turns a one-shot scanner into a multi-page one. -->
+      <section id="preview-section" class="preview-section flow-panel hidden">
+        <div class="preview-card">
+          <img id="preview-img" alt="Selected image preview" />
+        </div>
+        <div class="preview-actions">
+          <button id="scan-btn" class="btn btn--primary" type="button">Scan text</button>
+          <button id="add-to-doc-btn" class="btn btn--secondary" type="button">Add as document page</button>
+          <button id="reset-btn" class="btn btn--ghost" type="button">Choose a different image</button>
+        </div>
+        <p id="scan-target-note" class="preview-note hidden"></p>
+      </section>
+
+      <!-- Progress bar shown while Tesseract.js is loading/recognizing; js/main.js updates
+           progress-fill's width and progress-label's text from the recognizer's logger callback. -->
+      <section id="progress-section" class="progress-section flow-panel hidden" aria-live="polite">
+        <div class="progress-bar">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+        <p id="progress-label" class="progress-label">Preparing...</p>
+      </section>
+
+      <!-- Generic status message area (errors, success confirmations); js/main.js sets its
+           text and a status--error/status--success class via setStatus(). -->
+      <section id="status-section" class="status-section hidden" role="status"></section>
+
+      <!-- OCR results, with three view modes toggled by the buttons below:
+           Text (plain textarea), Image format (words laid out on a blank canvas at their
+           original position), and Full image (words overlaid on the actual image, editable
+           and, in "Move components" mode, draggable/resizable with undo/redo). -->
+      <section id="result-section" class="result-section flow-panel hidden">
+        <div class="result-toolbar">
+          <div class="result-toolbar__row">
+            <h2>Extracted text</h2>
+            <div class="mode-toggle" role="group" aria-label="Result view">
+              <button id="mode-text-btn" class="mode-toggle__btn is-active" type="button" data-mode="text" aria-pressed="true">Text</button>
+              <button id="mode-image-btn" class="mode-toggle__btn" type="button" data-mode="image" aria-pressed="false">Image format</button>
+              <button id="mode-full-btn" class="mode-toggle__btn" type="button" data-mode="full" aria-pressed="false">Full image</button>
+            </div>
+          </div>
+
+          <!-- Three-level filter (js/filter.js for Raw/Filtered Text, js/coherence.js for
+               Coherence Filter), visible in all three view modes: it drives what's shown in
+               the Text textarea, which words are dimmed (not removed) in Image format/Full
+               image, and what Copy/Download/TTS read. -->
+          <div class="result-toolbar__row result-toolbar__actions">
+            <span class="filter-toggle__label">Filter</span>
+            <div id="filter-toggle" class="filter-toggle" role="group" aria-label="Text filter level">
+              <button id="filter-raw-btn" class="filter-toggle__btn" type="button" data-level="raw" aria-pressed="false">Raw</button>
+              <button id="filter-filtered-btn" class="filter-toggle__btn is-active" type="button" data-level="filtered" aria-pressed="true">Filtered Text</button>
+              <button id="filter-coherence-btn" class="filter-toggle__btn" type="button" data-level="coherence" aria-pressed="false">Coherence Filter</button>
+            </div>
+          </div>
+
+          <!-- Coherence Filter (js/coherence.js): the only feature in TextScanner that
+               sends data off-device (a Claude API call to rewrite Filtered Text as prose).
+               Shown only while that level is selected; js/main.js switches its inner rows
+               between "no key saved yet" and "key saved, ready to generate". -->
+          <div id="coherence-panel" class="coherence-panel hidden">
+            <!-- Which tier is about to run (js/coherence.js's resolveTier), stated
+                 up front. "Coherence Filter" must never quietly mean two different
+                 quality levels with no indication which one you got. -->
+            <div class="coherence-panel__tier">
+              <span class="coherence-panel__tier-label">Rewriting with</span>
+              <span id="coherence-tier-name" class="coherence-panel__tier-name">&mdash;</span>
+              <button id="coherence-tier-switch-btn" class="btn btn--ghost btn--small hidden" type="button"></button>
+            </div>
+            <p id="coherence-disclosure-ondevice" class="coherence-panel__disclosure hidden">
+              On-device rewriting uses Apple's built-in language model. Nothing leaves your device,
+              no API key is needed, and it costs nothing.
+            </p>
+            <p id="coherence-disclosure-claude" class="coherence-panel__disclosure hidden">
+              Coherence Filter sends your extracted text to Anthropic's Claude API to rewrite it as prose &mdash;
+              the only thing in TextScanner that leaves your device. Your API key is stored only in this browser.
+            </p>
+            <!-- Not a hypothetical: browser storage is scoped per origin, not per
+                 path, and the web build is served from a github.io origin shared
+                 with every other project published under the same account. Saying
+                 so plainly is the same standard the rest of this app's copy holds
+                 itself to. Shown only when the Claude tier is actually in play. -->
+            <p id="coherence-disclosure-origin" class="coherence-panel__disclosure coherence-panel__disclosure--caveat hidden">
+              One caveat worth knowing: on the web version, that storage belongs to the whole
+              <code>github.io</code> origin, not just to TextScanner &mdash; any other site published
+              at the same origin can read the key back. Use a key scoped and budget-limited to this,
+              and remove it with &ldquo;Change key&rdquo; when you're done.
+            </p>
+            <div id="coherence-key-row" class="coherence-panel__row">
+              <input id="coherence-api-key" class="coherence-panel__key-input" type="password" placeholder="Anthropic API key (sk-ant-...)" autocomplete="off" />
+              <button id="coherence-save-key-btn" class="btn btn--secondary" type="button">Save key</button>
+            </div>
+            <p id="coherence-unavailable" class="coherence-panel__disclosure coherence-panel__disclosure--unavailable hidden" role="status"></p>
+            <div id="coherence-generate-row" class="coherence-panel__row hidden">
+              <button id="coherence-generate-btn" class="btn btn--primary" type="button">Generate</button>
+              <button id="coherence-change-key-btn" class="btn btn--ghost" type="button">Change key</button>
+              <span id="coherence-status" class="coherence-panel__status" role="status"></span>
+            </div>
+          </div>
+
+          <div class="result-toolbar__row result-toolbar__actions">
+            <!-- Only meaningful in the two image views, where words have positions
+                 to rubber-band across. Exists for touch: a finger drag is how the
+                 page scrolls, so marquee selection has to be an explicit mode
+                 rather than a gesture that competes with scrolling. -->
+            <button id="select-multi-btn" class="btn btn--secondary hidden" type="button" aria-pressed="false">Select multiple</button>
+            <button id="copy-btn" class="btn btn--secondary" type="button">Copy</button>
+            <button id="download-btn" class="btn btn--secondary" type="button">Download .txt</button>
+            <button id="download-image-btn" class="btn btn--secondary hidden" type="button">Download image</button>
+            <!-- Sends the recognized text into a note, which is the other half of
+                 the bridge "Add as document page" opens. -->
+            <button id="save-note-btn" class="btn btn--secondary" type="button">Save as note</button>
+          </div>
+
+          <!-- Translate in place (Phase 4c): the differentiating feature. Every
+               other tool on a phone helps you READ a foreign menu; this replaces
+               the text with its translation at the same position on the image, so
+               you get the menu back in your language and can export it.
+               Shown in Image format and Full image only - "in place" means nothing
+               in the plain Text view, which has no positions. js/translate.js
+               dispatches between on-device and Claude exactly as the Coherence
+               Filter does; the tier label is here for the same reason it is
+               there. -->
+          <div id="translate-controls" class="result-toolbar__row result-toolbar__actions hidden">
+            <label class="translate-controls__label" for="translate-target">Translate to</label>
+            <select id="translate-target" class="translate-controls__select"></select>
+            <button id="translate-btn" class="btn btn--secondary" type="button">Translate</button>
+            <button id="translate-revert-btn" class="btn btn--ghost hidden" type="button">Revert to original</button>
+            <!-- Filled in by js/langDetect.js from the recognized text, so the
+                 target language starts somewhere sensible. Always a suggestion:
+                 the label states how confident the guess is. -->
+            <span id="translate-detected" class="translate-controls__detected"></span>
+            <span id="translate-tier" class="translate-controls__tier"></span>
+            <span id="translate-status" class="translate-controls__status" role="status"></span>
+          </div>
+
+          <!-- Text-to-speech (Phase 5): reads getActiveResultText() aloud via the
+               browser's SpeechSynthesis API (js/tts.js). js/main.js hides this
+               entirely if the browser has no usable TTS, and only in Text/Image
+               format modes even when it does, per spec. -->
+          <div id="tts-controls" class="result-toolbar__row result-toolbar__actions hidden">
+            <button id="tts-play-btn" class="btn btn--secondary" type="button">Play</button>
+            <button id="tts-stop-btn" class="btn btn--ghost" type="button" disabled>Stop</button>
+          </div>
+
+          <!-- Only relevant to Full image mode: toggles the drag/resize editor, arms
+               placing a new user-added text box, and exposes delete, undo, and redo
+               for the current selection. -->
+          <div id="editor-toolbar" class="editor-toolbar hidden">
+            <button id="editor-mode-btn" class="btn btn--secondary" type="button" aria-pressed="false">Move components</button>
+            <button id="new-text-btn" class="btn btn--secondary" type="button" aria-pressed="false">New text</button>
+            <div id="undo-redo-group" class="undo-redo-group hidden">
+              <button id="delete-btn" class="btn btn--ghost" type="button" disabled>Delete</button>
+              <button id="undo-btn" class="btn btn--ghost" type="button" disabled>Undo</button>
+              <button id="redo-btn" class="btn btn--ghost" type="button" disabled>Redo</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Text mode: read-only textarea filled with the raw recognized text. -->
+        <textarea id="result-text" class="flow-panel" readonly placeholder="Extracted text will appear here..."></textarea>
+
+        <!-- Image format / Full image modes: js/editorObjects.js populates this container at scan
+             time with one absolutely-positioned, contenteditable span per recognized word (plus a
+             background <img> for Full image mode), reproducing each word's original position
+             in the source image. resize-handle and marquee-box are editor-mode overlays for
+             resizing a selected word and rubber-band selecting multiple words. -->
+        <!-- Selection state was an outline and nothing else: no aria-selected, and
+             no announcement when it changed. This region is what a screen reader
+             reads when the selection count moves. -->
+        <p id="selection-status" class="visually-hidden" role="status" aria-live="polite"></p>
+        <div id="image-format-view" class="image-format-view flow-panel hidden">
+          <img id="image-format-bg" class="image-format-bg" alt="Scanned image" />
+          <!-- Was a bare, unfocusable <div>. As a slider it has a name, a role,
+               a keyboard path (arrow keys resize the selection) and a tab stop. -->
+          <div id="resize-handle" class="resize-handle" role="slider" tabindex="0"
+               aria-label="Resize selected item" aria-valuemin="20" aria-valuemax="600" aria-valuenow="100"
+               aria-valuetext="100 percent"></div>
+          <div id="marquee-box" class="marquee-box"></div>
+        </div>
+        <!-- Shown only when the active engine reports no per-word confidence at
+             all (ML Kit, on the native build). Without it, the low-confidence
+             underline simply never appears, and its absence reads as "every word
+             scored perfectly" rather than "there is no score here to read". -->
+        <p class="confidence-note hidden" id="confidence-note">
+          This engine doesn't report per-word confidence, so no words are flagged for double-checking. Read the result with that in mind.
+        </p>
+        <!-- The keyboard path through the editor, stated where it's discoverable
+             rather than left to be found. -->
+        <p class="image-format-hint hidden" id="editor-keyboard-hint">
+          Keyboard: Tab moves between items, Enter selects, arrow keys move the selection
+          (hold Shift for larger steps), Alt with arrow keys resizes it, and Delete removes it.
+        </p>
+        <p class="image-format-hint hidden" id="image-format-hint">
+          Text is positioned where it appeared in the source image. Click a word to edit it, or shift-click and drag to select multiple.
+        </p>
+      </section>
     </section>
 
-    <!-- Generic status message area (errors, success confirmations); js/main.js sets its
-         text and a status--error/status--success class via setStatus(). -->
-    <section id="status-section" class="status-section hidden" role="status"></section>
+    <!-- ============================================================
+         DOCUMENT - holds both editors. Exactly one is visible, chosen by the
+         opened document's type. js/notesEditor.js and js/scanDoc.js own them.
+         ============================================================ -->
+    <section id="view-document" data-view="document" class="view view--document hidden">
 
-    <!-- OCR results, with three view modes toggled by the buttons below:
-         Text (plain textarea), Image format (words laid out on a blank canvas at their
-         original position), and Full image (words overlaid on the actual image, editable
-         and, in "Move components" mode, draggable/resizable with undo/redo). -->
-    <section id="result-section" class="result-section flow-panel hidden">
-      <div class="result-toolbar">
-        <div class="result-toolbar__row">
-          <h2>Extracted text</h2>
-          <div class="mode-toggle" role="group" aria-label="Result view">
-            <button id="mode-text-btn" class="mode-toggle__btn is-active" type="button" data-mode="text" aria-pressed="true">Text</button>
-            <button id="mode-image-btn" class="mode-toggle__btn" type="button" data-mode="image" aria-pressed="false">Image format</button>
-            <button id="mode-full-btn" class="mode-toggle__btn" type="button" data-mode="full" aria-pressed="false">Full image</button>
+      <!-- --- Note editor --- -->
+      <div id="note-editor" class="note-editor hidden">
+        <input id="note-title" class="note-editor__title" type="text" placeholder="Title" data-autofocus aria-label="Note title" />
+
+        <div id="note-toolbar" class="note-toolbar" role="toolbar" aria-label="Formatting">
+          <select data-block class="note-toolbar__select" aria-label="Paragraph style">
+            <option value="p">Body</option>
+            <option value="h1">Title</option>
+            <option value="h2">Heading</option>
+            <option value="h3">Subheading</option>
+            <option value="blockquote">Quote</option>
+            <option value="pre">Code</option>
+          </select>
+
+          <div class="note-toolbar__group">
+            <button data-command="bold" class="note-toolbar__btn" type="button" aria-pressed="false" aria-label="Bold" title="Bold"><b>B</b></button>
+            <button data-command="italic" class="note-toolbar__btn" type="button" aria-pressed="false" aria-label="Italic" title="Italic"><i>I</i></button>
+            <button data-command="underline" class="note-toolbar__btn" type="button" aria-pressed="false" aria-label="Underline" title="Underline"><u>U</u></button>
+            <button data-command="strikeThrough" class="note-toolbar__btn" type="button" aria-pressed="false" aria-label="Strikethrough" title="Strikethrough"><s>S</s></button>
           </div>
+
+          <div class="note-toolbar__group">
+            <button data-command="insertUnorderedList" class="note-toolbar__btn" type="button" aria-pressed="false" aria-label="Bulleted list" title="Bulleted list">&bull;</button>
+            <button data-command="insertOrderedList" class="note-toolbar__btn" type="button" aria-pressed="false" aria-label="Numbered list" title="Numbered list">1.</button>
+            <button data-action="checklist" class="note-toolbar__btn" type="button" aria-label="Checklist" title="Checklist">&#9745;</button>
+          </div>
+
+          <div class="note-toolbar__group">
+            <button data-action="link" class="note-toolbar__btn" type="button" aria-label="Add link" title="Add link">&#128279;</button>
+            <button data-action="insert-image" class="note-toolbar__btn" type="button" aria-label="Insert image" title="Insert image">&#128247;</button>
+            <button data-action="clear-format" class="note-toolbar__btn" type="button" aria-label="Clear formatting" title="Clear formatting">&#10005;</button>
+          </div>
+
+          <input type="file" id="note-image-input" accept="image/*" multiple hidden />
         </div>
 
-        <!-- Three-level filter (js/filter.js for Raw/Filtered Text, js/coherence.js for
-             Coherence Filter), visible in all three view modes: it drives what's shown in
-             the Text textarea, which words are dimmed (not removed) in Image format/Full
-             image, and what Copy/Download/TTS read. -->
-        <div class="result-toolbar__row result-toolbar__actions">
-          <span class="filter-toggle__label">Filter</span>
-          <div id="filter-toggle" class="filter-toggle" role="group" aria-label="Text filter level">
-            <button id="filter-raw-btn" class="filter-toggle__btn" type="button" data-level="raw" aria-pressed="false">Raw</button>
-            <button id="filter-filtered-btn" class="filter-toggle__btn is-active" type="button" data-level="filtered" aria-pressed="true">Filtered Text</button>
-            <button id="filter-coherence-btn" class="filter-toggle__btn" type="button" data-level="coherence" aria-pressed="false">Coherence Filter</button>
-          </div>
-        </div>
+        <!-- contenteditable, with every entry point sanitized on the way in - see
+             sanitizeHtml in js/notesEditor.js. Paste is intercepted rather than
+             left to the browser's default handling, because pasted markup is the
+             app's only untrusted-HTML surface. -->
+        <div id="note-body" class="note-editor__body" contenteditable="true"
+             role="textbox" aria-multiline="true" aria-label="Note content" spellcheck="true"></div>
 
-        <!-- Coherence Filter (js/coherence.js): the only feature in TextScanner that
-             sends data off-device (a Claude API call to rewrite Filtered Text as prose).
-             Shown only while that level is selected; js/main.js switches its inner rows
-             between "no key saved yet" and "key saved, ready to generate". -->
-        <div id="coherence-panel" class="coherence-panel hidden">
-          <!-- Which tier is about to run (js/coherence.js's resolveTier), stated
-               up front. "Coherence Filter" must never quietly mean two different
-               quality levels with no indication which one you got. -->
-          <div class="coherence-panel__tier">
-            <span class="coherence-panel__tier-label">Rewriting with</span>
-            <span id="coherence-tier-name" class="coherence-panel__tier-name">&mdash;</span>
-            <button id="coherence-tier-switch-btn" class="btn btn--ghost btn--small hidden" type="button"></button>
-          </div>
-          <p id="coherence-disclosure-ondevice" class="coherence-panel__disclosure hidden">
-            On-device rewriting uses Apple's built-in language model. Nothing leaves your device,
-            no API key is needed, and it costs nothing.
-          </p>
-          <p id="coherence-disclosure-claude" class="coherence-panel__disclosure hidden">
-            Coherence Filter sends your extracted text to Anthropic's Claude API to rewrite it as prose &mdash;
-            the only thing in TextScanner that leaves your device. Your API key is stored only in this browser.
-          </p>
-          <!-- Not a hypothetical: browser storage is scoped per origin, not per
-               path, and the web build is served from a github.io origin shared
-               with every other project published under the same account. Saying
-               so plainly is the same standard the rest of this app's copy holds
-               itself to. Shown only when the Claude tier is actually in play. -->
-          <p id="coherence-disclosure-origin" class="coherence-panel__disclosure coherence-panel__disclosure--caveat hidden">
-            One caveat worth knowing: on the web version, that storage belongs to the whole
-            <code>github.io</code> origin, not just to TextScanner &mdash; any other site published
-            at the same origin can read the key back. Use a key scoped and budget-limited to this,
-            and remove it with &ldquo;Change key&rdquo; when you're done.
-          </p>
-          <div id="coherence-key-row" class="coherence-panel__row">
-            <input id="coherence-api-key" class="coherence-panel__key-input" type="password" placeholder="Anthropic API key (sk-ant-...)" autocomplete="off" />
-            <button id="coherence-save-key-btn" class="btn btn--secondary" type="button">Save key</button>
-          </div>
-          <p id="coherence-unavailable" class="coherence-panel__disclosure coherence-panel__disclosure--unavailable hidden" role="status"></p>
-          <div id="coherence-generate-row" class="coherence-panel__row hidden">
-            <button id="coherence-generate-btn" class="btn btn--primary" type="button">Generate</button>
-            <button id="coherence-change-key-btn" class="btn btn--ghost" type="button">Change key</button>
-            <span id="coherence-status" class="coherence-panel__status" role="status"></span>
-          </div>
-        </div>
-
-        <div class="result-toolbar__row result-toolbar__actions">
-          <!-- Only meaningful in the two image views, where words have positions
-               to rubber-band across. Exists for touch: a finger drag is how the
-               page scrolls, so marquee selection has to be an explicit mode
-               rather than a gesture that competes with scrolling. -->
-          <button id="select-multi-btn" class="btn btn--secondary hidden" type="button" aria-pressed="false">Select multiple</button>
-          <button id="copy-btn" class="btn btn--secondary" type="button">Copy</button>
-          <button id="download-btn" class="btn btn--secondary" type="button">Download .txt</button>
-          <button id="download-image-btn" class="btn btn--secondary hidden" type="button">Download image</button>
-        </div>
-
-        <!-- Translate in place (Phase 4c): the differentiating feature. Every
-             other tool on a phone helps you READ a foreign menu; this replaces
-             the text with its translation at the same position on the image, so
-             you get the menu back in your language and can export it.
-             Shown in Image format and Full image only - "in place" means nothing
-             in the plain Text view, which has no positions. js/translate.js
-             dispatches between on-device and Claude exactly as the Coherence
-             Filter does; the tier label is here for the same reason it is
-             there. -->
-        <div id="translate-controls" class="result-toolbar__row result-toolbar__actions hidden">
-          <label class="translate-controls__label" for="translate-target">Translate to</label>
-          <select id="translate-target" class="translate-controls__select"></select>
-          <button id="translate-btn" class="btn btn--secondary" type="button">Translate</button>
-          <button id="translate-revert-btn" class="btn btn--ghost hidden" type="button">Revert to original</button>
-          <span id="translate-tier" class="translate-controls__tier"></span>
-          <span id="translate-status" class="translate-controls__status" role="status"></span>
-        </div>
-
-        <!-- Text-to-speech (Phase 5): reads getActiveResultText() aloud via the
-             browser's SpeechSynthesis API (js/tts.js). js/main.js hides this
-             entirely if the browser has no usable TTS, and only in Text/Image
-             format modes even when it does, per spec. -->
-        <div id="tts-controls" class="result-toolbar__row result-toolbar__actions hidden">
-          <button id="tts-play-btn" class="btn btn--secondary" type="button">Play</button>
-          <button id="tts-stop-btn" class="btn btn--ghost" type="button" disabled>Stop</button>
-        </div>
-
-        <!-- Only relevant to Full image mode: toggles the drag/resize editor, arms
-             placing a new user-added text box, and exposes delete, undo, and redo
-             for the current selection. -->
-        <div id="editor-toolbar" class="editor-toolbar hidden">
-          <button id="editor-mode-btn" class="btn btn--secondary" type="button" aria-pressed="false">Move components</button>
-          <button id="new-text-btn" class="btn btn--secondary" type="button" aria-pressed="false">New text</button>
-          <div id="undo-redo-group" class="undo-redo-group hidden">
-            <button id="delete-btn" class="btn btn--ghost" type="button" disabled>Delete</button>
-            <button id="undo-btn" class="btn btn--ghost" type="button" disabled>Undo</button>
-            <button id="redo-btn" class="btn btn--ghost" type="button" disabled>Redo</button>
-          </div>
+        <div class="note-editor__footer">
+          <span id="note-stats" class="note-editor__stats"></span>
+          <span id="note-status" class="note-editor__status" role="status"></span>
         </div>
       </div>
 
-      <!-- Text mode: read-only textarea filled with the raw recognized text. -->
-      <textarea id="result-text" class="flow-panel" readonly placeholder="Extracted text will appear here..."></textarea>
+      <!-- --- Scan document (multi-page) --- -->
+      <div id="scan-doc" class="scan-doc hidden">
+        <input id="scan-doc-title" class="scan-doc__title" type="text" placeholder="Untitled scan" aria-label="Document title" />
 
-      <!-- Image format / Full image modes: js/editorObjects.js populates this container at scan
-           time with one absolutely-positioned, contenteditable span per recognized word (plus a
-           background <img> for Full image mode), reproducing each word's original position
-           in the source image. resize-handle and marquee-box are editor-mode overlays for
-           resizing a selected word and rubber-band selecting multiple words. -->
-      <!-- Selection state was an outline and nothing else: no aria-selected, and
-           no announcement when it changed. This region is what a screen reader
-           reads when the selection count moves. -->
-      <p id="selection-status" class="visually-hidden" role="status" aria-live="polite"></p>
-      <div id="image-format-view" class="image-format-view flow-panel hidden">
-        <img id="image-format-bg" class="image-format-bg" alt="Scanned image" />
-        <!-- Was a bare, unfocusable <div>. As a slider it has a name, a role,
-             a keyboard path (arrow keys resize the selection) and a tab stop. -->
-        <div id="resize-handle" class="resize-handle" role="slider" tabindex="0"
-             aria-label="Resize selected item" aria-valuemin="20" aria-valuemax="600" aria-valuenow="100"
-             aria-valuetext="100 percent"></div>
-        <div id="marquee-box" class="marquee-box"></div>
+        <div class="scan-doc__layout">
+          <div class="scan-doc__main">
+            <div class="page-preview-wrap">
+              <div id="page-preview" class="page-preview" role="img" aria-label="Selected page"></div>
+              <p id="page-preview-empty" class="page-preview__empty">
+                No pages yet. Add one to get started.
+              </p>
+              <!-- Filters and OCR are synchronous canvas work on a full-resolution
+                   image, which can block for a second or more on a phone. Without a
+                   visible busy state the app looks frozen and people tap again. -->
+              <div id="scan-busy" class="scan-busy hidden" role="status" aria-live="polite">
+                <span class="scan-busy__spinner" aria-hidden="true"></span>
+                <span id="scan-busy-label" class="scan-busy__label"></span>
+              </div>
+            </div>
+
+            <p id="scan-page-info" class="scan-doc__info"></p>
+
+            <div id="scan-filter-row" class="scan-filter-row" role="group" aria-label="Page filter"></div>
+
+            <div class="scan-doc__actions">
+              <button data-scan-action="rotate-left" class="btn btn--secondary btn--small" type="button" data-needs-pages>Rotate left</button>
+              <button data-scan-action="rotate-right" class="btn btn--secondary btn--small" type="button" data-needs-pages>Rotate right</button>
+              <button data-scan-action="crop" class="btn btn--secondary btn--small" type="button" data-needs-pages>Adjust edges</button>
+              <button data-scan-action="filter-all" class="btn btn--secondary btn--small" type="button" data-needs-pages>Apply filter to all</button>
+              <button data-scan-action="delete-page" class="btn btn--ghost btn--small" type="button" data-needs-pages>Delete page</button>
+            </div>
+
+            <div class="scan-doc__actions">
+              <button data-scan-action="recognize" class="btn btn--secondary btn--small" type="button" data-needs-pages>Recognize text</button>
+              <button data-scan-action="recognize-all" class="btn btn--secondary btn--small" type="button" data-needs-pages>Recognize all pages</button>
+              <button data-scan-action="copy-text" class="btn btn--secondary btn--small" type="button" data-needs-pages>Copy text</button>
+              <span id="scan-export-status" class="scan-doc__status" role="status"></span>
+            </div>
+
+            <div class="scan-doc__export">
+              <h3 class="scan-doc__export-heading">Export</h3>
+              <div class="scan-doc__export-row">
+                <label for="scan-paper-size">Page size</label>
+                <select id="scan-paper-size" class="scan-doc__select"></select>
+                <label class="scan-doc__checkbox">
+                  <input type="checkbox" id="scan-searchable" checked />
+                  Searchable text layer
+                </label>
+              </div>
+              <p class="scan-doc__export-hint">
+                A searchable PDF embeds the recognized text invisibly over the page image,
+                so the file can be searched and its text selected while still looking like a scan.
+                Pages with no recognized text yet are included as images only.
+              </p>
+              <div class="scan-doc__export-row">
+                <button data-scan-action="export-pdf" class="btn btn--primary btn--small" type="button" data-needs-pages>Export PDF</button>
+                <button data-scan-action="export-images" class="btn btn--secondary btn--small" type="button" data-needs-pages>Export images</button>
+                <button data-scan-action="export-text" class="btn btn--secondary btn--small" type="button" data-needs-pages>Export text</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Page strip. A listbox with real keyboard support: arrows move the
+               selection, Alt+arrows reorder. Drag-only reordering is unusable with
+               a screen reader, which is the most common failure in this kind of UI. -->
+          <aside class="scan-doc__pages">
+            <div class="scan-doc__pages-header">
+              <h3 id="scan-page-count" class="scan-doc__pages-title">No pages yet</h3>
+              <button data-scan-action="add-page" class="btn btn--primary btn--small" type="button">Add page</button>
+            </div>
+            <ul id="page-strip" class="page-strip" role="listbox" aria-label="Pages"></ul>
+            <div class="scan-doc__pages-footer">
+              <button data-scan-action="move-left" class="btn btn--ghost btn--small" type="button" data-needs-pages aria-label="Move page earlier">&#8593; Move up</button>
+              <button data-scan-action="move-right" class="btn btn--ghost btn--small" type="button" data-needs-pages aria-label="Move page later">&#8595; Move down</button>
+            </div>
+            <p class="scan-doc__pages-hint">Drag a page to reorder, or focus one and hold Alt with the arrow keys.</p>
+          </aside>
+        </div>
       </div>
-      <!-- Shown only when the active engine reports no per-word confidence at
-           all (ML Kit, on the native build). Without it, the low-confidence
-           underline simply never appears, and its absence reads as "every word
-           scored perfectly" rather than "there is no score here to read". -->
-      <p class="confidence-note hidden" id="confidence-note">
-        This engine doesn't report per-word confidence, so no words are flagged for double-checking. Read the result with that in mind.
-      </p>
-      <!-- The keyboard path through the editor, stated where it's discoverable
-           rather than left to be found. -->
-      <p class="image-format-hint hidden" id="editor-keyboard-hint">
-        Keyboard: Tab moves between items, Enter selects, arrow keys move the selection
-        (hold Shift for larger steps), Alt with arrow keys resizes it, and Delete removes it.
-      </p>
-      <p class="image-format-hint hidden" id="image-format-hint">
-        Text is positioned where it appeared in the source image. Click a word to edit it, or shift-click and drag to select multiple.
-      </p>
+    </section>
+
+    <!-- ============================================================
+         CROP - four draggable corners over a page. js/cropView.js.
+         ============================================================ -->
+    <section id="crop-view" data-view="crop" class="view view--crop hidden">
+      <div id="crop-stage" class="crop-stage">
+        <!-- tabindex so the keyboard path (Tab cycles corners, arrows nudge) has
+             somewhere to land. -->
+        <canvas id="crop-canvas" class="crop-canvas" tabindex="0" data-autofocus
+                aria-label="Adjust the page edges. Press Tab to cycle corners, then use the arrow keys."></canvas>
+      </div>
+      <p id="crop-hint" class="crop-hint"></p>
+      <div class="crop-actions">
+        <button data-crop-action="detect" class="btn btn--secondary" type="button">Detect edges</button>
+        <button data-crop-action="reset" class="btn btn--ghost" type="button">Use whole image</button>
+        <button data-crop-action="apply" class="btn btn--primary" type="button">Apply</button>
+        <button data-crop-action="cancel" class="btn btn--ghost" type="button">Cancel</button>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         SETTINGS - storage, privacy, diagnostics, translation history.
+         ============================================================ -->
+    <section id="view-settings" data-view="settings" class="view view--settings hidden">
+      <div class="settings-group">
+        <h2 class="settings-group__heading">Storage</h2>
+        <p id="settings-storage" class="settings-group__value">Checking...</p>
+        <div class="settings-group__bar"><div id="settings-storage-fill" class="settings-group__bar-fill"></div></div>
+        <p class="settings-group__hint">
+          Documents, pages and thumbnails are stored on this device only. Nothing is uploaded,
+          there is no account, and there is no sync.
+        </p>
+        <button id="settings-persist" class="btn btn--secondary btn--small" type="button">Keep storage permanently</button>
+        <p id="settings-persist-status" class="settings-group__hint" role="status"></p>
+      </div>
+
+      <div class="settings-group">
+        <h2 class="settings-group__heading">Translation history</h2>
+        <p id="settings-history-stats" class="settings-group__value"></p>
+        <p class="settings-group__hint">
+          History records the text you translated so you can find it again without re-running it.
+          It is capped and trimmed automatically. Saved phrases are never trimmed.
+        </p>
+        <div class="settings-group__actions">
+          <button id="settings-clear-history" class="btn btn--secondary btn--small" type="button">Clear history</button>
+          <button id="settings-clear-history-all" class="btn btn--ghost btn--small" type="button">Clear history and saved phrases</button>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <h2 class="settings-group__heading">Diagnostics</h2>
+        <p class="settings-group__hint">
+          Builds a report (timestamp, recognition engine, device/browser info, and the last
+          scan error if there was one) and hands it to your device's share sheet or a
+          download &mdash; nothing is sent anywhere on its own; you choose the destination.
+        </p>
+        <label class="settings-group__checkbox">
+          <input type="checkbox" id="diagnostics-include-image" />
+          Include the image that caused this issue
+        </label>
+        <button id="diagnostics-export-btn" class="btn btn--secondary btn--small" type="button">Export diagnostic report</button>
+        <p class="settings-group__hint" id="diagnostics-status" role="status"></p>
+      </div>
+
+      <div class="settings-group settings-group--danger">
+        <h2 class="settings-group__heading">Delete everything</h2>
+        <p class="settings-group__hint">
+          Permanently removes every document, page, image and translation on this device.
+          This cannot be undone, and there is no copy anywhere else.
+        </p>
+        <button id="settings-delete-all" class="btn btn--danger btn--small" type="button">Delete all local data</button>
+      </div>
+
+      <div class="settings-group">
+        <h2 class="settings-group__heading">About</h2>
+        <p class="settings-group__hint">
+          Recognition runs on your device, using <span id="footer-engine">Tesseract.js</span>.
+          Your images are never uploaded anywhere.
+        </p>
+        <p class="settings-group__hint">
+          <a href="https://github.com/PrashaantM/TextScanner" target="_blank" rel="noopener noreferrer">View source</a>
+        </p>
+      </div>
     </section>
   </main>
-
-  <!-- Both claims here have to stay true on BOTH builds. Recognition is
-       Tesseract.js on the web and Google's ML Kit inside the iOS app (see
-       js/recognize.js), so the engine is named by whichever actually ran -
-       js/main.js fills #footer-engine in at startup. And the honest privacy
-       claim is about the image, not about network silence: the image itself is
-       read and recognized on the device and is never uploaded, but the app is
-       not wholly silent - the Coherence Filter's opt-in Claude call, and ML
-       Kit's own bundled usage logging on the native build, both exist. -->
-  <footer class="site-footer">
-    <p>
-      Recognition runs on your device, using <span id="footer-engine">Tesseract.js</span>.
-      Your images are never uploaded anywhere.
-      &middot;
-      <a href="https://github.com/PrashaantM/TextScanner" target="_blank" rel="noopener noreferrer">View source</a>
-    </p>
-    <details class="diagnostics-panel" id="diagnostics-panel">
-      <summary>Diagnostics</summary>
-      <p class="diagnostics-panel__hint">
-        Builds a report (timestamp, recognition engine, device/browser info, and the last
-        scan error if there was one) and hands it to your device's share sheet or a
-        download &mdash; nothing is sent anywhere on its own; you choose the destination.
-      </p>
-      <label class="diagnostics-panel__checkbox">
-        <input type="checkbox" id="diagnostics-include-image" />
-        Include the image that caused this issue
-      </label>
-      <button id="diagnostics-export-btn" class="btn btn--secondary" type="button">Export diagnostic report</button>
-      <p class="diagnostics-panel__status" id="diagnostics-status" role="status"></p>
-    </details>
-  </footer>
 
   <!-- Tesseract.js is served from this origin (vendored at the exact version that
        was previously pinned on jsDelivr) before js/main.js, so the global Tesseract

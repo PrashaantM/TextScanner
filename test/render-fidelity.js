@@ -157,6 +157,12 @@ async function run(page, fontMode) {
     const dom = await import("/js/dom.js");
     const objects = await import("/js/editorObjects.js");
     const interactions = await import("/js/editorInteractions.js");
+    // The app now has views, and the editor lives inside the scan view. A test
+    // that drives the editor directly (rather than through loadFile, which
+    // switches views itself) has to put the app on that view first, or the
+    // editor's container is display:none and every measured rect is zero.
+    const views = await import("/js/views.js");
+    views.showView("scan", {}, { push: false });
     dom.previewImg.src = dataUrl;
     await dom.previewImg.decode();
     document.getElementById("result-section").classList.remove("hidden");
@@ -193,6 +199,10 @@ async function replayMlkitFixtures(page) {
       const interactions = await import("/js/editorInteractions.js");
       const { flattenBlocks } = await import("/js/mlkitEngine.js");
       const { state } = await import("/js/state.js");
+      const views = await import("/js/views.js");
+      // See the note in run() above - the editor must be on a visible view for
+      // getBoundingClientRect to return real numbers.
+      views.showView("scan", {}, { push: false });
 
       const { naturalWidth: W, naturalHeight: H } = fixture;
       // A blank ground: this measures where words land, and a backdrop would

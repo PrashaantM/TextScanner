@@ -101,6 +101,14 @@ import { hapticLight, hapticMedium } from "./haptics.js";
 import { computeInpaintedPatch } from "./inpaint.js";
 import { wordsToFilteredText } from "./filter.js";
 import { getTheme, cycleTheme, themeLabel } from "./theme.js";
+// The application shell - library, documents, routing. main.js owns the scan
+// flow; app.js owns everything around it. The dependency runs one way: main.js
+// reaches the document model through `bridge`, and app.js never reaches back
+// into the scan flow's internals.
+import { showView, VIEWS } from "./views.js";
+import { initApp, bridge } from "./app.js";
+import { detectLanguage, describeDetection } from "./langDetect.js";
+import { recordTranslation } from "./translateHistory.js";
 import {
   translateLines,
   resolveTranslateTier,
@@ -230,6 +238,13 @@ function loadFile(file) {
   }
   state.currentObjectUrl = URL.createObjectURL(file);
   previewImg.src = state.currentObjectUrl;
+
+  // A file can now arrive from anywhere - the library's empty state, a drop on
+  // the settings screen, a paste while reading a note - so choosing one brings
+  // the capture view forward rather than updating a screen nobody is looking at.
+  // This is also what keeps the test suite's setInputFiles("#file-input") ->
+  // click("#scan-btn") sequence working from a cold load.
+  showView(VIEWS.SCAN);
 
   resetResult();
   revealFlowPanel(previewSection);
@@ -418,6 +433,10 @@ scanBtn.addEventListener("click", async () => {
     } else {
       renderImageFormatView(previewImg, words, previewImg.naturalWidth, previewImg.naturalHeight, state.currentObjectUrl);
       applyFilterLevel(state.activeFilterLevel);
+      // Suggest a translation target from what was actually recognized, so the
+      // translate controls open with a sensible default rather than an
+      // arbitrary first option.
+      updateDetectedLanguage();
       setMode("text");
       revealFlowPanel(resultSection);
       hapticMedium();
@@ -874,6 +893,9 @@ translateBtn.addEventListener("click", async () => {
     });
     const changed = applyTranslatedLines(translated);
     preTranslateSnapshot = snapshotBeforeTranslation;
+    // Remembered so the same text does not have to be translated - and, on the
+    // Claude tier, billed - twice. Device-local and clearable in Settings.
+    rememberTranslation(lines.join("\n"), translated.join("\n"), targetCode, translateTierLabel(tier));
     translateTier.textContent = `via ${translateTierLabel(tier)}`;
     translateStatus.textContent = changed ? `Translated ${changed} line${changed === 1 ? "" : "s"}.` : "Nothing needed translating.";
     if (changed) show(translateRevertBtn);
@@ -1020,3 +1042,136 @@ if (diagnosticsExportBtn) {
     }
   });
 }
+
+// ---- Application shell ----
+//
+// Everything above this line is the scan flow, unchanged in behaviour. What
+// follows connects it to the library: a captured image can become a page in a
+// multi-page document, and recognized text can become a note.
+//
+// The two buttons are the whole bridge, and they run in opposite directions:
+// "Add as document page" sends the IMAGE into a scan document; "Save as note"
+// sends the TEXT into a note.
+
+const addToDocBtn = document.getElementById("add-to-doc-btn");
+const saveNoteBtn = document.getElementById("save-note-btn");
+
+if (addToDocBtn) {
+  addToDocBtn.addEventListener("click", async () => {
+    if (!previewImg?.naturalWidth) {
+      setStatus("Choose an image first.", "error");
+      return;
+    }
+    addToDocBtn.disabled = true;
+    try {
+      await bridge.addCurrentImageAsPage(previewImg);
+    } catch (err) {
+      console.error("Couldn't add the page:", err);
+      setStatus("Couldn't add that image as a page. Try again.", "error");
+    } finally {
+      addToDocBtn.disabled = false;
+    }
+  });
+}
+
+if (saveNoteBtn) {
+  saveNoteBtn.addEventListener("click", async () => {
+    const text = getActiveResultText();
+    if (!text || !text.trim()) {
+      setStatus("There's no text to save yet. Scan an image first.", "error");
+      return;
+    }
+
+    // The note is created with the text already in its body rather than created
+    // empty and then typed into - so a failure leaves no empty note behind.
+    const paragraphs = text
+      .split(/\n{2,}/)
+      .map((block) => `<p>${block.split("\n").map(escapeNoteLine).join("<br>")}</p>`)
+      .join("");
+
+    // First line makes a better default title than "Untitled note".
+    const firstLine = text.split("\n").find((line) => line.trim()) || "";
+    const title = firstLine.trim().slice(0, 60);
+
+    saveNoteBtn.disabled = true;
+    try {
+      await bridge.createAndOpenNote({ body: paragraphs, title });
+      hapticMedium();
+    } catch (err) {
+      console.error("Couldn't save the note:", err);
+      setStatus("Couldn't save that as a note.", "error");
+    } finally {
+      saveNoteBtn.disabled = false;
+    }
+  });
+}
+
+function escapeNoteLine(line) {
+  return String(line ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// ---- Language detection for translation ----
+//
+// Fills the detected-language hint and pre-selects a sensible target, so the
+// translate controls arrive with a reasonable default instead of an empty
+// dropdown. Always a SUGGESTION - js/langDetect.js reports a confidence and the
+// label hedges accordingly, because a confidently wrong language is worse than
+// an honest question.
+const translateDetected = document.getElementById("translate-detected");
+
+export function updateDetectedLanguage() {
+  if (!translateDetected) return;
+
+  const text = (state.ocrWords || [])
+    .map((w) => w.text)
+    .join(" ")
+    .trim();
+
+  if (!text) {
+    translateDetected.textContent = "";
+    return;
+  }
+
+  const detection = detectLanguage(text);
+  translateDetected.textContent = detection ? describeDetection(detection) : "";
+
+  // Never override a choice the person has already made.
+  if (detection && translateTarget && !translateTarget.dataset.userChosen) {
+    const match = [...translateTarget.options].find((option) => option.value === detection.code);
+    // Only switch away from the source language - translating English into
+    // English is not a useful default.
+    if (match && detection.code !== "en") translateTarget.value = detection.code;
+  }
+}
+
+translateTarget?.addEventListener("change", () => {
+  translateTarget.dataset.userChosen = "true";
+});
+
+// Records every completed translation so it can be found again without
+// re-running it (and re-billing it, on the Claude tier). Device-local, capped,
+// and clearable from Settings - see js/translateHistory.js.
+export async function rememberTranslation(sourceText, translatedText, targetCode, tier) {
+  try {
+    const detection = detectLanguage(sourceText);
+    await recordTranslation({
+      sourceText,
+      translatedText,
+      sourceLang: detection?.code || null,
+      targetLang: targetCode,
+      tier,
+    });
+  } catch (err) {
+    // History is a convenience. It must never be able to fail a translation
+    // that otherwise worked.
+    console.error("Couldn't record the translation:", err);
+  }
+}
+
+// Boot the shell last, once every handler above is attached.
+initApp().catch((err) => {
+  console.error("The app shell failed to start:", err);
+});

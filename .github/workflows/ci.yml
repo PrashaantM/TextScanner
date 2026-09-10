@@ -47,3 +47,12 @@ jobs:
       # (api.anthropic.com is mocked - never called for real, never billed), TTS,
       # and the export path.
       - run: node test/web-tier-smoke.js
+      # The hand-written PDF writer. Validates structurally (every xref offset
+      # must land on its own object header), semantically, and - on macOS only -
+      # through CoreGraphics. A corrupt PDF has no runtime error to catch.
+      - run: node test/pdf-export.js
+      # The document model and library, against real IndexedDB in a real browser.
+      # Covers persistence, search, folders, tags, trash, page ordering, blob
+      # lifetime, scan filters, edge detection, annotations, translation history,
+      # and the two untrusted-input surfaces (card rendering and note paste).
+      - run: node test/library-documents.js

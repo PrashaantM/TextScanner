@@ -32,6 +32,20 @@
   --success: #1b8a5a;
   --error: #c23434;
   --radius: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 18px;
+  /* A second surface level, for cards sitting ON a surface (a page thumbnail in
+     the strip, a sidebar item). Without it, nested panels all read as one flat
+     plane and the hierarchy disappears. */
+  --surface-2: #f1f1f5;
+  --surface-3: #e8e8ee;
+  --danger: #c23434;
+  --danger-contrast: #ffffff;
+  /* Shadows are defined as tokens because they have to invert for dark mode -
+     a dark UI needs a lighter, tighter shadow or elements look like holes. */
+  --shadow-sm: 0 1px 2px rgba(16, 16, 24, 0.06), 0 1px 3px rgba(16, 16, 24, 0.04);
+  --shadow-md: 0 2px 6px rgba(16, 16, 24, 0.07), 0 8px 24px rgba(16, 16, 24, 0.06);
+  --shadow-lg: 0 12px 40px rgba(16, 16, 24, 0.16);
   --motion-fast: 120ms;
   --motion-medium: 200ms;
   --motion-slow: 320ms;
@@ -65,6 +79,13 @@
     --accent-contrast: #101018;
     --success: #4fd08c;
     --error: #ff6b6b;
+    --surface-2: #262630;
+    --surface-3: #30303c;
+    --danger: #ff6b6b;
+    --danger-contrast: #14141a;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.55);
   }
 }
 
@@ -80,6 +101,13 @@
   --accent-contrast: #101018;
   --success: #4fd08c;
   --error: #ff6b6b;
+  --surface-2: #262630;
+  --surface-3: #30303c;
+  --danger: #ff6b6b;
+  --danger-contrast: #14141a;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.55);
 }
 
 /* An explicit light choice has to win over a dark OS setting, which means
@@ -96,6 +124,13 @@
   --accent-contrast: #ffffff;
   --success: #1b8a5a;
   --error: #c23434;
+  --surface-2: #f1f1f5;
+  --surface-3: #e8e8ee;
+  --danger: #c23434;
+  --danger-contrast: #ffffff;
+  --shadow-sm: 0 1px 2px rgba(16, 16, 24, 0.06), 0 1px 3px rgba(16, 16, 24, 0.04);
+  --shadow-md: 0 2px 6px rgba(16, 16, 24, 0.07), 0 8px 24px rgba(16, 16, 24, 0.06);
+  --shadow-lg: 0 12px 40px rgba(16, 16, 24, 0.16);
 }
 
 * {
@@ -108,39 +143,136 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* Slightly tighter than the browser default, which is set for long-form prose
+     rather than for an app made mostly of controls and short labels. */
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  /* This app's only scroll container - no inner overflow:auto panel exists
+     except the page strip. Stops an over-scroll at the top/bottom from
+     rubber-banding content behind it on native. No -webkit-overflow-scrolling:
+     touch anywhere in this file to remove - modern WKWebView never needed it,
+     and it would fight this. */
+  overscroll-behavior-y: contain;
+}
+
+/* First in the tab order. The app bar has several controls before the content on
+   every view, and without this a keyboard user tabs through all of them on every
+   single navigation. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 0.75rem 1.25rem;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-radius: 0 0 var(--radius) 0;
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  left: 0;
+}
+
+/* ---- App bar ---- */
+
+.app-bar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  padding: 0 1.25rem 3rem;
-  /* This app's only scroll container - no inner overflow:auto panel exists.
-     Stops an over-scroll at the top/bottom from rubber-banding content behind
-     it on native. No -webkit-overflow-scrolling: touch anywhere in this file
-     to remove - modern WKWebView never needed it, and it would fight this. */
-  overscroll-behavior: contain;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  /* env() keeps the bar clear of the notch/Dynamic Island in the native build,
+     where viewport-fit=cover lets content run under it. Falls back to 0 in a
+     browser, where the function is unknown. */
+  padding-top: calc(0.75rem + env(safe-area-inset-top, 0px));
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  /* The blur is what keeps a sticky bar legible over scrolling content without
+     making it fully opaque and heavy. */
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--border);
 }
 
-.site-header {
-  text-align: center;
-  margin: 2.5rem 0 1.5rem;
+.app-bar__back {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.45rem 0.7rem 0.45rem 0.45rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.site-header h1 {
-  font-size: 2rem;
-  margin: 0 0 0.4rem;
-  letter-spacing: -0.02em;
+.app-bar__back span {
+  font-size: 1.4em;
+  line-height: 1;
 }
 
-.tagline {
-  color: var(--text-muted);
+.app-bar__back:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.app-bar__heading {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.app-bar__title {
   margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  /* Document titles can be arbitrarily long; the bar must not grow or wrap. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-main {
+.app-bar__subtitle {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-bar__actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* ---- Views ---- */
+
+#app-main {
+  display: block;
+  padding: 1.5rem 1.25rem calc(3rem + env(safe-area-inset-bottom, 0px));
+}
+
+.view {
   width: 100%;
-  max-width: 1000px;
+  max-width: 1080px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+}
+
+/* The scan view keeps the original narrow measure - it is a single vertical
+   flow, and a wide one reads badly. */
+.view--scan {
+  max-width: 1000px;
 }
 
 .drop-zone,
@@ -859,52 +991,6 @@ main {
   text-align: center;
 }
 
-/* ---- Footer ---- */
-
-.site-footer {
-  margin-top: auto;
-  padding-top: 2rem;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  text-align: center;
-}
-
-.site-footer a {
-  color: var(--accent);
-  text-decoration: none;
-}
-
-.site-footer a:hover {
-  text-decoration: underline;
-}
-
-.diagnostics-panel {
-  margin: 1rem auto 0;
-  max-width: 28rem;
-  text-align: left;
-}
-
-.diagnostics-panel summary {
-  cursor: pointer;
-  color: var(--text-muted);
-  text-align: center;
-}
-
-.diagnostics-panel__hint {
-  margin: 0.75rem 0;
-}
-
-.diagnostics-panel__checkbox {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-
-.diagnostics-panel__status {
-  margin: 0.5rem 0 0;
-  min-height: 1.2em;
-}
 
 .hidden {
   display: none !important;
@@ -924,4 +1010,1261 @@ main {
 .flow-panel.is-visible {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* ============================================================================
+   LIBRARY
+   ============================================================================ */
+
+.library-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.library-search {
+  position: relative;
+  flex: 1 1 20rem;
+  display: flex;
+  align-items: center;
+}
+
+.library-search__icon {
+  position: absolute;
+  left: 0.85rem;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  pointer-events: none;
+}
+
+.library-search__input {
+  width: 100%;
+  padding: 0.7rem 2.4rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.95rem;
+  transition: border-color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
+}
+
+.library-search__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* The browser's own search clear button is inconsistent across engines and
+   invisible in dark mode on some of them, so it is suppressed and replaced. */
+.library-search__input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.library-search__clear {
+  position: absolute;
+  right: 0.6rem;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: none;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.library-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.library-toolbar__count {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.library-body {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  gap: 1.75rem;
+  align-items: start;
+}
+
+/* ---- Sidebar ---- */
+
+.library-sidebar {
+  position: sticky;
+  top: 5.5rem;
+}
+
+.library-nav__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.library-nav__list li {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.library-nav__item {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.library-nav__item:hover {
+  background: var(--surface-2);
+}
+
+.library-nav__item.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.library-nav__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-nav__count {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.library-nav__item.is-active .library-nav__count {
+  color: inherit;
+}
+
+.library-nav__edit {
+  flex: 0 0 auto;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+
+.library-nav__list li:hover .library-nav__edit,
+.library-nav__edit:focus-visible {
+  opacity: 1;
+}
+
+.library-nav__section {
+  margin-top: 1.5rem;
+}
+
+.library-nav__heading {
+  margin: 0 0 0.5rem 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.library-nav__empty {
+  padding: 0.4rem 0.7rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.library-nav__add {
+  margin-top: 0.35rem;
+  padding: 0.45rem 0.7rem;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.library-nav__add:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.library-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0 0.4rem;
+}
+
+.library-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+.library-tag span {
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.library-tag:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.library-tag.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---- Document cards ---- */
+
+.library-list--list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.library-list--grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 1rem;
+}
+
+.doc-card {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  transition: box-shadow var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
+}
+
+.doc-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  box-shadow: var(--shadow-md);
+}
+
+.doc-card:active {
+  transform: scale(0.995);
+}
+
+.doc-card.is-pinned {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+.doc-card__open {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+  padding: 0.85rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.doc-card__thumb {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.25rem;
+  height: 4.25rem;
+  border-radius: var(--radius-sm);
+  /* contain for the same reason as .page-thumb__image below - a cropped page
+     thumbnail hides the heading that identifies the document. */
+  background: var(--surface-2) center / contain no-repeat;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+/* Once a real thumbnail is attached the placeholder badge would sit on top of
+   it, so it is hidden rather than layered. */
+.doc-card__thumb.has-thumb .doc-card__badge {
+  display: none;
+}
+
+.doc-card__badge {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.doc-card__badge--note {
+  font-size: 1.15rem;
+}
+
+.doc-card__body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.doc-card__title {
+  font-size: 0.98rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-card__excerpt {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+  /* Two lines, then ellipsis. A scanned page's text is long and unstructured;
+     without a clamp one card can push everything else off the screen. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.doc-card__excerpt mark {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+.doc-card__meta {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+}
+
+.doc-card__pin {
+  color: var(--accent);
+}
+
+.doc-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+}
+
+.doc-card__tag {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.doc-card__actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.6rem;
+  border-left: 1px solid var(--border);
+  background: var(--surface-2);
+  /* Revealed on hover on a pointer device, always visible on touch - where
+     there is no hover and hidden actions are simply unreachable. */
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+
+.doc-card:hover .doc-card__actions,
+.doc-card:focus-within .doc-card__actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .doc-card__actions {
+    opacity: 1;
+  }
+}
+
+.doc-card__action {
+  padding: 0.3rem 0.6rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+.doc-card__action:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.doc-card__action--danger:hover {
+  color: var(--danger);
+}
+
+/* Grid layout stacks the card instead of running it horizontally. */
+.library-list--grid .doc-card {
+  flex-direction: column;
+}
+
+.library-list--grid .doc-card__open {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.library-list--grid .doc-card__thumb {
+  width: 100%;
+  height: 8.5rem;
+}
+
+.library-list--grid .doc-card__actions {
+  flex-direction: row;
+  justify-content: flex-end;
+  border-left: none;
+  border-top: 1px solid var(--border);
+}
+
+.library-empty {
+  padding: 4rem 1.5rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.library-empty__title {
+  margin: 0 0 0.4rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.library-empty__hint {
+  margin: 0 auto;
+  max-width: 28rem;
+  font-size: 0.9rem;
+}
+
+.library-empty__actions {
+  margin-top: 1.5rem;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.storage-warning {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--error);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+
+/* ============================================================================
+   NOTE EDITOR
+   ============================================================================ */
+
+.note-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  /* A note is prose. Constraining the measure to roughly 70 characters is the
+     single biggest readability win available here - a full-width line on a
+     desktop is genuinely hard to track back from. */
+  max-width: 46rem;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.note-editor__title {
+  width: 100%;
+  padding: 0.25rem 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.note-editor__title:focus {
+  outline: none;
+}
+
+.note-editor__title::placeholder {
+  color: var(--text-muted);
+  opacity: 0.55;
+}
+
+.note-toolbar {
+  position: sticky;
+  /* Sits directly under the app bar, which is itself sticky. */
+  top: calc(3.6rem + env(safe-area-inset-top, 0px));
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.note-toolbar__group {
+  display: flex;
+  gap: 0.15rem;
+  padding-right: 0.4rem;
+  border-right: 1px solid var(--border);
+}
+
+.note-toolbar__group:last-of-type {
+  border-right: none;
+}
+
+.note-toolbar__btn {
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.45rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.note-toolbar__btn:hover {
+  background: var(--surface-2);
+}
+
+.note-toolbar__btn.is-active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.note-toolbar__select {
+  height: 2rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.note-editor__body {
+  min-height: 55vh;
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 1rem;
+  line-height: 1.65;
+  outline: none;
+  transition: border-color var(--motion-fast) var(--ease-standard);
+}
+
+.note-editor__body:focus {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.note-editor__body > *:first-child {
+  margin-top: 0;
+}
+
+.note-editor__body h1 {
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+}
+
+.note-editor__body h2 {
+  font-size: 1.25rem;
+}
+
+.note-editor__body h3 {
+  font-size: 1.05rem;
+}
+
+.note-editor__body blockquote {
+  margin: 1rem 0;
+  padding: 0.25rem 0 0.25rem 1rem;
+  border-left: 3px solid var(--accent);
+  color: var(--text-muted);
+}
+
+.note-editor__body pre {
+  padding: 0.85rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88rem;
+  overflow-x: auto;
+}
+
+.note-editor__body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  margin: 0.5rem 0;
+}
+
+.note-editor__body a {
+  color: var(--accent);
+}
+
+.note-missing-image {
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Checklists. Custom, because execCommand has none - see js/notesEditor.js. */
+.note-editor__body ul[data-checklist] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.note-editor__body ul[data-checklist] li {
+  position: relative;
+  padding-left: 2.1rem;
+  margin: 0.3rem 0;
+}
+
+.note-editor__body ul[data-checklist] li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.18em;
+  width: 1.2em;
+  height: 1.2em;
+  border: 2px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+}
+
+.note-editor__body ul[data-checklist] li[data-checked="true"]::before {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* The tick. A CSS-drawn check rather than a glyph, so it is crisp at any size
+   and inherits the accent's contrast colour. */
+.note-editor__body ul[data-checklist] li[data-checked="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0.4em;
+  top: 0.36em;
+  width: 0.32em;
+  height: 0.62em;
+  border: solid var(--accent-contrast);
+  border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg);
+}
+
+.note-editor__body ul[data-checklist] li[data-checked="true"] {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-muted) 50%, transparent);
+}
+
+.note-editor__footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  min-height: 1.2em;
+}
+
+/* ============================================================================
+   SCAN DOCUMENT
+   ============================================================================ */
+
+.scan-doc {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.scan-doc__title {
+  width: 100%;
+  padding: 0.25rem 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.scan-doc__title:focus {
+  outline: none;
+}
+
+.scan-doc__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 13rem;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.scan-doc__main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+.page-preview-wrap {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.page-preview {
+  /* `contain` rather than `cover`: a page must never be cropped by its own
+     preview. The letterboxing is the honest representation. */
+  min-height: 48vh;
+  background: center / contain no-repeat;
+}
+
+.page-preview__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 1rem;
+}
+
+.scan-busy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.scan-busy__spinner {
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: scan-spin 700ms linear infinite;
+}
+
+@keyframes scan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Reduced motion replaces the spin with a pulse rather than removing the
+   indicator entirely - a busy state with no motion at all reads as frozen,
+   which is the exact impression it exists to prevent. */
+@media (prefers-reduced-motion: reduce) {
+  .scan-busy__spinner {
+    animation: scan-pulse 1.4s ease-in-out infinite;
+    border-top-color: var(--border);
+    background: var(--accent);
+  }
+
+  @keyframes scan-pulse {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 1; }
+  }
+}
+
+.scan-doc__info {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  min-height: 1.2em;
+}
+
+.scan-filter-row {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.83rem;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.filter-chip:hover {
+  border-color: var(--accent);
+}
+
+.filter-chip.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+.scan-doc__actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.scan-doc__status {
+  color: var(--success);
+  font-size: 0.82rem;
+}
+
+.scan-doc__export {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.scan-doc__export-heading {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+}
+
+.scan-doc__export-row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+  font-size: 0.85rem;
+}
+
+.scan-doc__select {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.scan-doc__checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+
+.scan-doc__export-hint {
+  margin: 0 0 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+/* ---- Page strip ---- */
+
+.scan-doc__pages {
+  position: sticky;
+  top: 5.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.scan-doc__pages-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.scan-doc__pages-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.page-strip {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 52vh;
+  overflow-y: auto;
+  /* The one inner scroll container in the app; contain stops it chaining to the
+     page when it reaches its end. */
+  overscroll-behavior: contain;
+}
+
+.page-thumb {
+  position: relative;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
+}
+
+.page-thumb:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.page-thumb.is-selected {
+  border-color: var(--accent);
+}
+
+.page-thumb:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.page-thumb.is-dragging {
+  opacity: 0.4;
+}
+
+.page-thumb.is-drop-target {
+  border-color: var(--success);
+  transform: translateY(2px);
+}
+
+.page-thumb__image {
+  display: block;
+  height: 7rem;
+  /* `contain`, not `cover`. A document page is portrait and a thumbnail box is
+     nearly square, so `cover` crops away the top and bottom - which is exactly
+     where a page's heading and signature line are. It made page 3 of a
+     three-page agreement render as a blank rectangle because its middle band
+     happened to be empty. Letterboxing shows the whole page, which is the only
+     useful thing a page thumbnail can show. */
+  background: var(--surface-3) center / contain no-repeat;
+}
+
+.page-thumb__number {
+  position: absolute;
+  left: 0.3rem;
+  bottom: 0.3rem;
+  min-width: 1.35rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, #000 65%, transparent);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.scan-doc__pages-footer {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.scan-doc__pages-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+/* ============================================================================
+   CROP
+   ============================================================================ */
+
+.view--crop {
+  max-width: 900px;
+}
+
+.crop-stage {
+  position: relative;
+  height: min(68vh, 620px);
+  border-radius: var(--radius);
+  background: #0a0a10;
+  overflow: hidden;
+}
+
+.crop-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* The crop gesture owns the surface outright: without this, dragging a corner
+     on a phone scrolls the page instead. */
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.crop-canvas:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.crop-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.87rem;
+  text-align: center;
+  min-height: 1.3em;
+}
+
+.crop-actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ============================================================================
+   SETTINGS
+   ============================================================================ */
+
+.view--settings {
+  max-width: 42rem;
+}
+
+.settings-group {
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.settings-group--danger {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+.settings-group__heading {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.settings-group__value {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.settings-group__hint {
+  margin: 0.5rem 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.settings-group__hint a {
+  color: var(--accent);
+}
+
+.settings-group__bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.settings-group__bar-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width var(--motion-slow) var(--ease-standard);
+}
+
+.settings-group__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.settings-group__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  font-size: 0.88rem;
+}
+
+.btn--danger {
+  background: var(--danger);
+  color: var(--danger-contrast);
+}
+
+.btn--danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.preview-note {
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text);
+  font-size: 0.84rem;
+  text-align: center;
+}
+
+.translate-controls__detected {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+
+@media (max-width: 900px) {
+  .library-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .library-sidebar {
+    position: static;
+  }
+
+  .library-nav__list {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .library-nav__section .library-nav__list {
+    flex-direction: column;
+  }
+
+  .scan-doc__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .scan-doc__pages {
+    position: static;
+  }
+
+  /* The page strip becomes a horizontal filmstrip on narrow screens, which is
+     what the space affords and what the platform convention is. */
+  .page-strip {
+    flex-direction: row;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 0.25rem;
+  }
+
+  .page-thumb {
+    flex: 0 0 5.5rem;
+  }
+
+  .page-thumb__image {
+    height: 7rem;
+  }
+}
+
+@media (max-width: 600px) {
+  #app-main {
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+  }
+
+  .app-bar {
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+  }
+
+  /* On a phone the bar cannot hold five controls and a title. The secondary
+     ones drop out; Library and Scan are the two that matter, and Settings holds
+     everything else. */
+  .app-bar__actions #nav-new-note,
+  .app-bar__actions #theme-btn {
+    display: none;
+  }
+
+  .note-toolbar {
+    top: calc(3.3rem + env(safe-area-inset-top, 0px));
+  }
+
+  .doc-card__thumb {
+    width: 2.75rem;
+    height: 3.5rem;
+  }
 }
