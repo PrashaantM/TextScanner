@@ -2,13 +2,23 @@
 
 ![CI](https://github.com/PrashaantM/TextScanner/actions/workflows/ci.yml/badge.svg)
 
-Extract text from any image, right in your browser. Drag in a photo, screenshot, or scan, and TextScanner reads the text out for you, no upload, no server, no account.
+Scan documents, take notes, and translate text — all on your device. No upload, no server, no account.
 
 **Live app:** https://prashaantm.github.io/TextScanner/
 
-## Why not just use Google Lens, Adobe Scan, or Live Text?
+TextScanner is three things that share one document library:
 
-Those tools are all built to help you *read* text in a photo — select it, copy it, search it, translate it. None of them let you *edit* the image itself. TextScanner turns every recognized word into an independent object: retype it, move it, resize it, or delete it — deleted text's old spot gets properly repaired underneath (real inpainting, not a visible gap or a smudge) — so you can genuinely edit text on a photographed sign, screenshot, or poster and export the result, not just read it off.
+- **A document scanner.** Multi-page scans with automatic edge detection, six page filters, rotation, reordering, and export to searchable PDF.
+- **A notes app.** Rich text, checklists, folders, tags, pinning, and full-text search that reaches inside your scanned pages.
+- **An image text editor.** Every recognized word becomes an object you can retype, move, resize or delete — with the pixels underneath repaired.
+
+## Why not just use Notes, Google Lens, Adobe Scan, or CamScanner?
+
+Because they each do one of those three and hand you off for the rest. Scan a receipt in one app, retype it into another, translate it in a third.
+
+The specific thing none of them do: **edit the text on the image itself.** Google Lens, Adobe Scan and Live Text are all built to help you *read* text in a photo — select it, copy it, translate it. TextScanner turns every recognized word into an independent object: retype it, move it, resize it, or delete it — and a deleted word's old spot gets properly repaired underneath (real inpainting, not a visible gap or a smudge). So you can genuinely edit text on a photographed sign, screenshot, or poster and export the result.
+
+And the thing none of the scanner apps do: **no account, no subscription, no cloud.** CamScanner wants a login and uploads your documents. This stores everything in your browser's own database, on your device, and there is no server to upload to.
 
 A few other gaps this fills:
 
@@ -19,6 +29,31 @@ A few other gaps this fills:
 What this doesn't claim: better raw recognition accuracy than those tools on hard, cluttered, or decorative photos. See Features below for an honest account of where recognition quality stands today.
 
 ## Features
+
+### Library
+
+- **Documents, folders and tags.** Everything you scan or write lands in one library, sorted by recency with pinned items first.
+- **Search that reaches inside your scans.** Every page's recognized text is indexed, so searching "deductible" finds the insurance policy you photographed months ago — and the result shows the matching passage, not just the title.
+- **Recently Deleted.** Deletion is two-stage: documents sit in the trash for 30 days and nothing is actually destroyed until they are purged. A scan's pages are megabytes each, so an undo that could not restore them would be a lie.
+- **Everything is local.** IndexedDB, on your device. No sync, no account, no server. Settings shows exactly how much space it uses and can delete all of it.
+
+### Scanning
+
+- **Automatic edge detection.** Point at a receipt on a desk and the page boundary is found and cropped out. It deliberately declines to guess when it cannot find a page — a wrong crop silently removes part of your document, so it prefers to hand you the corners instead.
+- **Four-corner adjustment with a magnifier**, because a fingertip covers the corner it is placing. Keyboard adjustment too (Tab cycles corners, arrows nudge).
+- **Six page filters** — auto enhance, magic colour, greyscale, soft and hard black & white, original — applied per page or to the whole document at once. Filters always work from the original capture, so switching between them never compounds and never degrades the page.
+- **Multi-page documents** with drag reordering (and Alt+arrow keys, so it works with a screen reader), rotation, and per-page or whole-document OCR.
+- **Export to searchable PDF.** The recognized text is laid invisibly over the page image, so the file looks like a scan and its text can still be searched, selected and copied. Also exports plain images or plain text.
+- **Signatures and markup** — pen, highlighter and redaction, stored as vectors so they can be undone, and burned into the pixels only at export. Redaction genuinely destroys what it covers in the exported file rather than laying a removable box over it.
+
+### Notes
+
+- **Rich text** — headings, bold/italic/underline/strikethrough, bulleted and numbered lists, quotes, code blocks, links and inline images.
+- **Checklists** that tick when you tap them.
+- **Scan straight into a note.** Recognized text becomes a note in one tap; a captured image becomes a page in a scan document in one tap.
+- **Autosave**, with pasted content sanitized on the way in.
+
+### Recognition and editing
 
 - Drag and drop, click to browse, paste from clipboard, or capture a photo on mobile
 - Optical character recognition powered by [Tesseract.js](https://github.com/naptha/tesseract.js), running fully client-side via WebAssembly, and served from this origin rather than a CDN (see [`vendor/tesseract/`](vendor/tesseract)). The iOS app uses Google's ML Kit instead, on the same code path - see `js/recognize.js`
@@ -36,7 +71,7 @@ What this doesn't claim: better raw recognition accuracy than those tools on har
   - **Image format**: each word placed where it appeared in the source image, as editable and copyable text on a plain background instead of the image itself
   - **Full image**: the actual image shown as is, with the same editable, copyable text laid over it. Untouched words stay invisible against the photo so nothing looks duplicated; a word only becomes visible once you interact with it or actually change it. Deleting a word properly inpaints its old spot from the surrounding image, rather than leaving a gap; moving a word does not yet clean up its vacated spot the same way (known limitation)
 - Font matching is partial and honestly so: size comes from the recognized bounding box and colour is sampled from the image, but the typeface is always the same neutral stack, and bold-vs-regular is **not** detected. Ink coverage was measured as a weight proxy against `test/render-fidelity.js` and does not separate weights - in a heavy display face, bold text covers *less* of its box than medium does - so the app doesn't guess
-- **Translate in place**: pick a target language and the recognized text is replaced with its translation *at the same position on the image*, then exported as a PNG. Other tools help you read a foreign menu; this hands the menu back in your language. Runs on Apple's on-device model on eligible iPhones (no key, no network) and falls back to Claude with your own API key, the same two tiers as the Coherence Filter. Translation works line by line rather than word by word, since word order and agreement change between languages
+- **Translate in place**: the target language is suggested from the recognized text (reported with a confidence, so it hedges rather than asserts — "Cyrillic script - probably Russian"), and the recognized text is replaced with its translation *at the same position on the image*, then exported as a PNG. Every translation is remembered locally so the same text does not have to be translated — or, on the Claude tier, billed — twice; history is capped, and Settings can clear it. Other tools help you read a foreign menu; this hands the menu back in your language. Runs on Apple's on-device model on eligible iPhones (no key, no network) and falls back to Claude with your own API key, the same two tiers as the Coherence Filter. Translation works line by line rather than word by word, since word order and agreement change between languages
 - Select multiple words at once in either image-based view, by shift-clicking or dragging a selection box - or, on touch, by switching on "Select multiple", since a phone has no shift key and a plain finger drag belongs to scrolling the page
 - A **Move components** mode, available from Full image, for moving and resizing the text and the image itself, freely and independently, with Undo and Redo for every move and resize
 - Download the current view as a PNG from Image format or Full image, alongside the plain-text download

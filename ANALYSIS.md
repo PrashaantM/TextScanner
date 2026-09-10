@@ -1,9 +1,11 @@
 # TextScanner — Architecture, Design & Security Analysis
 
-**Date:** 2026-09-09 · **Commit:** `4ae7cfd` · **Branch:** `main`
+**Date:** 2026-09-09 · **Commit:** `4ae7cfd` (with a §8 addendum at `ca341d7`) · **Branch:** `main`
 **Scope:** folder structure, system design, UI/UX design, security. This is the **third revision**, written against the *web-complete* state — every code path reachable without hardware now has an automated gate, and those gates run in CI on every push. It supersedes [`docs/archive/analysis-2026-08-29.md`](docs/archive/analysis-2026-08-29.md), which supersedes [`docs/archive/analysis-2026-08-28.md`](docs/archive/analysis-2026-08-28.md); both are preserved rather than overwritten.
 
 **Section 6 is explicitly incomplete.** On-device behaviour is unconfirmed at this revision and is Phase 8's job. Everything else here is closed by evidence.
+
+**Section 8 is an addendum**, written after the hardening plan closed. The app gained a document library, a notes editor, multi-page scanning and PDF export in commit `ca341d7`, which is a large enough change that leaving §§0-7 describing the older app would make them wrong. They are left as they were - accurate for `4ae7cfd` - and §8 records what changed, what it cost, and what it did NOT change.
 
 **Citation standard, carried forward unchanged:** every claim below cites an artifact present at this commit — a test file, a measured number, a CI run, or a line of source. Nothing is called "verified" or "fixed" without one. Null results are findings and are written down as such.
 
@@ -366,3 +368,118 @@ Each investigated, each documented where it lives:
 ---
 
 *This revision is based on a full read of the repository at `4ae7cfd`, the git history across Phases 1–6, the installed CocoaPods privacy manifests, the iOS 26.5 SDK's Vision headers, and CI runs [34396467400](https://github.com/PrashaantM/TextScanner/actions/runs/34396467400) (deliberate failure) and [34396624486](https://github.com/PrashaantM/TextScanner/actions/runs/34396624486) (recovery). It is a delta against [`docs/archive/analysis-2026-08-29.md`](docs/archive/analysis-2026-08-29.md), not a rewrite from a blank page — sections unchanged since that revision are not restated here, and two of its claims are corrected (§4.1, §4.5).*
+
+---
+
+## 8. Addendum — the document layer (`ca341d7`)
+
+Written after §§0–7. Everything above describes the app at `4ae7cfd`: a single
+capture-recognize-edit flow. This section records what `ca341d7` added and, more
+usefully, what it deliberately left alone.
+
+**Scale:** 14 new modules, ~4,500 lines, taking `js/` from 24 modules / 5,709
+lines to 38 / 11,469. Two new CI gates, taking the suite from 10 to 12.
+
+### 8.1 What was added
+
+| Area | Modules | What it does |
+|---|---|---|
+| Persistence | `store.js`, `documents.js` | IndexedDB; documents, pages, blobs, folders, settings, history |
+| Library | `library.js`, `views.js`, `app.js` | Five views, routing, search, folders, tags, trash |
+| Notes | `notesEditor.js` | Rich text, checklists, attachments, autosave, paste sanitization |
+| Scanning | `scanFilters.js`, `edgeDetect.js`, `scanDoc.js`, `cropView.js`, `annotate.js` | Six filters, edge detection, multi-page, crop, signatures |
+| Export | `pdf.js` | Hand-written PDF writer with an invisible OCR text layer |
+| Translation | `langDetect.js`, `translateHistory.js` | Script/language detection, local history |
+
+### 8.2 What did NOT change, and why that was the constraint
+
+**The scan flow is untouched.** Its element ids are the app's de-facto public
+interface — ten CI gates drive it through them, and `js/dom.js` resolves them
+once at module load. So the original markup moved inside a view wrapper
+element-for-element, and `js/views.js` keeps **every view's markup in the
+document at all times**, hidden with a class rather than created on demand.
+
+The evidence that this held: all 68 ids `dom.js` resolves still exist (checked
+programmatically, not by eye), every pre-existing gate passes, and the benchmark
+reports **+0.00pts CER and WER** — the recognition pipeline was not touched at
+all.
+
+Two tests needed one line each: `render-fidelity.js` and `web-tier-smoke.js`
+drive the editor directly rather than through `loadFile`, so they now switch to
+the scan view first. Without it the editor's container is `display: none` and
+every measured rect is zero. That is a real consequence of the change, recorded
+rather than papered over.
+
+### 8.3 Four bugs found while building, three of them in the new code
+
+1. **`stripMarkup` concatenated across block boundaries.** `textContent` renders
+   `<li>Oat milk</li><li>Bread</li>` as `"Oat milkBread"`. It corrupted the
+   search index, card excerpts, word counts and derived titles simultaneously,
+   and was invisible until you read one. Now inserts a separator at every block
+   element before extracting.
+2. **`views.js` hid the entire page.** It set `data-view` on `<body>`, and the
+   "hide every view except the current one" selector then matched the body
+   itself. The body attribute is now `data-active-view` and the selector is
+   scoped to `#app-main` — two independent fixes, because one would have been
+   enough and the class of bug is worth belt and braces.
+3. **Edge detection accepted pure noise.** A flood fill percolates through a
+   noisy image and touches all four edges; the extreme-point fit then returns a
+   quad covering 99% of the frame, which passes every area and aspect check
+   while being meaningless. Fixed with a **solidity** requirement — how much of
+   its own quad the mask actually fills — rather than by tightening the area
+   bound, which would have been a threshold papering over a missing test.
+4. **Page thumbnails used `background-size: cover`**, cropping portrait pages to
+   a middle slice. Page 3 of a three-page agreement rendered blank because its
+   middle band was empty. Caught by looking at a screenshot, which is the only
+   way this class of bug is ever caught.
+
+A fifth was found in the *test* rather than the code: the soft-B&W assertion
+compared mean luma, and a hard and a soft image shared a mean while their
+histograms were 2 values and 182. It now counts distinct values.
+
+### 8.4 The PDF writer, and why it is hand-written
+
+`pdf-lib` and `jsPDF` are 300–400 KB minified. This app has no bundler, so a
+library would be vendored into every page load and into the App Store binary —
+to do a job scoped to exactly one shape: one JPEG per page, plus optional
+invisible text.
+
+Two things make that worth the ~450 lines. A JPEG is embedded with `/DCTDecode`,
+meaning the compressed bytes *are* the stream — no decode, no re-compress, so
+export is lossless and near-instant. And text rendering mode 3 (`3 Tr`) draws
+nothing while still participating in extraction and search, which is exactly how
+commercial scanners produce "searchable PDF".
+
+A hand-written PDF writer is also precisely the kind of code that fails silently
+— a wrong xref offset produces a file that saves without complaint and then will
+not open. So `test/pdf-export.js` validates on three independent levels:
+structurally (re-parsing the file and checking every xref offset lands on its own
+object header), semantically (the embedded JPEG must come back byte-identical),
+and **through CoreGraphics** via `qlmanage` on macOS — a genuinely independent
+parser that would catch a spec violation the first two share a blind spot with.
+
+### 8.5 Security surface
+
+Two new untrusted-input paths, both covered by tests:
+
+- **Note paste.** Arbitrary HTML from any origin. `sanitizeHtml` allow-lists tags
+  and per-tag attributes and unwraps everything else, keeping the text. Covered
+  against `<script>`, event handlers, `javascript:` URLs, inline styles and
+  `<iframe>`.
+- **Library card rendering.** Document titles and scanned text are interpolated
+  into markup. Everything goes through `escapeHtml`, and search-match
+  highlighting splits on the match and escapes each part rather than injecting
+  `<mark>` by string replacement — which would let a document containing
+  `<script` through.
+
+**No CSP change was needed.** IndexedDB is not subject to CSP, and the PDF writer
+is hand-written precisely so no external script has to be allowed in.
+
+### 8.6 What this does not fix
+
+The four blockers in §7 are unchanged: the device pass, the benchmark corpus,
+the custom domain and the app icon. Nothing here touched recognition accuracy —
+the benchmark is identical — and nothing here can be verified on a phone. The
+new surfaces are *larger* than the old ones, so the device pass matters more
+than it did, not less; `docs/DEVICE-VERIFICATION-CHECKLIST.md` does not yet cover
+them.

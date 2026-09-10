@@ -148,6 +148,39 @@ The CI half asserts HEIC fails **safely** where there is no codec: a categorized
 
 - [ ] Tap a contenteditable word near the bottom of the screen: it scrolls into view smoothly rather than abruptly
 
+### 3.9 Library and documents
+
+*Confirms `test/library-documents.js`, which covers the model against real IndexedDB in a desktop browser. What it cannot cover is iOS's own storage policy and WKWebView's own input behaviour, which is what this section is for.*
+
+- [ ] Create a note. Type into it, leave the view, come back: the text is still there
+- [ ] Tap a checklist item: it ticks, and stays ticked after closing and reopening the note
+- [ ] **Paste formatted text from Safari or Mail into a note.** It should keep the words and lose the decoration, with no stray colours or fonts. This is the app's only untrusted-HTML surface
+- [ ] Insert a photo into a note from the library; confirm it survives a reopen
+- [ ] Search for a word that appears **only inside a scanned page**, not in any title. It should find the document and show the matching passage
+- [ ] Delete a document, confirm it appears in Recently Deleted, restore it, confirm it comes back
+- [ ] **Force-quit the app and relaunch.** Everything should still be there — this is the check that catches a storage layer that only appears to work
+
+> **Storage eviction is the risk this section exists for.** iOS can evict a web
+> app's storage under pressure, and the app asks for persistence at startup
+> (`requestPersistence`) but the OS may refuse. Settings shows what is granted.
+> If documents vanish after a period of not using the app, that is what happened,
+> and it is worth recording rather than treating as a bug in the code.
+
+### 3.10 Multi-page scanning
+
+*Confirms the scan-document half of `test/library-documents.js` and `test/pdf-export.js`.*
+
+- [ ] Scan a real multi-page document — take three photos of three pages into one document
+- [ ] **Auto edge detection on a real page on a real desk.** Does it find the page? If it declines, that is a valid outcome (it prefers no crop to a wrong one) — note which it did
+- [ ] **Crop handles with a real thumb.** Can you place a corner precisely? Does the magnifier help, or does your finger cover it anyway? This is the single most touch-sensitive thing in the app and has never been used with a finger
+- [ ] Try each of the six filters on a real photographed page. Does Auto enhance actually look better than Original? Does Magic colour overdo it?
+- [ ] Reorder pages by dragging. Then reorder with the keyboard if an external one is available
+- [ ] Rotate a page; confirm the thumbnail and preview both update
+- [ ] **Export a searchable PDF and open it in Files.** Confirm it opens, looks like a scan, and that selecting text over the page actually selects the recognized words
+- [ ] Export images; confirm all pages arrive rather than only the first (browsers throttle rapid downloads — the app spaces them, and this is where that is proven)
+- [ ] Sign a page with the pen tool using a finger. Does the stroke smoothing feel right?
+- [ ] **Redact something, export, and reopen the export.** Confirm the redacted content is genuinely gone from the exported file, not just covered
+
 ---
 
 ## 4. Export and record
@@ -181,6 +214,7 @@ Do not proceed to Phase 9 with an unexplained contradiction.
 ## 6. Sign-off
 
 - [ ] Every item above is checked, failed-with-a-filed-issue, or marked `unverified — <reason>`
+- [ ] Storage persistence: granted / refused (circle one) — see §3.9
 - [ ] The capture exists at the path in §4
 - [ ] `docs/PRIVACY-DECISIONS.md` has its verified-on-device section
 - [ ] Every contradiction is resolved **with a corresponding gate fix**

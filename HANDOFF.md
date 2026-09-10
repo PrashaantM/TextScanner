@@ -3,7 +3,10 @@
 Supersedes the 2026-08-29 handoff, which was deleted in `2fac2c5` and is
 recoverable at `git show 7ff391e:HANDOFF.md`. That document described the state
 after the completion plan; this one describes the state after the **hardening
-plan's Parts I and II**.
+plan's Parts I–III**, plus the **document layer** added afterwards in `ca341d7`.
+
+> **Read §0 first if you are picking this up cold.** The app changed shape after
+> the hardening plan closed: it is no longer a single scan flow.
 
 **Start here:** Section 5 is the only remaining work, and almost all of it needs
 you rather than a machine — a phone, a domain registrar, an Apple Developer
@@ -12,17 +15,45 @@ account, and a camera. Sections 2–4 are done, committed, pushed, and green in 
 **The current analysis is [`ANALYSIS.md`](ANALYSIS.md)** (third revision,
 `4ae7cfd`). Both prior revisions are preserved under `docs/archive/`.
 
-## 1. What this is now
+## 0. The app changed shape (`ca341d7`)
 
-Unchanged in shape: a local-first OCR and image-text editor shipping as a static
-site (GitHub Pages) and an iOS app (Capacitor) from one codebase. Recognition is
-Tesseract.js on the web and Google ML Kit on iOS, dispatched by
+It was one flow: pick an image, scan it, edit the result. It is now **five views
+over a real document model** — and the original flow is one of them, preserved
+element for element.
+
+| | |
+|---|---|
+| **Library** | Documents, folders, tags, pinning, full-text search across scanned pages, Recently Deleted |
+| **Notes** | Rich text, checklists, inline images, autosave |
+| **Scans** | Multi-page documents, edge detection, six filters, rotation, reordering, searchable-PDF export |
+| **Crop** | Four-corner adjustment with a magnifier |
+| **Settings** | Storage usage, translation history, diagnostics, delete-everything |
+
+14 new modules, ~4,500 lines. `js/` went from 24 modules / 5,709 lines to 38 /
+11,469. Storage is IndexedDB, device-local, no sync, no account.
+
+**The constraint that shaped all of it:** the scan flow's element ids are the
+app's de-facto public interface — ten CI gates drive it through them. So its
+markup moved inside a view wrapper unchanged, and `js/views.js` keeps every
+view's markup in the document permanently, hidden with a class. All 68 ids
+`js/dom.js` resolves still exist, every pre-existing gate passes, and the
+benchmark is **+0.00pts** — recognition was not touched.
+
+`ANALYSIS.md` §8 is the addendum covering this, including the four bugs found
+while building it. `js/app.js` is the shell; `js/main.js` still owns the scan
+flow and reaches the document model only through `bridge`.
+
+## 1. What this is
+
+A local-first document scanner, notes app and image-text editor, shipping as a
+static site (GitHub Pages) and an iOS app (Capacitor) from one codebase.
+Recognition is Tesseract.js on the web and Google ML Kit on iOS, dispatched by
 `js/recognize.js`. The Coherence Filter and translate-in-place use Apple's
 on-device Foundation Models on eligible iPhones and fall back to Claude with a
 user-supplied API key everywhere else.
 
 Nothing about the app requires a network connection to recognize text, on either
-build.
+build, and nothing is uploaded anywhere.
 
 ## 2. The oldest bug in the project is closed
 
@@ -83,7 +114,8 @@ Two commits, one per part, plus one for a CI fix that could not wait.
   eight images with *complete* ground truth. complexPic7, 10 and 11 have
   deliberately partial transcriptions, so an engine that reads more real text
   scores worse on them. **Do not optimize against the 11-image number.**
-- **CI: 6 test gates → 10.** Unit tests 45 → 60.
+- **CI: 6 test gates → 12.** Unit tests 45 → 60. The two newest gates
+  (`test/pdf-export.js`, `test/library-documents.js`) cover the document layer.
 - **Run-to-run noise: the two recorded measurements disagree** — see §5.2. Use
   0.6 WER points as the merge bar until it is settled.
 - Native build: `** BUILD SUCCEEDED **`, exit 0, zero errors (Xcode 26.6).
@@ -125,6 +157,16 @@ grep -E '^\s*(transition|animation):' style.css | grep -v 'var(--motion-'
 ```
 
 ## 5. What's left
+
+### 5.0 The device checklist does not yet cover the document layer
+
+`docs/DEVICE-VERIFICATION-CHECKLIST.md` was written against the scan flow. The
+library, notes editor, multi-page scanning, crop handles and PDF export are all
+new surfaces with new device-specific risk — touch targets on the crop handles,
+IndexedDB quota under iOS's eviction policy, the share sheet for a PDF, and
+whether WKWebView's `contenteditable` behaves for the note editor. **Add those
+sections before the device pass**, or the pass will confirm the old app and miss
+the new one.
 
 ### 5.1 The device pass (Phase 8) — the main one
 
