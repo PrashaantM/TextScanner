@@ -56,3 +56,8 @@ jobs:
       # lifetime, scan filters, edge detection, annotations, translation history,
       # and the two untrusted-input surfaces (card rendering and note paste).
       - run: node test/library-documents.js
+      # Document creation timing, driven through the real nav/action-sheet UI
+      # rather than the document model directly (library-documents.js's job,
+      # above): a document must not exist until there is real content, the
+      # one-time empty-document cleanup sweep, and the delete/Undo toast.
+      - run: node test/document-creation.js

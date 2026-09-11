@@ -253,6 +253,126 @@ body {
   gap: 0.4rem;
 }
 
+/* ---- Action sheet (opened by #nav-add) ---- */
+
+.action-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(10, 10, 14, 0.32);
+}
+
+.action-sheet {
+  position: fixed;
+  z-index: 95;
+  top: calc(3.9rem + env(safe-area-inset-top, 0px));
+  right: 1.25rem;
+  width: min(20rem, calc(100vw - 2.5rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.action-sheet__item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.action-sheet__item:hover,
+.action-sheet__item:focus-visible {
+  background: var(--surface-2);
+  outline: none;
+}
+
+.action-sheet__icon {
+  flex: 0 0 auto;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.action-sheet__label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.action-sheet__title {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.action-sheet__hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* ---- Toast (id="app-toast") ---- */
+
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  max-width: calc(100vw - 2.5rem);
+  padding: 0.7rem 0.85rem 0.7rem 1.1rem;
+  background: var(--text);
+  color: var(--bg);
+  border-radius: 999px;
+  box-shadow: var(--shadow-lg);
+  transform: translate(-50%, 0.5rem);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform var(--motion-medium) var(--ease-standard), opacity var(--motion-medium) var(--ease-standard);
+}
+
+.app-toast.is-visible {
+  transform: translate(-50%, 0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.app-toast__message {
+  font-size: 0.88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-toast__action {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--bg);
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0.2rem 0.3rem;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app-toast__action:hover {
+  opacity: 0.8;
+}
+
 /* ---- Views ---- */
 
 #app-main {
@@ -563,6 +683,25 @@ body {
 .filter-toggle__btn.is-active {
   background: var(--accent);
   color: var(--accent-contrast);
+}
+
+/* De-emphasizes the raw filter/mode toggles now that "Clean up this text" and
+   "View on photo" (below) are the guided primary path for a first-time user
+   (03-REDESIGN-PLAN.md). These are the ORIGINAL controls, just visually
+   quieter - not hidden and not a copy - specifically so every CI gate that
+   drives #mode-image-btn / #filter-raw-btn / etc. directly by id keeps working
+   exactly as before. A collapsed-by-default reveal would have been truer to the
+   plan's mock, but Playwright's .click() requires an element to be visible, and
+   five of the existing gates click these buttons with no reveal step - hiding
+   them would have broken CI, not just risked it. */
+.result-toolbar__row--secondary {
+  opacity: 0.82;
+  transform: scale(0.94);
+  transform-origin: left center;
+}
+
+.result-toolbar__guided {
+  gap: 0.6rem;
 }
 
 /* ---- Coherence Filter panel (id="coherence-panel"): the disclosure + API key /
@@ -2251,10 +2390,11 @@ body {
     padding-right: 0.9rem;
   }
 
-  /* On a phone the bar cannot hold five controls and a title. The secondary
-     ones drop out; Library and Scan are the two that matter, and Settings holds
-     everything else. */
-  .app-bar__actions #nav-new-note,
+  /* On a phone the bar cannot hold four controls and a title. Theme is the one
+     that drops out - Library, the single "+" creation action, and Settings are
+     what matter. (Scan and Note used to be two separate always-lit buttons here;
+     collapsing them into one "+" action sheet is what made room to keep BOTH
+     reachable on a phone, where "Note" used to disappear entirely.) */
   .app-bar__actions #theme-btn {
     display: none;
   }

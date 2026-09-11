@@ -41,6 +41,7 @@ import {
   describeReason,
   invalidateAvailabilityCache,
 } from "./coherenceOnDevice.js";
+import { checkFactPreservation } from "./factCheck.js";
 
 // Re-exported so main.js keeps importing key management from one place, exactly
 // as it did before the split.
@@ -86,9 +87,20 @@ export async function resolveTier(preferOnDevice = true) {
   };
 }
 
+// Wraps a tier's raw output with the deterministic fact-preservation check
+// (js/factCheck.js, from 02-COHERENCE-FILTER-AGENT-PLAN.md §3): the prompt
+// already asks the model never to drop a price, date, time or number, but
+// asking is not verifying. This runs on the response, costs no extra tokens or
+// requests, and turns "the model promises not to hallucinate a fact" into "the
+// app notices when it does anyway" - the caller decides what to do with a
+// non-ok result (main.js surfaces it as a subtle "double check" note).
+function withFactCheck(filteredText, text, tier) {
+  return { text, tier, factCheck: checkFactPreservation(filteredText, text) };
+}
+
 // Runs the reconstruction on whichever tier resolveTier picks.
-// -> { text, tier }. Throws an Error whose message is safe to show directly in
-// the UI; both implementations already guarantee that.
+// -> { text, tier, factCheck }. Throws an Error whose message is safe to show
+// directly in the UI; both implementations already guarantee that.
 export async function reconstructCoherentText(filteredText, preferOnDevice = true) {
   if (!filteredText || !filteredText.trim()) throw new Error("There's no filtered text to reconstruct.");
 
@@ -96,21 +108,21 @@ export async function reconstructCoherentText(filteredText, preferOnDevice = tru
 
   if (tier === TIER.ON_DEVICE) {
     try {
-      return { text: await rewriteOnDevice(filteredText), tier: TIER.ON_DEVICE };
+      return withFactCheck(filteredText, await rewriteOnDevice(filteredText), TIER.ON_DEVICE);
     } catch (err) {
       // A device-side failure shouldn't strand a user who does have a key -
       // but it also shouldn't silently spend their money, so the fallback only
       // happens when a key is already saved, and the UI reports which tier the
       // result actually came from either way.
       if (hasStoredApiKey()) {
-        return { text: await rewriteWithClaude(filteredText), tier: TIER.CLAUDE };
+        return withFactCheck(filteredText, await rewriteWithClaude(filteredText), TIER.CLAUDE);
       }
       throw err;
     }
   }
 
   if (tier === TIER.CLAUDE) {
-    return { text: await rewriteWithClaude(filteredText), tier: TIER.CLAUDE };
+    return withFactCheck(filteredText, await rewriteWithClaude(filteredText), TIER.CLAUDE);
   }
 
   throw new Error(reason || "Coherence Filter isn't available right now.");

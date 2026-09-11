@@ -32,7 +32,7 @@
 // and it is why the note body can be stored and re-rendered without a second
 // thought later.
 
-import { updateDocument, reindexDocument, stripMarkup } from "./documents.js";
+import { DOC_TYPES, createDocument, updateDocument, reindexDocument, stripMarkup } from "./documents.js";
 import { putBlob, getBlobUrl, releaseObjectUrl } from "./store.js";
 import { hapticLight } from "./haptics.js";
 
@@ -68,6 +68,11 @@ let dirty = false;
 // Object URLs for inline images, revoked when the note closes.
 const imageUrls = new Set();
 let onDocumentChanged = null;
+// Fired exactly once per note: the moment a draft's first real content turns it
+// into an actual stored document. Distinct from onDocumentChanged, which fires
+// on every subsequent save - callers use this one to announce the creation
+// itself (a toast, a chrome update) rather than react to every autosave.
+let onDocumentCreated = null;
 
 // ---- Sanitization ----
 
@@ -147,7 +152,7 @@ function scheduleSave() {
 }
 
 export async function save() {
-  if (!currentDoc || !dirty) return;
+  if (!dirty) return;
   clearTimeout(saveTimer);
 
   // Images are stored as blobs; the editor shows them through object URLs. Swap
@@ -156,10 +161,30 @@ export async function save() {
   const body = serializeBody();
   const title = elements.title?.value?.trim() || "";
 
+  // A draft with nothing typed yet has no document behind it (see
+  // openNoteDraft). Saving "nothing" must discard silently, not create an
+  // "Untitled note" record just because the editor was opened and closed.
+  if (!currentDoc && !title && !stripMarkup(body).trim()) {
+    dirty = false;
+    return;
+  }
+
+  const isFirstSave = !currentDoc;
+
   try {
+    if (isFirstSave) {
+      // First real content in a draft: this is the one moment a Note actually
+      // becomes a document, rather than at the moment the editor was opened.
+      currentDoc = await createDocument({ type: DOC_TYPES.NOTE });
+    }
     currentDoc = await updateDocument(currentDoc.id, { body, title });
     await reindexDocument(currentDoc.id);
     dirty = false;
+    // Fired after the title/body write, not right after createDocument() -
+    // otherwise the callback (a "Created ..." toast, in app.js) would always
+    // read the brand-new, still-blank record and announce "Untitled note" even
+    // when the person had already typed a real title.
+    if (isFirstSave) onDocumentCreated?.(currentDoc);
     if (elements.status) {
       elements.status.textContent = "Saved";
       setTimeout(() => {
@@ -457,12 +482,33 @@ export async function openNote(doc, { onChanged } = {}) {
   if (elements.status) elements.status.textContent = "";
 }
 
+// Opens a blank note with no backing document yet. save() creates one the
+// first time there is real content to save; navigating away empty just
+// discards the draft, which is the fix for the app silently littering the
+// library with "Untitled note" on every tap of the Note button.
+export async function openNoteDraft({ onChanged, onCreated } = {}) {
+  await closeNote();
+
+  currentDoc = null;
+  onDocumentChanged = onChanged;
+  onDocumentCreated = onCreated;
+  dirty = false;
+
+  elements.title.value = "";
+  elements.body.innerHTML = "";
+  updateStats();
+  updateToolbarState();
+
+  if (elements.status) elements.status.textContent = "";
+}
+
 export async function closeNote() {
   if (dirty) await save();
   clearTimeout(saveTimer);
   releaseImages();
   currentDoc = null;
   onDocumentChanged = null;
+  onDocumentCreated = null;
   dirty = false;
 }
 
@@ -485,7 +531,11 @@ export function initNotesEditor() {
 
   elements.title.addEventListener("input", () => {
     scheduleSave();
-    onDocumentChanged?.(currentDoc);
+    // Guarded: a draft (see openNoteDraft) has no document yet until the
+    // debounced save below actually creates one, and "the document changed"
+    // doesn't mean anything before that - onDocumentCreated covers the moment
+    // it's created, and onDocumentChanged resumes firing on every edit after.
+    if (currentDoc) onDocumentChanged?.(currentDoc);
   });
 
   elements.body.addEventListener("input", () => {

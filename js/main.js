@@ -23,6 +23,10 @@ import {
   downloadBtn,
   downloadImageBtn,
   filterButtons,
+  filterCoherenceBtn,
+  modeImageBtn,
+  cleanUpTextBtn,
+  viewOnPhotoBtn,
   coherencePanel,
   coherenceKeyRow,
   coherenceApiKeyInput,
@@ -496,6 +500,18 @@ filterButtons.forEach((btn) => {
   });
 });
 
+// Guided primary actions (03-REDESIGN-PLAN.md): real .click() calls on the
+// controls above, not a reimplementation of what they do. "Clean up this text"
+// is a no-op if Coherence Filter is already active - clicking a filter-toggle
+// button the person is already on is exactly what applyFilterLevel already
+// treats as a no-op via setActiveButton, so nothing extra is needed here.
+cleanUpTextBtn?.addEventListener("click", () => {
+  filterCoherenceBtn.click();
+});
+viewOnPhotoBtn?.addEventListener("click", () => {
+  modeImageBtn.click();
+});
+
 // Phase 2: which tier the user has asked for. Defaults to on-device, so anyone
 // on an eligible device gets a working Coherence Filter with no API key at all;
 // BYOK Claude is the opt-in higher-quality tier. resolveTier() falls back on its
@@ -598,10 +614,14 @@ coherenceGenerateBtn.addEventListener("click", async () => {
     // Returns the tier that actually ran, which is not always the one the panel
     // predicted: an on-device failure falls back to Claude when a key exists.
     // Reporting the real one keeps the label honest.
-    const { text, tier } = await reconstructCoherentText(filteredText, preferOnDevice);
+    const { text, tier, factCheck } = await reconstructCoherentText(filteredText, preferOnDevice);
     state.coherentText = text;
     resultText.value = text;
-    coherenceStatus.textContent = "";
+    // Deterministic, no extra tokens (js/factCheck.js): catches a rewrite that
+    // dropped a price, date, time or number the prompt already asked it to
+    // keep. A nudge to double check, not an error - the rewrite is still shown.
+    coherenceStatus.textContent =
+      factCheck && !factCheck.ok ? `Double check: the rewrite may have dropped ${factCheck.missing.join(", ")}.` : "";
     await updateCoherencePanel(tier);
     refreshModifiedStates();
     if (ttsSupported) updateTTSButtons();

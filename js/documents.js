@@ -328,6 +328,24 @@ export async function emptyTrash() {
   return trashed.length;
 }
 
+// One-time cleanup for documents created by the eager-creation bug that used to
+// fire a createDocument() on a nav tap alone: a NOTE with no title and no body,
+// or a SCAN with no pages. Both are unambiguous - nothing produces them except
+// that bug or an abandoned draft - so they are moved to Recently Deleted rather
+// than hard-purged, keeping them recoverable for anyone who somehow wants one
+// back. Already-trashed documents are left alone; the existing 30-day trash
+// retention already governs those.
+export async function sweepEmptyDocuments() {
+  const docs = await getAllDocuments();
+  const empty = docs.filter((doc) => {
+    if (doc.deletedAt) return false;
+    if (doc.type === DOC_TYPES.SCAN) return (doc.pageIds || []).length === 0;
+    return !doc.title.trim() && !stripMarkup(doc.body).trim();
+  });
+  for (const doc of empty) await trashDocument(doc.id);
+  return empty.length;
+}
+
 // ---- Folders ----
 
 export async function createFolder(name) {

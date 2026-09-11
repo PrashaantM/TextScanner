@@ -15,28 +15,36 @@ listed together in §8 so nothing hides.
 
 | Asset | Status |
 |---|---|
-| App icon, 1024×1024 | **Present but WRONG — see below** |
+| App icon, 1024×1024 | **Replaced — see below** |
 | Launch screen | Present (`Base.lproj/LaunchScreen.storyboard` + `Splash.imageset`, 2732×2732 ×3) |
 | 6.7" / 6.5" screenshots | **BLOCKED** — not produced |
 
-### The app icon is the stock Capacitor logo — this is a submission blocker
+### The app icon is no longer the stock Capacitor logo
 
-`ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png` is
-technically compliant — 1024×1024, no alpha channel (alpha is an automatic
-rejection), and the modern single-size `Contents.json` format Xcode generates
-every other size from, so "an icon at every required size" is satisfied by this
-one file.
+**Updated 2026-09-11.** `ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png`
+was the unmodified Capacitor template icon (a blue "⨉" on a faint grid) — an
+automatic rejection under App Review Guideline 4.0 (Design), independent of it
+also being the wrong brand on someone else's mark. It has been replaced with a
+first real design: a viewfinder frame (the universal "capture a photo" mark,
+legible at any size because it's just eight strokes) with a text cursor
+centered inside it, in the app's indigo accent — the two-word pitch of the
+product ("scan", "edit the text") as one glyph. 1024×1024, RGB with no alpha
+channel (verified: PNG color type 2), same file, same modern single-size
+`Contents.json` Xcode already derives every other size from — no Xcode project
+changes needed beyond what was already in place.
 
-It is also **the unmodified Capacitor template icon**: a blue "⨉" on a faint
-grid. Apple rejects placeholder and template assets under App Review Guideline
-4.0 (Design), and independently of the guideline it is the wrong brand on
-someone else's mark.
+This is a first pass, not a locked decision — brand identity is still your
+call, not a technical gap I should decide unilaterally on my own taste alone.
+If you want a different direction (a different mark, palette, or the
+"magnifying glass with a sharpening text line" alternate concept from
+`04-APP-STORE-LAUNCH-PLAN.md` §3), say so and it's a quick swap - only this one
+file changes.
 
-**This needs a real icon before submission, and the design is your call — it is
-brand identity, not a technical gap I should decide unilaterally.** Replacing
-the file at that path with a 1024×1024 PNG with no alpha is the entire technical
-requirement; Xcode derives everything else. Say the word and I will produce one
-to iterate on.
+Screenshots are unblocked now that a real icon exists, but still need someone
+to pick which 5-6 screens tell the product's story before running
+`xcrun simctl io <device> screenshot` against a Simulator - a presentation
+choice, not a mechanical one, so still listed as blocked below rather than done
+without you.
 
 ### Screenshots — BLOCKED
 

@@ -27,11 +27,13 @@ import {
   getDocument,
   deriveTitle,
   purgeExpiredTrash,
+  sweepEmptyDocuments,
   updateDocument,
 } from "./documents.js";
 import { VIEWS, showView, onViewChange, initRouter, goBack } from "./views.js";
 import { initLibrary, renderLibrary, restoreLibraryScroll, formatBytes } from "./library.js";
-import { initNotesEditor, openNote, closeNote, insertText as insertNoteText, getCurrentNote } from "./notesEditor.js";
+import { initNotesEditor, openNote, openNoteDraft, closeNote, insertText as insertNoteText, getCurrentNote } from "./notesEditor.js";
+import { showToast } from "./toast.js";
 import {
   initScanDoc,
   openScanDoc,
@@ -107,31 +109,62 @@ async function openDocument(id) {
   });
 }
 
+// `body`/`title` arrive non-empty from exactly one caller - "Save as note" on a
+// scan result (see js/main.js) - where there is already real content to save,
+// so creating immediately is correct. Called with neither (a bare tap of the
+// "New note" action) it opens a draft instead: nothing is written to storage
+// until the person actually types something. See notesEditor.js's
+// openNoteDraft/save for where that actually happens, and
+// 01-UX-FINDINGS-AND-FIX-PLAN.md §1.1 for the bug this replaced (every tap of
+// "Note" created a permanent, empty "Untitled note").
 async function createAndOpenNote({ body = "", title = "" } = {}) {
   if (!storageReady) {
     window.alert("This browser isn't allowing local storage, so notes can't be saved. Scanning still works.");
     return null;
   }
-  const doc = await createDocument({ type: DOC_TYPES.NOTE, title });
-  if (body) await updateDocument(doc.id, { body });
+
+  await closeScanDoc();
+  elements.noteEditor.classList.remove("hidden");
+  elements.scanDoc.classList.add("hidden");
+
+  const onChanged = (updated) => {
+    setChrome(VIEWS.DOCUMENT, { title: deriveTitle(updated), subtitle: "" });
+  };
+
+  if (body || title) {
+    const doc = await createDocument({ type: DOC_TYPES.NOTE, title });
+    if (body) await updateDocument(doc.id, { body });
+    hapticMedium();
+    showView(VIEWS.DOCUMENT, { id: doc.id });
+    await openNote(doc, { onChanged });
+    setChrome(VIEWS.DOCUMENT, { title: deriveTitle(doc), subtitle: "" });
+    return doc;
+  }
+
   hapticMedium();
-  showView(VIEWS.DOCUMENT, { id: doc.id });
-  return doc;
+  showView(VIEWS.DOCUMENT, {});
+  setChrome(VIEWS.DOCUMENT, { title: "New note", subtitle: "" });
+  await openNoteDraft({
+    onChanged,
+    onCreated: (created) => {
+      setChrome(VIEWS.DOCUMENT, { title: deriveTitle(created), subtitle: "" });
+      showToast(`Created "${deriveTitle(created)}"`);
+    },
+  });
+  return null;
 }
 
+// Navigation only - no document is created here. The first page actually
+// committed (see addCurrentImageAsPage below) is what creates one, which is
+// what makes previewing a sample image without scanning it a no-op on the
+// library instead of leaving behind an "Untitled scan · 0 pages" card (see
+// 01-UX-FINDINGS-AND-FIX-PLAN.md §1.2).
 async function createAndOpenScan() {
-  if (!storageReady) {
-    // Without storage there is no document to add pages to, so the capture flow
-    // is still useful on its own - just say so instead of failing.
-    showView(VIEWS.SCAN);
-    return null;
-  }
-  const doc = await createDocument({ type: DOC_TYPES.SCAN });
-  pendingTarget = doc.id;
+  pendingTarget = null;
   hapticMedium();
   showView(VIEWS.SCAN);
   updateScanTargetNote();
-  return doc;
+  return null;
 }
 
 // Tells the person, on the capture screen, which document a page will join.
@@ -173,10 +206,12 @@ async function addCurrentImageAsPage(previewImg) {
   if (!previewImg?.naturalWidth) return;
 
   let targetId = pendingTarget;
+  let justCreated = false;
   if (!targetId) {
     const doc = await createDocument({ type: DOC_TYPES.SCAN });
     targetId = doc.id;
     pendingTarget = doc.id;
+    justCreated = true;
   }
 
   const detected = detectDocument(previewImg);
@@ -192,6 +227,13 @@ async function addCurrentImageAsPage(previewImg) {
     hapticMedium();
     showView(VIEWS.DOCUMENT, { id: targetId });
     await openDocument(targetId);
+    // Announced after the page (and therefore the document's real title, if the
+    // page recognized one) is in, not at creation - "Created 'Untitled scan'" a
+    // beat before it says "Created 'Coffee receipt'" would be a confusing flash.
+    if (justCreated) {
+      const created = await getDocument(targetId);
+      if (created) showToast(`Created "${deriveTitle(created)}"`);
+    }
   };
 
   if (detected) {
@@ -234,9 +276,12 @@ export async function initApp() {
     subtitle: document.getElementById("app-subtitle"),
     back: document.getElementById("app-back"),
     navLibrary: document.getElementById("nav-library"),
-    navScan: document.getElementById("nav-new-scan"),
-    navNote: document.getElementById("nav-new-note"),
+    navAdd: document.getElementById("nav-add"),
     navSettings: document.getElementById("nav-settings"),
+    actionSheet: document.getElementById("action-sheet"),
+    actionSheetBackdrop: document.getElementById("action-sheet-backdrop"),
+    actionSheetScan: document.getElementById("action-sheet-scan"),
+    actionSheetNote: document.getElementById("action-sheet-note"),
     noteEditor: document.getElementById("note-editor"),
     scanDoc: document.getElementById("scan-doc"),
     scanTargetNote: document.getElementById("scan-target-note"),
@@ -248,10 +293,14 @@ export async function initApp() {
   storageReady = await isAvailable();
 
   if (storageReady) {
-    // Fire and forget: neither should delay first paint, and neither has a
-    // failure worth surfacing.
+    // Fire and forget: none of these should delay first paint, and none has a
+    // failure worth surfacing. sweepEmptyDocuments is the one-time cleanup for
+    // documents the eager-creation bug already left behind (see
+    // 01-UX-FINDINGS-AND-FIX-PLAN.md §1.1/1.2) - it runs every launch, but is a
+    // no-op past the first one now that nothing creates empty documents anymore.
     requestPersistence();
     purgeExpiredTrash().catch(() => {});
+    sweepEmptyDocuments().catch(() => {});
   }
 
   initLibrary({ onNewNote: () => createAndOpenNote(), onNewScan: () => createAndOpenScan() });
@@ -271,9 +320,41 @@ export async function initApp() {
     goBack();
   });
   elements.navLibrary.addEventListener("click", () => showView(VIEWS.LIBRARY));
-  elements.navScan.addEventListener("click", () => createAndOpenScan());
-  elements.navNote.addEventListener("click", () => createAndOpenNote());
   elements.navSettings.addEventListener("click", () => showView(VIEWS.SETTINGS));
+
+  // Action sheet (see index.html for why "Scan"/"Note" collapsed into one "+"
+  // button): opens on tap, closes on either choice, a backdrop click, or
+  // Escape, and always returns focus to the button that opened it.
+  const openActionSheet = () => {
+    elements.actionSheetBackdrop.classList.remove("hidden");
+    elements.actionSheet.classList.remove("hidden");
+    elements.navAdd.setAttribute("aria-expanded", "true");
+    elements.actionSheetScan.focus();
+  };
+  const closeActionSheet = ({ restoreFocus = true } = {}) => {
+    elements.actionSheetBackdrop.classList.add("hidden");
+    elements.actionSheet.classList.add("hidden");
+    elements.navAdd.setAttribute("aria-expanded", "false");
+    if (restoreFocus) elements.navAdd.focus();
+  };
+  const isActionSheetOpen = () => !elements.actionSheet.classList.contains("hidden");
+
+  elements.navAdd.addEventListener("click", () => {
+    if (isActionSheetOpen()) closeActionSheet();
+    else openActionSheet();
+  });
+  elements.actionSheetBackdrop.addEventListener("click", () => closeActionSheet());
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && isActionSheetOpen()) closeActionSheet();
+  });
+  elements.actionSheetScan.addEventListener("click", () => {
+    closeActionSheet({ restoreFocus: false });
+    createAndOpenScan();
+  });
+  elements.actionSheetNote.addEventListener("click", () => {
+    closeActionSheet({ restoreFocus: false });
+    createAndOpenNote();
+  });
 
   // Settings actions.
   document.getElementById("settings-persist")?.addEventListener("click", async () => {

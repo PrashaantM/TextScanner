@@ -58,7 +58,9 @@
   <meta name="description" content="Scan documents, take notes, and translate text - all on your device. No upload, no server, no account." />
   <meta name="theme-color" content="#f7f7f9" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#14141a" media="(prefers-color-scheme: dark)" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔎</text></svg>" />
+  <!-- Matches the app icon concept (ios/App/App/Assets.xcassets/AppIcon.appiconset):
+       a viewfinder frame for "scan", a text cursor for "edit the text in place". -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2222%22 fill=%22%233457d5%22/><g stroke=%22white%22 stroke-width=%225.5%22 stroke-linecap=%22round%22 fill=%22none%22><path d=%22M20,34 L20,22 Q20,20 22,20 L34,20%22/><path d=%22M66,20 L78,20 Q80,20 80,22 L80,34%22/><path d=%22M20,66 L20,78 Q20,80 22,80 L34,80%22/><path d=%22M80,66 L80,78 Q80,80 78,80 L66,80%22/></g><g fill=%22white%22><rect x=%2246%22 y=%2232%22 width=%228%22 height=%2236%22 rx=%222%22/><rect x=%2239%22 y=%2232%22 width=%2222%22 height=%224.5%22 rx=%221.8%22/><rect x=%2239%22 y=%2263.5%22 width=%2222%22 height=%224.5%22 rx=%221.8%22/></g></svg>" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -82,8 +84,14 @@
 
     <nav class="app-bar__actions" aria-label="Main">
       <button id="nav-library" class="btn btn--ghost btn--small" type="button">Library</button>
-      <button id="nav-new-scan" class="btn btn--primary btn--small" type="button">Scan</button>
-      <button id="nav-new-note" class="btn btn--secondary btn--small" type="button">Note</button>
+      <!-- Single creation entry point (see 03-REDESIGN-PLAN.md): "Scan" and "Note"
+           are actions, not destinations, and styling them as permanently-lit tabs
+           next to the one real destination (Library) is what made tapping either
+           one read as "go look" rather than "create right now". Opens #action-sheet
+           below; nothing is created until a real choice is made in it. -->
+      <button id="nav-add" class="btn btn--primary btn--small" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="action-sheet">
+        <span aria-hidden="true">&#43;</span> New
+      </button>
       <button id="nav-settings" class="btn btn--ghost btn--small" type="button" aria-label="Settings">
         <span aria-hidden="true">&#9881;</span>
       </button>
@@ -94,9 +102,42 @@
     </nav>
   </header>
 
+  <!-- Action sheet opened by #nav-add. Two choices, nothing else - js/app.js closes
+       it on either choice, on backdrop click, and on Escape. Neither button creates
+       a document itself; both hand off to a draft that only becomes a real,
+       persisted document on first real content (see js/notesEditor.js's
+       openNoteDraft and js/app.js's addCurrentImageAsPage), which is the fix for
+       the app creating an empty library entry on a bare tap of Scan or Note. -->
+  <div id="action-sheet-backdrop" class="action-sheet-backdrop hidden"></div>
+  <div id="action-sheet" class="action-sheet hidden" role="menu" aria-label="Create">
+    <button id="action-sheet-scan" class="action-sheet__item" type="button" role="menuitem">
+      <span class="action-sheet__icon" aria-hidden="true">&#128247;</span>
+      <span class="action-sheet__label">
+        <span class="action-sheet__title">Scan a document</span>
+        <span class="action-sheet__hint">Capture or choose a photo</span>
+      </span>
+    </button>
+    <button id="action-sheet-note" class="action-sheet__item" type="button" role="menuitem">
+      <span class="action-sheet__icon" aria-hidden="true">&#9998;</span>
+      <span class="action-sheet__label">
+        <span class="action-sheet__title">New note</span>
+        <span class="action-sheet__hint">Plain text, checklists, images</span>
+      </span>
+    </button>
+  </div>
+
   <!-- Announces the view to a screen reader on every navigation. Without it,
        switching views is silent and the only cue is focus moving. -->
   <p id="view-status" class="visually-hidden" role="status" aria-live="polite"></p>
+
+  <!-- Transient notice for actions that change data but shouldn't block on a
+       confirmation dialog - "Deleted 'x'. Undo", "Created 'x'". See js/toast.js.
+       Lives outside #app-main (position: fixed) so it survives a view change
+       without being torn down mid-display. -->
+  <div id="app-toast" class="app-toast hidden" role="status" aria-live="polite">
+    <span id="app-toast-message" class="app-toast__message"></span>
+    <button id="app-toast-action" class="app-toast__action hidden" type="button"></button>
+  </div>
 
   <main id="app-main">
 
@@ -197,18 +238,30 @@
         <div class="result-toolbar">
           <div class="result-toolbar__row">
             <h2>Extracted text</h2>
-            <div class="mode-toggle" role="group" aria-label="Result view">
+            <div class="mode-toggle result-toolbar__row--secondary" role="group" aria-label="Result view">
               <button id="mode-text-btn" class="mode-toggle__btn is-active" type="button" data-mode="text" aria-pressed="true">Text</button>
               <button id="mode-image-btn" class="mode-toggle__btn" type="button" data-mode="image" aria-pressed="false">Image format</button>
               <button id="mode-full-btn" class="mode-toggle__btn" type="button" data-mode="full" aria-pressed="false">Full image</button>
             </div>
           </div>
 
+          <!-- Guided primary path (03-REDESIGN-PLAN.md): most people scanning a
+               poster or receipt want either the text as read, or the text cleaned
+               up - not a mental model of "raw vs filtered vs coherence". Both
+               buttons drive the real controls below via a plain .click() rather
+               than duplicating their logic, so the tier/mode that actually runs is
+               never out of step with what those controls say. -->
+          <div class="result-toolbar__row result-toolbar__guided">
+            <button id="clean-up-text-btn" class="btn btn--primary btn--small" type="button">Clean up this text</button>
+            <button id="view-on-photo-btn" class="btn btn--secondary btn--small" type="button">View on photo &rarr;</button>
+          </div>
+
           <!-- Three-level filter (js/filter.js for Raw/Filtered Text, js/coherence.js for
                Coherence Filter), visible in all three view modes: it drives what's shown in
                the Text textarea, which words are dimmed (not removed) in Image format/Full
-               image, and what Copy/Download/TTS read. -->
-          <div class="result-toolbar__row result-toolbar__actions">
+               image, and what Copy/Download/TTS read. Manual/advanced - "Clean up this
+               text" above is the guided way to reach Coherence Filter. -->
+          <div class="result-toolbar__row result-toolbar__actions result-toolbar__row--secondary">
             <span class="filter-toggle__label">Filter</span>
             <div id="filter-toggle" class="filter-toggle" role="group" aria-label="Text filter level">
               <button id="filter-raw-btn" class="filter-toggle__btn" type="button" data-level="raw" aria-pressed="false">Raw</button>
