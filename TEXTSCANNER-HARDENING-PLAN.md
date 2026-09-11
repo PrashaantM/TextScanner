@@ -1,324 +1,379 @@
-# TextScanner Completion Plan — Web-Provable First, Device Confirmation Last
+# TextScanner — what's actually left
 
-**Source:** builds on the 2026-08-29 post-completion architecture review (`ANALYSIS.md`, commit `7ff391e`), specifically §5 ("What's actually left"), and supersedes the earlier device-first ordering of this document.
+**Rewritten 2026-09-11.** This file started as a nine-phase completion plan.
+Five of those phases (1, 3, 4, 7, and half of 2) are done and verified against
+the repo — not by re-inspecting them here, but by cross-checking `HANDOFF.md`
+§5 and `ANALYSIS.md` §7, both of which were already written by reading the
+repo rather than by trusting an old plan. This revision keeps that discipline:
+**it states only what remains**, folds in the redesign/Coherence-Filter/icon
+work that landed the same day in commit `8d37a35`, and puts the one thing
+that needs no hardware — testing that work — first.
 
-**What changed and why:** the previous revision opened with a physical-device verification pass and made the ML Kit positioning bug (§5.2, the oldest open item in the project) depend on a device dump. That ordering was wrong on two counts. It blocked the single most important remaining bug behind hardware, and it put discovery work at the point in the schedule where you least want surprises. This revision inverts it: **everything is closed, proven, and gated in CI on the web first; the device pass is the last step and is confirmation-only.** By the time you pick up a phone, nothing should be undetermined — the phone run either confirms what the automated gates already assert, or it finds a defect that becomes a new gate before release.
-
----
-
-## What "no gaps" means here, precisely
-
-You asked for completion with guaranteed success across all uses and no gaps. Stated as an absolute that is not something any plan can honestly promise — no test suite proves the absence of all bugs, and a plan that claims otherwise is just moving the risk somewhere you can't see it. What this plan *does* commit to, which is the useful version of that request:
-
-1. **Every code path that can be exercised without hardware has an automated gate**, and that gate runs in CI on every push. Not "was tested once" — continuously enforced.
-2. **Every remaining item is closed by evidence, not by inspection.** A phase is done when a test file, a measured number, or a committed artifact says so.
-3. **The device pass discovers nothing.** It confirms. Each of its checks maps to an automated gate that already passes, so a device failure is a *contradiction* to investigate, not an open question being answered for the first time.
-4. **Residual risk is named, not hidden.** §"Known residual risk" at the end lists what remains genuinely unverifiable and why. That list is short, and it is the honest remainder rather than a gap left by omission.
-
-That is a complete project. It is not a proof of universal correctness, and the plan does not pretend to be one.
+If you're picking this up cold: `HANDOFF.md` is still the fuller narrative of
+how the app got here, and `ANALYSIS.md` is still the cited, evidence-backed
+audit. This file is the punch list.
 
 ---
 
-## Current state (verified against the repo, 2026-09-09)
+## Done (verified, not assumed)
 
-Substantial parts of the previous revision already landed in commit `fc82803`. Verified present:
+| Item | What it closed | Evidence |
+|---|---|---|
+| Phase 1 — ML Kit positioning bug | Root-caused (axis-aligned envelope inflation on tilted text), fixed, gated. Diagnostic path retired. | `test/unit/mlkit-geometry.test.js`; `js/mlkitDebug.js` and `test/replay-dump.js` no longer exist |
+| Phase 3 — Coverage completion audit | Every web-reachable path smoke-tested; the CI regression gate was proven to actually fail and recover, not just assumed to | `test/web-tier-smoke.js`; commit `4ae7cfd`, CI runs [34396467400](https://github.com/PrashaantM/TextScanner/actions/runs/34396467400) (deliberate failure) / [34396624486](https://github.com/PrashaantM/TextScanner/actions/runs/34396624486) (recovery) |
+| Phase 4 — Vision framework migration scope | Scope document written; the `cornerPoints` question answered definitively against the SDK headers; migration itself correctly not started | `docs/VISION-FRAMEWORK-MIGRATION-SCOPE.md` |
+| Phase 7 — `ANALYSIS.md` third revision | Written against the web-complete state; both prior revisions archived; §8 addendum added after the document-layer rewrite | `ANALYSIS.md` header, §8 |
+| Phase 2, steps 2 & 6 only | Noise floor measured (0.00pts across two bit-identical runs); non-Latin limitation asserted with a tripwire test | `test/TUNING-2.md` §1; `test/non-latin-limitation.js` |
+| Eager document creation (2026-09-11) | Tapping "Scan"/"Note" no longer creates a document until real content exists; a startup sweep cleans up what the old bug already left in the library | `test/document-creation.js`; commit `8d37a35` |
+| Nav redesign (2026-09-11) | Library / + / Settings replaces two permanently-lit "tab" buttons with an action sheet; delete now shows an Undo toast; the scan-result screen has guided "Clean up this text" / "View on photo" buttons | Same commit; `03-REDESIGN-PLAN.md` |
+| Coherence Filter fact-check + router (2026-09-11) | A deterministic post-check flags a rewrite that dropped a price/date/time/number; receipt and business-card inputs get a specialized prompt instead of narrated prose | `js/factCheck.js`, `js/coherenceRouter.js`; `02-COHERENCE-FILTER-AGENT-PLAN.md` |
+| App icon (2026-09-11) | Stock Capacitor template logo (an automatic Guideline 4.0 rejection) replaced with a real design | `docs/APP-STORE-SUBMISSION.md` §1 |
 
-| Previously planned | Status in repo |
-|---|---|
-| CI pipeline (`.github/workflows/ci.yml`) | **Landed**, with more steps than specified — also runs `malformed-input.js`, `exif-orientation.js`, `move-inpaint.js` |
-| Input hardening (EXIF, malformed input) | **Landed** — `test/exif-orientation.js`, `test/malformed-input.js`, `test/images/exif-orientations/`, `test/images/malformed/` |
-| Move/inpaint gap fix | **Landed** — `test/move-inpaint.js` |
-| Diagnostic export | **Landed** — `js/diagnostics.js`, `@capacitor/device` + `@capacitor/share` in `package.json` |
-| Motion polish + haptics | **Landed** — `js/haptics.js`, `@capacitor/haptics` in `package.json` |
-| Device checklist document | **Landed** — `docs/DEVICE-VERIFICATION-CHECKLIST.md` (unexecuted) |
-
-Genuinely outstanding: the positioning bug, the benchmark corpus, the Vision scope document, the custom domain, App Store preparation, the `ANALYSIS.md` revision, and the device run itself. Those are Phases 1 through 9 below.
-
-**Three corrections to the previous revision, found by reading the code rather than trusting the plan:**
-
-- **`buildBboxMapper` is not on the ML Kit path at all.** [`mlkitEngine.js:143`](js/mlkitEngine.js#L143) returns `flattenBlocks(result.blocks)` directly into the editor with no coordinate mapping whatsoever. `buildBboxMapper` is called only from [`ocrEngine.js:373`](js/ocrEngine.js#L373), the Tesseract path. The old Phase 9 step 4 ("extend `buildBboxMapper` to accept a quad") pointed at a function ML Kit never touches. Phase 1 below fixes that misdirection.
-- **`replay-dump.js` has no `--variant` flag.** Its usage is `node test/replay-dump.js <dump.json> [imageDir]`, and it renders all three variants (`raw`, `corner`, `fitted`) in a single run. The old Phase 9 step 1's three commands would all have failed.
-- **The variant is named `corner`, not `cornerPoints`** ([`replay-dump.js:62`](test/replay-dump.js#L62)).
+Everything below this line is genuinely open.
 
 ---
 
-## Phase order
+## 1. Test the 2026-09-11 changes — do this first, no hardware needed
 
-**Part I — Close everything on the web (Phases 1–4).** No hardware. Every phase ends in a CI gate.
-**Part II — Release readiness (Phases 5–7).** Domain, store preparation, documentation.
-**Part III — Device confirmation and release (Phases 8–9).** The phone, last.
+Nothing above has run outside CI's headless browser yet. Do this before
+picking up the phone for Phase 5 below, so the device pass confirms
+known-good behavior rather than finding UI bugs for the first time.
 
-| # | Phase | Tier | Was |
-|---|---|---|---|
-| 1 | Close the ML Kit positioning bug offline | P0 | 9 |
-| 2 | Benchmark corpus expansion + re-tune | P0 | 11 |
-| 3 | Coverage completion audit | P0 | new |
-| 4 | Vision framework migration scope document | P2 | 16 |
-| 5 | Custom domain migration | P1 | 14 |
-| 6 | App Store submission preparation | P0 | new |
-| 7 | `ANALYSIS.md` revision — the web-complete state | P0 | 18 (part) |
-| 8 | Physical device confirmation pass | P0 | 8 |
-| 9 | Release close-out | P0 | 18 (part) |
+### Web (desktop or phone browser)
 
-Phase 4 depends on Phase 1. Phase 8 depends on Phases 1–7. Phase 9 depends on Phase 8. Everything else is independent.
+Don't open `index.html` directly via `file://` — ES modules get blocked by
+Chrome's CORS handling under that protocol. Serve it:
 
----
-
-# Part I — Close everything on the web
-
-## Phase 1 — Close the ML Kit positioning bug offline (P0)
-
-This is the oldest open item in the project and the one the previous revision wrongly blocked behind a device. It does not need a device. ML Kit's output is just JSON with a known schema, and the schema is already documented by the code that writes it ([`mlkitDebug.js:99`](js/mlkitDebug.js#L99)) and the code that reads it ([`replay-dump.js:115`](test/replay-dump.js#L115)):
-
-```
-{ scans: [ { label, naturalWidth, naturalHeight, rawResult: { blocks, text }, imageByteLength, extent } ] }
+```bash
+cd /Users/prashaantmudgala/TextScanner
+python3 -m http.server 8080
 ```
 
-Anything with that shape replays through the real renderer. So generate fixtures with known-correct geometry, push them through the actual production code path, and assert analytically. A synthetic fixture is *better* than a device dump for this purpose, because a device dump has no ground truth — you can only eyeball whether it looks right, which is exactly the ambiguity that left this bug open for months. A synthetic fixture knows where every word belongs to the pixel.
+Open `http://localhost:8080` on the Mac. To reach it from a phone on the same
+Wi-Fi: `http://<mac-lan-ip>:8080` (`ipconfig getifaddr en0` for the IP) — this
+can fail on a locked-down 802.1x network that isolates devices from each
+other (the same class of network called out in the device-pass network
+capture section below), in which case push to `main` and use the live
+`github.io` URL instead.
 
-### 1.1 Establish the coordinate contract
+Walk through, in order:
 
-Write `test/unit/mlkit-geometry.test.js`. First assert the contract that [`renderImageFormatView`](js/editorObjects.js#L876) actually imposes: word bboxes must be in **original-image pixel space**, bounded by `naturalWidth` × `naturalHeight`. Add an assertion that `flattenBlocks`' output for a known input satisfies that bound. This test is the thing that has been missing — there is currently no assertion anywhere that ML Kit's coordinate space matches the renderer's.
+1. Tap **"+ New"** → confirm the action sheet shows "Scan a document" / "New
+   note" over a dimmed backdrop, and that Escape or a backdrop click closes it.
+2. Choose **New note**, type nothing, tap **Library** → confirm no card was
+   created. This is the exact repro of the bug that used to create a permanent
+   "Untitled note" on a bare tap.
+3. Open **New note** again, type a title → go back to Library → confirm a
+   card *does* now appear.
+4. Choose **Scan a document**, tap **"Try a sample image"** but not "Scan
+   text" → go back to Library → confirm no "Untitled scan" card appeared.
+5. Actually scan the sample image → confirm the result screen shows **"Clean
+   up this text"** / **"View on photo →"** prominently, with the original
+   Raw/Filtered/Text/Image controls still present underneath, just smaller.
+   Click each guided button and confirm it drives the right underlying
+   filter/mode.
+6. Scan an image containing a **receipt-like layout** (dollar amounts, a
+   "total" line, several short lines) or a **business-card-like layout** (an
+   email address plus a phone number) and run Coherence Filter — confirm the
+   output reads as an itemized list / structured contact fields rather than
+   narrated prose. (Needs a Claude API key on the web build — BYOK is still
+   the only tier there.)
+7. Delete any document → confirm the "Deleted '…'. Undo" toast appears
+   bottom-center and Undo actually restores it.
+8. Check the browser tab's favicon matches the new mark.
 
-Export `flattenBlocks` from `mlkitEngine.js` so it can be tested directly. It is currently module-private; exporting it for test is the same justification already written into [`ocrEngine.js:134`](js/ocrEngine.js#L134) for `transformBboxCorners`.
+### Native iOS (Xcode)
 
-### 1.2 Build the fixture generator
+No Android target exists in this project — "on the phone" means the iOS app.
 
-Write `test/make-mlkit-fixture.js`. Given a source image and a list of `{ text, x, y, w, h, rotationDeg }` word placements, it emits a dump-shaped JSON file whose `rawResult.blocks` contains those words as ML Kit would report them — `boundingBox` as `{ left, top, right, bottom }`, and `cornerPoints` as the four-point quad, correctly rotated for any non-zero `rotationDeg`.
+```bash
+cd /Users/prashaantmudgala/TextScanner
+npm run sync:ios   # copies www/ into the iOS project, runs `cap sync`
+open ios/App/App.xcworkspace   # the .xcworkspace, not .xcodeproj
+```
 
-Generate at minimum these fixtures, each with ground truth stored alongside:
+Pick a connected iPhone (or an iPhone Simulator for a faster first pass — no
+camera, haptics, or HEIC-from-camera there, but fine for layout/nav) as the
+run destination, set the Team under Signing & Capabilities the first time,
+and Run. First launch on a real device needs the dev profile trusted under
+**Settings → General → VPN & Device Management**.
 
-- **Axis-aligned baseline.** No rotation. Boxes must render exactly where placed.
-- **Rotated text**, 15° and 40°. `boundingBox` and `cornerPoints` diverge substantially here — this is the case that distinguishes the two geometries.
-- **Portrait image with EXIF orientation 6**, and landscape with orientation 8. See 1.3.
-- **Dense small text**, 200+ words, for the ordering and `lineIndex` assignment path.
-- **Degenerate cases:** a zero-area box, a box extending past the image bounds, an empty `elements` array, a `cornerPoints` array that is absent or has fewer than 4 points. Each must not throw and must not emit a NaN coordinate.
+Repeat the 8 checks above, plus what only a real device can show:
 
-### 1.3 Test the EXIF hypothesis first — it is the most likely root cause
-
-Before touching the rotation math, test this, because it explains the observed "gibberish" better than anything else and is cheap to rule in or out:
-
-`mlkitEngine.js` sends ML Kit the **raw original file bytes** (blob → base64 → `Filesystem.writeFile` → `processImage`). ML Kit on iOS decodes that file through `UIImage`, which **applies EXIF orientation**. Meanwhile the web layer passes `previewImg.naturalWidth/naturalHeight` from an `<img>` element, which in modern WebKit *also* applies EXIF orientation — but the two apply it to different things at different stages, and the coordinates ML Kit returns are in **its own post-orientation space**.
-
-For a photo shot in portrait with EXIF orientation 6 (rotate 90° CW), ML Kit's coordinate space is transposed relative to the space `renderImageFormatView` renders into. Every word lands rotated 90° and off-image. That is precisely "gibberish," and it would affect phone-camera photos (which almost always carry EXIF orientation) while leaving screenshots and downloaded images (which usually do not) looking fine — a signature worth checking against the original bug reports in `HANDOFF.md`.
-
-Assert this directly: build the orientation-6 fixture, run it through `flattenBlocks`, and check whether the resulting boxes fall within `naturalWidth` × `naturalHeight` or whether they exceed it in the transposed dimension. The repo already has orientation test images at `test/images/exif-orientations/` from the input-hardening work — reuse them rather than making new ones.
-
-### 1.4 Apply the fix indicated by the evidence
-
-Apply exactly the fix the failing test identifies, not a speculative one. In likelihood order:
-
-- **If EXIF orientation is the cause:** normalize orientation before handing bytes to ML Kit. `mlkitEngine.js` should draw the image to a canvas with the orientation correction already written for Phase 12 (in `preprocess.js`), export *that* canvas as the JPEG written to cache, and pass its dimensions as the coordinate space. This makes ML Kit's input and the renderer's coordinate space the same by construction rather than by coincidence. Note the correction in the module header comment, which already documents the file-path reasoning at that level of detail.
-- **If rotated text is the cause:** thread `cornerPoints` through `flattenBlocks` instead of discarding it (`el.boundingBox` at [`mlkitEngine.js:96`](js/mlkitEngine.js#L96)), carrying the quad as a `quad` field alongside `bbox` so downstream consumers that only understand axis-aligned boxes keep working. Do **not** route this through `buildBboxMapper` — that function belongs to the Tesseract path and composes a rotation ML Kit never applied.
-- **If neither reproduces:** the boxes are correct and the bug is downstream in rendering, or it was fixed incidentally by earlier work. Prove that with a passing fixture suite and record the null result in `ANALYSIS.md` the way the ML Kit telemetry and font-weight investigations were recorded. A null result closes this phase legitimately.
-
-### 1.5 Gate it
-
-Add `node --test test/unit/mlkit-geometry.test.js` to `.github/workflows/ci.yml`. Add a fixture-replay assertion to `render-fidelity.js` so geometry error on the ML Kit path is a tracked number, not a visual impression.
-
-### 1.6 Retire the diagnostic path
-
-Once the fixture suite is the source of truth, delete `js/mlkitDebug.js`, its import at [`mlkitEngine.js:44`](js/mlkitEngine.js#L44), the `recordScan` call in `recognizeImage`, and `test/replay-dump.js`. Remove any `?mlkitDebug=1` / `textscanner.debug.mlkit` handling. Update `docs/PRIVACY-DECISIONS.md` §4.6 to note the diagnostic path is gone and that the fixture suite replaced it.
-
-Keep `test/make-mlkit-fixture.js` and the fixtures — those are the permanent regression assets.
-
-**Done when:** `test/unit/mlkit-geometry.test.js` passes with fixtures covering every case in 1.2; the root cause is identified and fixed, or conclusively ruled out and documented as a null result; `render-fidelity.js` reports a tracked geometry-error number for the ML Kit path; CI runs the new test; `mlkitDebug.js` and `replay-dump.js` no longer exist.
-
----
-
-## Phase 2 — Benchmark corpus expansion and re-tune (P0)
-
-The corpus is 11 images ([`test/images/`](test/images/)) and the baseline (`test/baseline-2026-08-28.json`) was computed against it. That is too narrow to claim broad correctness, and it is the evidence base every accuracy claim in `ANALYSIS.md` rests on.
-
-1. **You personally:** supply at least 14 new images, 2 each covering: low light, steep skew (>15°), dense small text, a receipt, a street sign, a photo of a screen (moiré), and non-Latin script. Add each to `test/images/` with a ground-truth transcription in `test/groundtruth/` following the existing naming convention (`<name>.txt`).
-
-   Transcribe **completely**, including legible fine print. Three of the original 11 omitted it, which inflated CER on those images and forced the prior analysis to correct for it explicitly. Do not repeat that.
-
-   Shoot these on the phone you will use in Phase 8, so the corpus and the device pass share input characteristics.
-
-2. Re-establish the noise floor: run `test/run-benchmark.js` twice against identical code with no changes between runs, and record the delta as the new noise floor.
-
-3. Run `test/tune-thresholds.js` against the full corpus. Save to `test/TUNING-2.md`, dated, in the format of the existing `test/TUNING.md`.
-
-4. **Merge rule, applied exactly:** merge a threshold change only if the improvement exceeds **twice** the measured noise floor *and* reproduces in a second independent sweep. Otherwise leave the threshold and record the rejection with its numbers, as the original `TUNING.md` did.
-
-5. Write a new dated baseline (`test/baseline-<date>.json`) against the expanded corpus and point CI's `--check-regression` at it. The old baseline is no longer a valid comparison point.
-
-6. Add the non-Latin images as a **known-limitation** case, not a pass/fail case: [`mlkitEngine.js:127`](js/mlkitEngine.js#L127) hardcodes `script: "LATIN"`, documented as a deliberate limitation at [`mlkitEngine.js:34`](js/mlkitEngine.js#L34). Assert current behavior so a future script-selection change shows up as a measured delta.
-
-**Done when:** ≥25 images across the listed categories; `test/TUNING-2.md` exists with full results including rejections; CI regression-checks against the new baseline; non-Latin behavior is asserted as a known limitation rather than silently failing.
+- The footer in Settings should read **"ML Kit,"** not "Tesseract.js."
+- On an Apple Intelligence-eligible iPhone on iOS 26+: Coherence Filter should
+  offer an **on-device** tier with no API key needed, and the receipt/
+  business-card prompt routing should still apply there too (`coherence.js`
+  dispatches by tier, not by which prompt runs).
+- Haptic taps on the action sheet, nav, and delete.
+- Safe-area spacing around the notch/Dynamic Island for the app bar, the
+  action sheet, and the new toast — the toast in particular is new chrome
+  that has never rendered next to a real safe-area inset before.
+- "Note" is now reachable at all on a phone-width screen — it used to be
+  hidden below 600px because the old nav bar couldn't fit five controls.
+  Confirm it's there.
 
 ---
 
-## Phase 3 — Coverage completion audit (P0)
+## 2. The benchmark corpus (Phase 2, steps 1/3/4/5) — blocked on you
 
-The work in `fc82803` landed as code but was never audited for completeness against the plan that specified it. Close that loop before calling anything done.
+**Needs 14 photographs only you can take**, two each: low light, steep skew
+(>15°), dense small text, a receipt, a street sign, a photo of a screen
+(moiré), non-Latin script. Shoot them on the same phone used for the device
+pass in §5, so the corpus and the device run share input characteristics.
 
-1. **Verify each landed phase against its original "Done when."** For CI, input hardening, move/inpaint, diagnostic export, and motion polish, confirm the acceptance criteria are actually met, not just that a file with the right name exists. Specifically:
-   - All 8 EXIF orientations normalize to identical recognized text *and* equivalent geometry (`test/exif-orientation.js`).
-   - All four malformed inputs resolve to a `describeScanError()` category with no uncaught throw and no hang (`test/malformed-input.js`).
-   - The move/inpaint test asserts vacated pixels match the patch, not the original (`test/move-inpaint.js`).
-   - Every motion transition references a `--motion-*` token, and the single `prefers-reduced-motion` block zeroes all of them with no per-rule exceptions.
-   - Haptics are gated behind `Capacitor.isNativePlatform()` and are silently absent — not throwing — on web.
+These can't be generated — a synthesized image has none of the sensor noise,
+motion blur, rolling-shutter skew, or lens geometry that make those
+categories worth testing, and a generated corpus would measure the generator
+rather than the pipeline. Transcribe each **completely**, including legible
+fine print — three of the original 11 didn't, which is exactly what made the
+11-image average misleading.
 
-2. **Prove the CI gate actually gates.** Deliberately regress a threshold on a throwaway branch, push, confirm the workflow fails, revert, confirm it passes. An untested failure path is not a gate. Record the failing run's URL in the commit message.
+Once they exist:
 
-3. **Add the missing HEIC case.** Phase 12 specified HEIC input verification and it is the one input-hardening item with no test file. Headless Chromium cannot decode HEIC, so: add the file to `test/images/format-checks/`, write the test to assert a *categorized error* rather than success in CI, and add successful HEIC decoding to the Phase 8 device checklist. Both halves are required — the CI half proves it fails safely, the device half proves it works where it should.
+1. Add each image to `test/images/` and its transcript to `test/groundtruth/`,
+   following the existing naming convention.
+2. Run `test/tune-thresholds.js` against the full ≥25-image corpus. Append the
+   results to `test/TUNING-2.md` (it already has the noise-floor and
+   non-Latin sections; this fills in what it explicitly left blocked).
+3. **Merge rule, unchanged:** merge a threshold change only if the
+   improvement exceeds **twice** the measured noise floor (0.00pts, so in
+   practice any real, reproducible improvement clears it) *and* reproduces in
+   a second independent sweep. Record rejections with their numbers, same as
+   round 1.
+4. Write a new dated baseline (`test/baseline-<date>.json`) and point
+   `ci.yml`'s `--check-regression --baseline` at it — `test/baseline-2026-08-28.json`
+   is measured against the 11-image corpus and stops being a valid comparison
+   point the moment the corpus grows.
 
-4. **Close the coverage gap on the web-only paths that CI does not currently touch:** the Coherence Filter Claude tier (mock the `api.anthropic.com` response — do not call the real API in CI), the translate-in-place Claude tier, TTS invocation, and the export path in `editorExport.js`. Each needs at least a smoke test asserting it completes and produces the expected shape.
-
-5. **Run the full suite from a clean checkout** (`git clone` to a temp directory, `npm ci`, run everything) to catch anything depending on untracked local state.
-
-**Done when:** every landed phase's acceptance criteria are verified rather than assumed; the CI regression gate is demonstrated failing and recovering on a real push; HEIC is covered on both sides; no web-reachable feature lacks a smoke test; the suite passes from a clean checkout.
-
----
-
-## Phase 4 — Vision framework migration scope document (P2, depends on Phase 1)
-
-Do not start until Phase 1 has concluded and the positioning bug's status is documented — evaluating a second engine while the first engine's geometry is undetermined makes both results unattributable.
-
-Write `docs/VISION-FRAMEWORK-MIGRATION-SCOPE.md` containing:
-
-- A mapping from ML Kit's `TextRecognizer` surface as used in `mlkitEngine.js` to `VNRecognizeTextRequest` / `VNRecognizedTextObservation`.
-- Confirmation, **checked directly against Vision's `.swiftinterface`**, of whether `VNRecognizedTextObservation` (subclassing `VNRectangleObservation`) exposes `topLeft`/`topRight`/`bottomLeft`/`bottomRight` — the replacement for `cornerPoints`. Answer this definitively, not provisionally.
-- Every file that would change: `mlkitEngine.js` (rewritten), the native plugin structure alongside `TextCoherencePlugin.swift`, the `Podfile` (removing `MLKitTextRecognition`), and `scripts/trim-mlkit-scripts.js` (deleted).
-- **Whether Vision resolves Phase 1's root cause.** If Phase 1 found EXIF orientation to be the cause, note that Vision has the same class of hazard: it uses a **bottom-left origin** and takes an explicit `orientation:` parameter on `VNImageRequestHandler`. Getting that parameter wrong reproduces the identical bug. Phase 1's fixture suite should be reusable as the migration's acceptance test — say so explicitly, since that is the main argument that this migration is now low-risk.
-- A note that migrating removes the ML Kit telemetry question in `ANALYSIS.md` §4.5 by removing the dependency, rather than by finding an opt-out.
-- Whether `script: "LATIN"` (Phase 2 step 6) is resolved by Vision's automatic multi-script support. If so, this migration also closes the non-Latin limitation, which materially changes its priority.
-
-This document is the deliverable. Do not implement the migration.
-
-**Done when:** the document exists, answers the corner-point question definitively, and states whether Vision resolves the Phase 1 root cause and the non-Latin limitation.
+**Done when:** ≥25 images across the listed categories; `test/TUNING-2.md`'s
+blocked sections are filled in; CI regression-checks against the new
+baseline.
 
 ---
 
-# Part II — Release readiness
+## 3. The custom domain — blocked on you
 
-## Phase 5 — Custom domain migration (P1)
+Blocked on a registrar login, nothing else. `docs/CUSTOM-DOMAIN-MIGRATION.md`
+already has the DNS records, the `CNAME` file content, the exact replacement
+copy for the Coherence Filter panel's shared-origin disclosure, and a
+re-entry notice for keys that won't survive the origin change.
 
-1. **You personally:** acquire or use a domain/subdomain you control. Add a CNAME record pointing it at `<owner>.github.io`.
-2. Add a `CNAME` file at the repo root containing the domain, exactly as GitHub Pages requires.
-3. **You personally:** in Settings → Pages, set the custom domain and enable "Enforce HTTPS" once the certificate provisions.
-4. Update the API key disclosure copy in the Coherence Filter panel: remove the shared-`github.io`-origin sentence and replace it with the corrected scoping claim. This closes `ANALYSIS.md` §4.3.
-5. Update the empty-state copy to note a key entered before the migration must be re-entered, since browser storage does not survive a domain change.
-6. Verify the CSP still passes on the new origin, and that no absolute `github.io` URL is hardcoded anywhere (`grep -rn "github\.io" js/ index.html`).
-7. Update `docs/PRIVACY-DECISIONS.md` to reflect the closed finding.
+1. Acquire or point a domain/subdomain you control at `<owner>.github.io`
+   via a CNAME record.
+2. Add the `CNAME` file at the repo root.
+3. In Settings → Pages, set the custom domain, enable "Enforce HTTPS" once
+   the certificate provisions.
+4. **Then, and only then**, apply the pre-written copy changes. Applying them
+   early would tell users their key is safer than it currently is — the
+   shared-`github.io`-origin caveat is true right now and must stay until the
+   app actually moves.
+5. Verify no hardcoded `github.io` URL remains (`grep -rn "github\.io" js/ index.html`)
+   — already checked once and came back clean, worth re-checking after the
+   move.
 
-**Done when:** the app is reachable at the custom domain over HTTPS; the shared-origin caveat is replaced with the corrected claim; the re-entry notice is present; no hardcoded `github.io` URL remains.
-
----
-
-## Phase 6 — App Store submission preparation (P0)
-
-Everything required to be submission-ready *before* the device pass, so Phase 8 is the last gate rather than the start of a new work item.
-
-1. **Assets:** app icon at every required size, launch screen, and 6.7"/6.5" screenshots. Generate screenshots from the Simulator against the real app — they do not require a physical device.
-2. **Metadata:** name, subtitle, description, keywords, support URL (the custom domain from Phase 5), and marketing URL. The description should say what `README.md` already says about how this differs from Google Lens / Adobe Scan / Live Text.
-3. **Privacy nutrition label**, filled from `docs/PRIVACY-DECISIONS.md` rather than written fresh. It must match the privacy manifest committed in Phase 7 of the prior plan (`9f7990a`). Specifically: the Claude API tier transmits text to `api.anthropic.com` and must be declared; on-device tiers must not be declared as collection.
-4. **Verify the privacy manifest** (`PrivacyInfo.xcprivacy`) covers ML Kit's SDK requirements, and confirm whether ML Kit ships its own manifest that merges into yours — this is the §4.5 telemetry question in its submission-blocking form.
-5. **Build settings:** bump version and build number, confirm the release configuration strips debug symbols appropriately, confirm the signing team is set (it was carried over in `0961852`).
-6. **Archive validation:** Product → Archive, then **Validate App** in the Organizer. This runs Apple's submission checks without submitting and catches missing usage descriptions, bad entitlements, and asset problems. Do this now — it needs no physical device and catches most rejections.
-7. Confirm `NSCameraUsageDescription` and `NSPhotoLibraryUsageDescription` (added in `2b89352`) read as user-facing explanations, since Apple rejects generic ones.
-
-**Done when:** Archive → Validate App passes with no errors; all assets and metadata are prepared; the nutrition label is consistent with both the privacy manifest and `docs/PRIVACY-DECISIONS.md`.
+**Done when:** the app is reachable at the custom domain over HTTPS; the
+copy is updated (not before); no hardcoded `github.io` URL remains.
 
 ---
 
-## Phase 7 — `ANALYSIS.md` revision, web-complete state (P0)
+## 4. App Store launch readiness
 
-Write the third revision now, against the web-complete state, leaving one explicitly marked section for the device results. This is a change from the previous revision's non-goal, and deliberately: with the device pass moved to confirmation-only, there is nothing left to discover that would restructure the document. Phase 9 fills in one section and adjusts the summary table.
+Three tracks, all from `04-APP-STORE-LAUNCH-PLAN.md` and
+`docs/APP-STORE-SUBMISSION.md` §8, none overlapping with the earlier phases:
 
-1. Read the current `ANALYSIS.md` in full and the git log across Phases 1–6.
-2. Archive first: move the current `ANALYSIS.md` to `docs/archive/analysis-2026-08-29.md` and confirm the 2026-08-28 original is already archived alongside it.
-3. Write the new revision following the prior structure: executive summary with a severity/status table mapping every §5 finding to its status; folder structure covering new files (`test/make-mlkit-fixture.js`, the fixtures, `test/unit/mlkit-geometry.test.js`, `docs/VISION-FRAMEWORK-MIGRATION-SCOPE.md`, `test/TUNING-2.md`, the new baseline, `CNAME`); system design covering the positioning bug's actual resolution and the CI pipeline; UI/UX covering the motion and haptics work with the same rigor §2.6/§2.7 used for colour sampling and inpainting; security covering the domain migration and the submission-readiness review.
-4. **Citation standard, unchanged:** every claim cites an artifact present at the revision's commit. No "verified" or "fixed" without a linked test, log, or measured number. Null results are findings — write them down the way the ML Kit telemetry and font-weight investigations were.
-5. Leave a section headed **"Device verification — pending Phase 8"** stating plainly that on-device behavior is unconfirmed at this revision.
-6. Close with a "what's actually left" section in the spirit of the current §5. Some items will remain — `script: "LATIN"`, the Vision migration, whatever Phase 8 turns up. Name them plainly rather than implying the app is finished.
+### 4.1 The remaining submission blockers
 
-**Done when:** `ANALYSIS.md` is a complete third revision meeting the citation standard; both prior revisions are preserved under `docs/archive/`; the device section is present and explicitly marked pending.
+1. **Archive → Validate App** — needs a real Apple Distribution certificate.
+   Product → Archive, then Validate App in the Organizer. Needs no physical
+   device; catches most rejections before submission.
+2. **Support and marketing URLs** — wait on §3 (the domain).
+3. **Screenshots** — mechanically unblocked now that a real icon exists
+   (6.7": 1290×2796, 6.5": 1242×2688, PNG/JPEG, no alpha, no device frame, via
+   `xcrun simctl io <device> screenshot` against a Simulator), but still needs
+   you to pick which 5-6 screens tell the product's story — a presentation
+   choice, not a mechanical one.
+
+Metadata, the privacy nutrition label, the privacy manifest, and usage
+descriptions are already drafted/verified in `docs/APP-STORE-SUBMISSION.md`
+§§2-6 and don't need revisiting unless the description's claims change.
+
+### 4.2 Two open decisions, not blockers
+
+- **Naming.** `04-APP-STORE-LAUNCH-PLAN.md` §2 recommends "Inplace" over the
+  current "TextScanner," after checking it against App Store listings, GitHub,
+  and general web search — but flags that a formal USPTO/trademark clearance
+  pass hasn't happened. Deliberately **not applied**: it touches the bundle's
+  public identity and `docs/APP-STORE-SUBMISSION.md`'s already-drafted,
+  submission-ready metadata, and wasn't confirmed the way the pricing model
+  below was. Say the word if you want to commit to it, or want a few more
+  candidate names checked first.
+- **Pricing (Option A — confirmed).** One-time Pro unlock, no subscription,
+  gating multi-page/PDF export; free tier stays a complete product on its
+  own. This decision is made (`04-APP-STORE-LAUNCH-PLAN.md` §1), but the
+  actual StoreKit implementation is blocked on you creating the in-app
+  purchase product in App Store Connect first — there's no product ID to
+  wire client code against until that exists.
+
+### 4.3 Explicitly deferred, not blocked
+
+**The hosted AI tier** (`05-HOSTED-AI-TIER-PLAN.md`) — a Cloudflare Worker
+relay so non-Apple-Intelligence users get Coherence Filter without touching
+an API key, funded by the Pro purchase above. Not built, on purpose: it needs
+a Cloudflare account and Apple Developer Program Server API access this
+session doesn't have, and the plan itself sequences it *after* the Pro
+purchase ships and after real usage data exists — building it now would be
+unwired scaffolding referencing an entitlement system that doesn't exist yet.
+Revisit once §4.2's IAP is live and has a few weeks of data.
 
 ---
 
-# Part III — Device confirmation and release
+## 5. The physical device pass — needs hardware
 
-## Phase 8 — Physical device confirmation pass (P0, depends on Phases 1–7)
+**This pass confirms; it does not discover.** Every check maps to something
+already green in CI or verified in §1 above. A failure here contradicts a
+passing gate, which means the gate is wrong — fix the gate too, not just the
+symptom.
 
-By now every check below has a passing automated counterpart. **This pass confirms; it does not discover.** A failure here contradicts a green gate, which means the gate is wrong — fix the gate too, not just the symptom.
+### 5.1 What's new since the checklist was last current
 
-### 8.1 Network capture — USB, not a Wi-Fi proxy
+`docs/DEVICE-VERIFICATION-CHECKLIST.md` was written against the original
+scan-only flow, before the document layer (`ca341d7`) and before the
+2026-09-11 redesign. Add these before walking it, or the pass confirms an app
+that no longer exists:
 
-`ubcsecure` is a locked-down enterprise (802.1x) network. It will not carry a manually configured proxy, and iOS will not let you fully trust a user-installed CA under that network policy. **Do not attempt the mitmproxy Wi-Fi-proxy method.** Capture at the TLS handshake level over USB instead — no proxy, no CA install, works on any network:
+- **Document layer** (per `HANDOFF.md` §5.0): touch targets on the crop
+  handles; IndexedDB quota behavior under iOS's storage eviction policy; the
+  native share sheet for a PDF export; whether WKWebView's `contenteditable`
+  behaves correctly for the note editor (cursor placement, IME, the checklist
+  tap target).
+- **Nav redesign:** the "+" action sheet opens/closes correctly with a real
+  finger tap (not just a mouse click) including on the backdrop; "New note"
+  is genuinely reachable now on a phone-width screen.
+- **Guided scan-result buttons:** "Clean up this text" / "View on photo"
+  respond correctly to a tap and haptic fires.
+- **Delete/Undo toast:** appears above the home indicator / safe area, Undo
+  works within the 5-second window on a real touch target.
+- **Coherence Filter routing:** scan an actual receipt and an actual business
+  card on-device; confirm the output uses the specialized voice, on whichever
+  tier (on-device or Claude) actually runs there.
+- **New app icon:** appears correctly on the home screen at every size,
+  including in Spotlight search and Settings.
 
-1. Connect the iPhone by USB, paired and trusted in Xcode. Get its UDID from Window → Devices and Simulators.
-2. Run `rvictl -s <UDID>`. This creates a virtual interface (`rvi0`) mirroring the device's traffic.
-3. `brew install --cask wireshark`, capture on `rvi0`, filter `tls.handshake.type == 1`. ClientHello messages carry the destination hostname in the SNI extension **in plaintext** — no decryption, no CA trust needed. Host confirmation is all this phase requires.
-4. Leave it running for all of 8.3.
+### 5.2 The original checklist, still the main body of the pass
 
-**Fallback if `rvictl` fails to attach** (happens on some Xcode/macOS combinations): share the Mac's connection over Wi-Fi via System Settings → General → Sharing → Internet Sharing, join the phone to *that* network, and use the original mitmproxy-with-CA-trust method — it works there because the network is yours. Record which method was used.
-
-### 8.2 Install
-
-**You personally:** in Xcode, select the registered physical device, Product → Archive, then Organizer → Distribute App → Development, and install directly. Not TestFlight — it adds review latency this pass does not need.
-
-### 8.3 Walk `docs/DEVICE-VERIFICATION-CHECKLIST.md` with the capture running
-
-Each item names the automated gate it confirms:
-
-- **Touch:** drag a word, resize a word, marquee-select. *(Confirms `test/touch-interactions.js`.)*
-- **Pinch:** enter Move mode, two-finger pinch. Zoom must work without conflicting with single-finger drag. *(Confirms the `931ddc6` pinch fix.)*
-- **Positioning — the important one:** scan 15–20 real photos across lighting, angle, and density, including portrait shots that carry EXIF orientation. For each, confirm word positions match the source. *(Confirms Phase 1. This is where a contradiction would matter most — if Phase 1 concluded EXIF orientation and a portrait photo still misplaces words, the fixture missed a case.)*
-- **HEIC:** scan an unconverted HEIC straight from the camera roll. Must succeed on device. *(Confirms the Phase 3 step 3 device half.)*
-- **Coherence Filter, on-device tier:** confirm the tier indicator reads "On-device" and the rewrite completes. Repeat in Airplane Mode. If the device is not Apple Intelligence-eligible, mark **"unverified — device not Apple Intelligence-eligible"**; that is a documented gap, not a failure.
+- **Touch:** drag a word, resize a word, marquee-select.
+- **Pinch:** enter Move mode, two-finger pinch zoom without conflicting with
+  single-finger drag.
+- **Positioning — weight this one most:** scan 15-20 real photos across
+  lighting, angle, and density, including portrait shots carrying EXIF
+  orientation. Angled photos are the ones that were gibberish before Phase 1;
+  confirm word positions match the source.
+- **HEIC:** scan an unconverted HEIC straight from the camera roll — must
+  succeed on device (CI only proves it fails *safely* where the codec is
+  missing).
+- **Coherence Filter, on-device tier:** tier indicator reads "On-device," the
+  rewrite completes, repeat in Airplane Mode. If the device isn't Apple
+  Intelligence-eligible, mark "unverified — device not eligible" rather than
+  failed.
 - **Translate in place**, on-device tier, Airplane Mode on.
-- **Claude tier:** Airplane Mode off, switch to Claude, confirm success and a ClientHello with SNI `api.anthropic.com` in the capture. *(Confirms the Phase 3 step 4 mock matches reality.)*
-- **Motion:** drag, resize, mode switching, and view/filter toggling feel continuous, not snapped or laggy. Then enable Settings → Accessibility → Motion → Reduce Motion and confirm transitions are actually disabled. *(Confirms the single `prefers-reduced-motion` block.)*
-- **Haptics** fire on selection, gesture completion, filter toggle, delete, and scan completion.
-- **Diagnostic export** opens the native share sheet, and the report contains no image data unless the opt-in box is checked. *(Confirms Phase 15's privacy constraint.)*
-- **Keyboard avoidance:** tap a contenteditable word near the bottom; it scrolls into view smoothly rather than abruptly.
+- **Claude tier:** Airplane Mode off, confirm success and capture the network
+  request (see 5.3).
+- **Motion:** interactions feel continuous; enable Settings → Accessibility →
+  Reduce Motion and confirm transitions actually stop.
+- **Haptics** fire on selection, gesture completion, filter toggle, delete,
+  and scan completion.
+- **Diagnostic export** opens the native share sheet; confirm the report has
+  no image data unless the opt-in box is checked.
+- **Keyboard avoidance:** tapping a contenteditable word near the bottom of
+  the screen scrolls it into view smoothly.
 
-### 8.4 Export and record
+### 5.3 Network capture — USB, not a Wi-Fi proxy
 
-Stop the capture, export as `test/artifacts/device-network-capture-<date>.pcapng`. Ensure `test/artifacts/*.pcapng` is gitignored or the file is safe to commit — an SNI-only capture contains no keys or payloads, so it is safe as-is. If the Internet Sharing fallback produced a full `.mitm` capture, strip `Authorization`/`x-api-key` before committing, or commit only a host-list summary.
+If the network is 802.1x-locked (won't carry a manual proxy or let you fully
+trust a user-installed CA), don't attempt the mitmproxy Wi-Fi method — capture
+at the TLS handshake level over USB instead:
 
-Update `docs/PRIVACY-DECISIONS.md` with a "Verified on device (`<date>`)" section listing the observed hosts, confirming or correcting the previously-static claim about native network activity.
+1. Connect the iPhone by USB, paired and trusted in Xcode. Get its UDID from
+   Window → Devices and Simulators.
+2. `rvictl -s <UDID>` creates a virtual interface (`rvi0`) mirroring the
+   device's traffic.
+3. `brew install --cask wireshark`, capture on `rvi0`, filter
+   `tls.handshake.type == 1`. ClientHello messages carry the destination
+   hostname in the SNI extension in plaintext — no decryption, no CA trust
+   needed, and host confirmation is all this needs.
 
-### 8.5 Handle contradictions
+If `rvictl` fails to attach: share the Mac's connection over Wi-Fi (System
+Settings → General → Sharing → Internet Sharing), join the phone to that
+network, and use mitmproxy with CA trust there instead — record which method
+was used.
 
-Any check failing against a green gate: file it, fix it, **and add or fix the automated gate that missed it**, then re-run the affected check. Do not proceed to Phase 9 with an unexplained contradiction.
+Export the capture as `test/artifacts/device-network-capture-<date>.pcapng`
+(an SNI-only capture has no keys or payloads, so it's safe to commit as-is).
+Update `docs/PRIVACY-DECISIONS.md` with a "Verified on device" section
+listing the observed hosts.
 
-**Done when:** every checklist item is checked, marked failed with a filed issue, or marked "unverified" with a stated reason; the capture exists; `docs/PRIVACY-DECISIONS.md` has its verified-on-device section; every contradiction is resolved with a corresponding gate fix.
+### 5.4 Handle contradictions
+
+Anything failing against a green gate: file it, fix it, **and fix the
+automated gate that missed it**, then re-run the affected check. Don't move
+to §6 with an unexplained contradiction.
+
+**Done when:** every checklist item (original + 5.1's additions) is checked,
+failed-and-filed, or marked "unverified" with a stated reason; the capture
+exists; `docs/PRIVACY-DECISIONS.md` has its verified-on-device section; every
+contradiction resolved with a corresponding gate fix.
 
 ---
 
-## Phase 9 — Release close-out (P0, depends on Phase 8)
+## 6. Release close-out
 
-1. Fill in `ANALYSIS.md`'s "Device verification" section with Phase 8's actual results — the host list, the checklist outcome, and any contradiction found and what it revealed about the gate that missed it. Update the executive summary's status table.
-2. Update the "what's actually left" section with anything Phase 8 surfaced and any item still marked unverified.
-3. Update `HANDOFF.md` to point at the new revision, summarizing what changed since the last handoff in its existing style.
-4. Submit to App Store Connect using the Phase 6 assets and the archive validated there.
-5. Tag the release commit.
+1. Fill in `ANALYSIS.md` §6 ("Device verification — pending Phase 8") with
+   the actual results: host list, checklist outcome, any contradiction found
+   and what it revealed about the gate that missed it. Update §0's status
+   table. Add a short note on the 2026-09-11 redesign/coherence/icon work if
+   §8's addendum doesn't already cover it by then.
+2. Update `HANDOFF.md` to point at the new state, in its existing style.
+3. Submit to App Store Connect using §4's assets and the archive validated
+   there.
+4. Tag the release commit.
 
-**Done when:** `ANALYSIS.md` is complete with real device results; `HANDOFF.md` points at current state; the build is submitted; the release is tagged.
-
----
-
-## Known residual risk
-
-The honest remainder after all nine phases. These are named, not hidden:
-
-- **Single-device confirmation.** Phase 8 covers one iPhone on one iOS version. Behavior on older devices, smaller screens, and iPadOS is unconfirmed. Mitigation: the Simulator covers layout across sizes; ML Kit and WKWebView behavior does not vary much across recent iOS versions. Real mitigation is post-release feedback via the Phase 15 diagnostic export.
-- **Apple Intelligence tier**, if the test device is not eligible. There is no way to verify on-device Coherence Filter and translate without eligible hardware. The code path is smoke-tested and the fallback to the Claude tier is tested, but the on-device path itself may be unconfirmed.
-- **`script: "LATIN"`.** Non-Latin recognition is a known limitation, asserted as current behavior in Phase 2 rather than fixed. Phase 4 determines whether the Vision migration closes it.
-- **ML Kit telemetry** (`ANALYSIS.md` §4.5) remains researched-and-decided rather than eliminated. Only the Vision migration removes the question.
-- **Benchmark corpus scale.** 25 images is a meaningful improvement over 11 and still small in absolute terms. CER/WER figures carry real error bars; the noise-floor discipline in Phase 2 step 4 is what keeps them honest.
-- **The Claude API tier depends on a third party.** Availability, latency, and pricing are outside this project's control.
+**Done when:** `ANALYSIS.md` has real device results; `HANDOFF.md` points at
+current state; the build is submitted; the release is tagged.
 
 ---
+
+## Known residual risk (carried forward, still honest)
+
+- **Single-device confirmation.** §5 covers one iPhone on one iOS version.
+  The Simulator covers layout across sizes; real cross-device confirmation is
+  post-release feedback via the diagnostic export.
+- **Apple Intelligence tier**, if the test device isn't eligible — the code
+  path is smoke-tested and the Claude fallback is tested, but the on-device
+  path itself may stay unconfirmed.
+- **`script: "LATIN"`** — non-Latin recognition is a known, asserted
+  limitation. The Vision migration (scoped, not built) is what would close it.
+- **ML Kit telemetry** — precisely quantified, not eliminated. Only dropping
+  ML Kit for Vision removes the question.
+- **Benchmark corpus scale** — even at ≥25 images post-§2, CER/WER figures
+  carry real error bars; the noise-floor discipline is what keeps them
+  honest, not the count alone.
+- **The Claude API tier depends on a third party** — availability, latency,
+  and pricing are outside this project's control, on both the BYOK tier today
+  and the hosted tier if §4.3 is ever built.
+- **Nothing verifies the generated `www/`/`ios/App/App/public/` trees are in
+  sync with source.** Caught once by a manual grep; no automated gate exists
+  for it yet.
 
 ## Non-goals
 
-- No implementation of the Vision framework migration. Phase 4 produces a scope document only.
-- No new analytics or telemetry beyond the user-triggered, opt-in export.
-- No threshold change outside the Phase 2 step 4 rule. A change that does not clear that bar does not ship, however plausible it looks.
-- No motion or haptic addition that ignores `prefers-reduced-motion`. No per-transition exceptions to the single global block.
-- No treating the device pass as a discovery phase. If Phase 8 is finding new problems rather than confirming known-good behavior, Part I was left incomplete — go back rather than patching forward.
+- No implementation of the Vision framework migration — a scope document
+  only, until you decide to act on it.
+- No hosted AI tier implementation until §4.2's IAP is live and has usage
+  data — see §4.3.
+- No app rename until you confirm it — see §4.2.
+- No threshold change outside §2's merge rule, however plausible it looks.
+- No motion or haptic addition that ignores `prefers-reduced-motion`.
+- No treating §5 (the device pass) as a discovery phase. If it's finding new
+  problems rather than confirming known-good behavior, something above was
+  left incomplete — go back rather than patching forward.
