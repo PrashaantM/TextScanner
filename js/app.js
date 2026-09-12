@@ -117,9 +117,8 @@ async function openDocument(id) {
 // so creating immediately is correct. Called with neither (a bare tap of the
 // "New note" action) it opens a draft instead: nothing is written to storage
 // until the person actually types something. See notesEditor.js's
-// openNoteDraft/save for where that actually happens, and
-// 01-UX-FINDINGS-AND-FIX-PLAN.md §1.1 for the bug this replaced (every tap of
-// "Note" created a permanent, empty "Untitled note").
+// openNoteDraft/save for where that actually happens - this replaced a bug
+// where every tap of "Note" created a permanent, empty "Untitled note".
 async function createAndOpenNote({ body = "", title = "" } = {}) {
   if (!storageReady) {
     window.alert("This browser isn't allowing local storage, so notes can't be saved. Scanning still works.");
@@ -160,8 +159,7 @@ async function createAndOpenNote({ body = "", title = "" } = {}) {
 // Navigation only - no document is created here. The first page actually
 // committed (see addCurrentImageAsPage below) is what creates one, which is
 // what makes previewing a sample image without scanning it a no-op on the
-// library instead of leaving behind an "Untitled scan · 0 pages" card (see
-// 01-UX-FINDINGS-AND-FIX-PLAN.md §1.2).
+// library instead of leaving behind an "Untitled scan · 0 pages" card.
 async function createAndOpenScan() {
   pendingTarget = null;
   hapticMedium();
@@ -301,9 +299,9 @@ export async function initApp() {
   if (storageReady) {
     // Fire and forget: none of these should delay first paint, and none has a
     // failure worth surfacing. sweepEmptyDocuments is the one-time cleanup for
-    // documents the eager-creation bug already left behind (see
-    // 01-UX-FINDINGS-AND-FIX-PLAN.md §1.1/1.2) - it runs every launch, but is a
-    // no-op past the first one now that nothing creates empty documents anymore.
+    // documents the eager-creation bug already left behind - it runs every
+    // launch, but is a no-op past the first one now that nothing creates
+    // empty documents anymore.
     requestPersistence();
     purgeExpiredTrash().catch(() => {});
     sweepEmptyDocuments().catch(() => {});

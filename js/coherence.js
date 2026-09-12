@@ -88,8 +88,8 @@ export async function resolveTier(preferOnDevice = true) {
 }
 
 // Wraps a tier's raw output with the deterministic fact-preservation check
-// (js/factCheck.js, from 02-COHERENCE-FILTER-AGENT-PLAN.md §3): the prompt
-// already asks the model never to drop a price, date, time or number, but
+// (js/factCheck.js): the prompt already asks the model never to drop a
+// price, date, time or number, but
 // asking is not verifying. This runs on the response, costs no extra tokens or
 // requests, and turns "the model promises not to hallucinate a fact" into "the
 // app notices when it does anyway" - the caller decides what to do with a

@@ -28,7 +28,7 @@ export const modeTextBtn = document.getElementById("mode-text-btn");
 export const modeImageBtn = document.getElementById("mode-image-btn");
 export const modeFullBtn = document.getElementById("mode-full-btn");
 export const modeButtons = [modeTextBtn, modeImageBtn, modeFullBtn];
-// Guided primary actions (03-REDESIGN-PLAN.md): proxy to filterCoherenceBtn and
+// Guided primary actions: proxy to filterCoherenceBtn and
 // modeImageBtn respectively via a real .click(), rather than duplicating their
 // logic - see the wiring in js/main.js.
 export const cleanUpTextBtn = document.getElementById("clean-up-text-btn");

@@ -504,13 +504,13 @@ filterButtons.forEach((btn) => {
   });
 });
 
-// Guided primary actions (03-REDESIGN-PLAN.md): real .click() calls on the
+// Guided primary actions: real .click() calls on the
 // controls above, not a reimplementation of what they do. "Clean up this text"
 // is a no-op if Coherence Filter is already active - clicking a filter-toggle
 // button the person is already on is exactly what applyFilterLevel already
 // treats as a no-op via setActiveButton, so nothing extra is needed here.
 //
-// Skip-the-call gate (07-REMAINING-ROADMAP.md §1): a suggestion, not a silent
+// Skip-the-call gate (js/coherenceGate.js): a suggestion, not a silent
 // skip. The first click on already-coherent-looking text swaps the button to
 // "Reconstruct anyway" instead of dispatching the tier; a second click - now
 // past the gate - proceeds exactly as it always did. resetCoherenceGate lets

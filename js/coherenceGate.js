@@ -2,8 +2,8 @@
 // text is already coherent prose - a single clean sentence or two - and would
 // gain nothing from a Coherence Filter rewrite.
 //
-// From 07-REMAINING-ROADMAP.md §1, the one piece of the original Coherence
-// Filter plan (02-COHERENCE-FILTER-AGENT-PLAN.md §4) that hadn't shipped yet.
+// The one piece of the original Coherence Filter plan that hadn't shipped
+// yet - js/factCheck.js and js/coherenceRouter.js are its siblings.
 // Deliberately a suggestion surfaced in the UI (js/main.js's cleanUpTextBtn
 // handler), not a silent skip: a false positive here costs the user one extra
 // click, while a silent skip that's wrong costs them a feature they wanted and

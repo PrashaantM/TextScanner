@@ -1,8 +1,8 @@
 // document-creation.js: regression coverage for when a document is actually
 // created, driven through the real UI in a real browser.
 //
-// Added alongside the fix in 01-UX-FINDINGS-AND-FIX-PLAN.md §1.1/1.2: tapping
-// "Note" used to call createDocument() immediately, and so did tapping "Scan" -
+// Added alongside a fix to app.js: tapping "Note" used to call
+// createDocument() immediately, and so did tapping "Scan" -
 // so previewing a sample image, or opening the note editor and deciding against
 // it, silently left a permanent "Untitled note" or "Untitled scan · 0 pages"
 // card in the library. Nothing in CI drove app.js's nav handlers at all before
@@ -82,9 +82,8 @@ await page.waitForFunction(() => document.body.dataset.activeView === "document"
 check("the note editor is showing", await page.evaluate(() => !document.getElementById("note-editor").classList.contains("hidden")));
 check("opening a blank draft created no document", (await countDocs("note")) === 0, String(await countDocs("note")));
 
-// Navigating away from an untouched draft - the exact repro from
-// 01-UX-FINDINGS-AND-FIX-PLAN.md §1.1 (four taps of "Note", four permanent
-// empty documents).
+// Navigating away from an untouched draft - the exact repro of the old bug
+// (four taps of "Note", four permanent empty documents).
 await page.click("#nav-library");
 await page.waitForFunction(() => document.body.dataset.activeView === "library");
 check("leaving an empty draft still created no document", (await countDocs("note")) === 0, String(await countDocs("note")));
@@ -128,8 +127,8 @@ check(
   await page.evaluate(() => document.getElementById("scan-target-note").classList.contains("hidden"))
 );
 
-// The exact repro from 01-UX-FINDINGS-AND-FIX-PLAN.md §1.2: "Try a sample
-// image" used to already show "Adding to 'Untitled scan'" before Scan text was
+// The exact repro of the old bug: "Try a sample image" used to already show
+// "Adding to 'Untitled scan'" before Scan text was
 // even clicked, because createAndOpenScan() created the document on nav alone.
 await page.click("#sample-btn");
 await page.waitForFunction(() => !document.getElementById("preview-section").classList.contains("hidden"), null, { timeout: 5000 });
@@ -173,7 +172,7 @@ check("a note with a real title was left alone", sweep.realNoteUntouched === tru
 
 // ---- 5. Deleting a document from the library shows an Undo toast ----
 
-console.log("\nLibrary: deleting shows an Undo toast (01-UX-FINDINGS-AND-FIX-PLAN.md §1.4)");
+console.log("\nLibrary: deleting shows an Undo toast");
 
 const toDelete = await page.evaluate(async () => {
   const docs = await import("/js/documents.js");

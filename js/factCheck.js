@@ -6,11 +6,11 @@
 // The Coherence Filter's system prompt (js/coherenceClaude.js) already asks the
 // model to "preserve every factual detail exactly... never invent, guess, or
 // drop a fact". Until now that rule was enforced entirely by hoping the model
-// listens. This is the deterministic half of 02-COHERENCE-FILTER-AGENT-PLAN.md:
-// route/verify around the generative call rather than try to replace it - the
-// rewrite itself stays genuinely generative (turning scattered fragments into
-// prose has no rule-based substitute), but whether it kept the numbers is a
-// closed, checkable question.
+// listens. This is the deterministic half of an agent-style pattern applied
+// to the Coherence Filter: route/verify around the generative call rather
+// than try to replace it - the rewrite itself stays genuinely generative
+// (turning scattered fragments into prose has no rule-based substitute), but
+// whether it kept the numbers is a closed, checkable question.
 //
 // This is deliberately a heuristic, not a guarantee: a phone number reformatted
 // from "555-123-4567" to "(555) 123-4567" reads as "dropped" even though the

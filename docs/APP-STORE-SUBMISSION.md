@@ -35,10 +35,9 @@ changes needed beyond what was already in place.
 
 This is a first pass, not a locked decision — brand identity is still your
 call, not a technical gap I should decide unilaterally on my own taste alone.
-If you want a different direction (a different mark, palette, or the
-"magnifying glass with a sharpening text line" alternate concept from
-`04-APP-STORE-LAUNCH-PLAN.md` §3), say so and it's a quick swap - only this one
-file changes.
+If you want a different direction (a different mark, palette, or a
+magnifying-glass-with-a-sharpening-text-line alternate concept), say so and
+it's a quick swap - only this one file changes.
 
 Screenshots are unblocked now that a real icon exists, but still need someone
 to pick which 5-6 screens tell the product's story before running

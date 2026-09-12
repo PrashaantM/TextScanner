@@ -2,11 +2,11 @@
 // variant js/coherenceClaude.js uses, based on cheap pattern matching over the
 // filtered text - no model call.
 //
-// This is the "detect intent with keywords, not ML" half of
-// 02-COHERENCE-FILTER-AGENT-PLAN.md applied to the one part of this problem
-// that is actually enumerable: WHAT KIND of document this is has a small,
-// closed set of answers, even though WHAT THE PROSE SHOULD SAY does not (which
-// is why the rewrite itself still needs the model - see coherence.js's header).
+// This is a "detect intent with keywords, not ML" idea applied to the one
+// part of this problem that is actually enumerable: WHAT KIND of document
+// this is has a small, closed set of answers, even though WHAT THE PROSE
+// SHOULD SAY does not (which is why the rewrite itself still needs the
+// model - see coherence.js's header).
 // A receipt reads better as an itemized total than as prose narrated aloud,
 // which is the right voice for a poster but a strange one for a receipt; this
 // is what lets the prompt pick the right voice for free, before the one API

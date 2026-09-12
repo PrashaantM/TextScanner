@@ -390,11 +390,11 @@ async function handleAction(action, target) {
     }
 
     case "trash": {
-      // Deleting had no on-screen acknowledgment that anything reversible had
-      // happened - the card just vanished (see 01-UX-FINDINGS-AND-FIX-PLAN.md
-      // §1.4). It already went to Recently Deleted rather than being purged;
-      // the toast is what makes that safety net discoverable in the moment
-      // instead of only to someone who already knew to go look for it.
+      // Deleting used to have no on-screen acknowledgment that anything
+      // reversible had happened - the card just vanished. It already went to
+      // Recently Deleted rather than being purged; the toast is what makes
+      // that safety net discoverable in the moment instead of only to
+      // someone who already knew to go look for it.
       const doc = await getDocument(id);
       const title = doc ? deriveTitle(doc) : "Document";
       await trashDocument(id);
