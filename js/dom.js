@@ -33,6 +33,8 @@ export const modeButtons = [modeTextBtn, modeImageBtn, modeFullBtn];
 // logic - see the wiring in js/main.js.
 export const cleanUpTextBtn = document.getElementById("clean-up-text-btn");
 export const viewOnPhotoBtn = document.getElementById("view-on-photo-btn");
+// The skip-the-call gate's inline suggestion (js/coherenceGate.js).
+export const coherenceGateHint = document.getElementById("coherence-gate-hint");
 export const imageFormatView = document.getElementById("image-format-view");
 export const imageFormatBg = document.getElementById("image-format-bg");
 export const resizeHandle = document.getElementById("resize-handle");

@@ -27,6 +27,7 @@ import {
   modeImageBtn,
   cleanUpTextBtn,
   viewOnPhotoBtn,
+  coherenceGateHint,
   coherencePanel,
   coherenceKeyRow,
   coherenceApiKeyInput,
@@ -104,7 +105,8 @@ import { exportDiagnosticReport } from "./diagnostics.js";
 import { hapticLight, hapticMedium } from "./haptics.js";
 import { computeInpaintedPatch } from "./inpaint.js";
 import { wordsToFilteredText } from "./filter.js";
-import { getTheme, cycleTheme, themeLabel } from "./theme.js";
+import { getTheme, setTheme, cycleTheme, themeLabel } from "./theme.js";
+import { openRadialMenu } from "./radialMenu.js";
 // The application shell - library, documents, routing. main.js owns the scan
 // flow; app.js owns everything around it. The dependency runs one way: main.js
 // reaches the document model through `bridge`, and app.js never reaches back
@@ -132,6 +134,7 @@ import {
   invalidateAvailabilityCache,
   TIER,
 } from "./coherence.js";
+import { looksAlreadyCoherent } from "./coherenceGate.js";
 import {
   isTTSSupported,
   waitForVoices,
@@ -219,6 +222,7 @@ function resetResult() {
   clearImageFormatView();
   setMode("text");
   state.coherentText = null;
+  resetCoherenceGate();
 }
 
 // ---- File loading (file picker, camera, drag-and-drop, paste, sample) ----
@@ -505,7 +509,34 @@ filterButtons.forEach((btn) => {
 // is a no-op if Coherence Filter is already active - clicking a filter-toggle
 // button the person is already on is exactly what applyFilterLevel already
 // treats as a no-op via setActiveButton, so nothing extra is needed here.
+//
+// Skip-the-call gate (07-REMAINING-ROADMAP.md §1): a suggestion, not a silent
+// skip. The first click on already-coherent-looking text swaps the button to
+// "Reconstruct anyway" instead of dispatching the tier; a second click - now
+// past the gate - proceeds exactly as it always did. resetCoherenceGate lets
+// resetResult() below clear this back to the default label for a new scan,
+// so a "Reconstruct anyway" state can never survive onto a different image.
+let pendingCoherenceOverride = false;
+function resetCoherenceGate() {
+  pendingCoherenceOverride = false;
+  if (cleanUpTextBtn) cleanUpTextBtn.textContent = "Clean up this text";
+  hide(coherenceGateHint);
+}
+
 cleanUpTextBtn?.addEventListener("click", () => {
+  const filteredText = wordsToFilteredText(state.ocrWords, "filtered");
+  const alreadyCoherent = !state.coherentText && looksAlreadyCoherent(filteredText);
+
+  if (alreadyCoherent && !pendingCoherenceOverride) {
+    pendingCoherenceOverride = true;
+    cleanUpTextBtn.textContent = "Reconstruct anyway";
+    coherenceGateHint.textContent = "This already looks like a sentence.";
+    show(coherenceGateHint);
+    hapticLight();
+    return;
+  }
+
+  resetCoherenceGate();
   filterCoherenceBtn.click();
 });
 viewOnPhotoBtn?.addEventListener("click", () => {
@@ -1012,6 +1043,40 @@ if (themeBtn) {
   themeBtn.addEventListener("click", () => {
     themeBtn.textContent = themeLabel(cycleTheme());
   });
+
+  // Long-press turns the same button into a direct three-way radial pick
+  // (06-INTERACTION-MODEL-SPEC.md, call site 3) - a plain click still cycles
+  // exactly as it does today, unchanged; this is additive, and a good test
+  // of whether the primitive generalizes since this button is nothing like a
+  // card or a create button. radialMenu.js's own originEl swallow is what
+  // stops a fired selection from also re-triggering the cycle-click above -
+  // not preventDefault, which would be a no-op by the time a 420ms timer
+  // fires, long after the pointerdown event that started it finished
+  // dispatching.
+  let pressTimer = null;
+  const setThemeAndLabel = (theme) => {
+    themeBtn.textContent = themeLabel(setTheme(theme));
+  };
+  themeBtn.addEventListener("pointerdown", () => {
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      const rect = themeBtn.getBoundingClientRect();
+      openRadialMenu({
+        originX: rect.left + rect.width / 2,
+        originY: rect.top + rect.height / 2,
+        originEl: themeBtn,
+        arcCenter: 180,
+        arcSpan: 90,
+        items: [
+          { id: "system", label: "System", onSelect: () => setThemeAndLabel("system") },
+          { id: "light", label: "Light", onSelect: () => setThemeAndLabel("light") },
+          { id: "dark", label: "Dark", onSelect: () => setThemeAndLabel("dark") },
+        ],
+      });
+    }, 420);
+  });
+  themeBtn.addEventListener("pointerup", () => clearTimeout(pressTimer));
+  themeBtn.addEventListener("pointerleave", () => clearTimeout(pressTimer));
 }
 
 document.addEventListener("mode-changed", updateTTSVisibility);

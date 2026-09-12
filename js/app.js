@@ -47,6 +47,9 @@ import { canvasFromSource } from "./scanFilters.js";
 import { detectDocument } from "./edgeDetect.js";
 import { clearHistory, historyStats } from "./translateHistory.js";
 import { hapticLight, hapticMedium } from "./haptics.js";
+import { cycleTheme, themeLabel } from "./theme.js";
+import { initCommandPalette, openCommandPalette, closeCommandPalette, isCommandPaletteOpen } from "./commandPalette.js";
+import { openRadialMenu } from "./radialMenu.js";
 
 let storageReady = false;
 // The scan document a captured page should be appended to, if the capture flow
@@ -282,6 +285,9 @@ export async function initApp() {
     actionSheetBackdrop: document.getElementById("action-sheet-backdrop"),
     actionSheetScan: document.getElementById("action-sheet-scan"),
     actionSheetNote: document.getElementById("action-sheet-note"),
+    shortcutSheet: document.getElementById("shortcut-sheet"),
+    shortcutSheetBackdrop: document.getElementById("shortcut-sheet-backdrop"),
+    shortcutSheetClose: document.getElementById("shortcut-sheet-close"),
     noteEditor: document.getElementById("note-editor"),
     scanDoc: document.getElementById("scan-doc"),
     scanTargetNote: document.getElementById("scan-target-note"),
@@ -324,7 +330,12 @@ export async function initApp() {
 
   // Action sheet (see index.html for why "Scan"/"Note" collapsed into one "+"
   // button): opens on tap, closes on either choice, a backdrop click, or
-  // Escape, and always returns focus to the button that opened it.
+  // Escape, and always returns focus to the button that opened it. This stays
+  // the keyboard-activation path (a focus + Enter/Space on #nav-add never
+  // fires pointerdown, so it never reaches the radial menu below) and the
+  // mouse path - see 06-INTERACTION-MODEL-SPEC.md's "Architecture decision"
+  // for why a mouse deliberately keeps the plain list rather than the drag
+  // gesture a touch/pen press gets instead.
   const openActionSheet = () => {
     elements.actionSheetBackdrop.classList.remove("hidden");
     elements.actionSheet.classList.remove("hidden");
@@ -344,9 +355,6 @@ export async function initApp() {
     else openActionSheet();
   });
   elements.actionSheetBackdrop.addEventListener("click", () => closeActionSheet());
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && isActionSheetOpen()) closeActionSheet();
-  });
   elements.actionSheetScan.addEventListener("click", () => {
     closeActionSheet({ restoreFocus: false });
     createAndOpenScan();
@@ -354,6 +362,126 @@ export async function initApp() {
   elements.actionSheetNote.addEventListener("click", () => {
     closeActionSheet({ restoreFocus: false });
     createAndOpenNote();
+  });
+
+  // Radial create-menu (06-INTERACTION-MODEL-SPEC.md, call site 1): the touch/
+  // pen press-drag-release presentation of the exact same two choices above.
+  // Deliberately gated to touch/pen, not mouse - every pointerdown on a real
+  // mouse would otherwise open this AND the plain click handler above would
+  // still fire afterward for an undragged press (a mouse's click isn't
+  // suppressed by pointerdown's preventDefault the way touch's is), and a
+  // press-drag-release gesture isn't obviously better than a plain click for
+  // a mouse anyway.
+  elements.navAdd.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
+    event.preventDefault();
+    const rect = elements.navAdd.getBoundingClientRect();
+    openRadialMenu({
+      originX: rect.left + rect.width / 2,
+      originY: rect.top + rect.height / 2,
+      originEl: elements.navAdd,
+      arcCenter: 180, // nav-add sits at the top edge, so the fan opens downward
+      arcSpan: 70,
+      items: [
+        { id: "scan", label: "Scan", icon: "&#128247;", onSelect: () => createAndOpenScan() },
+        { id: "note", label: "Note", icon: "&#9998;", onSelect: () => createAndOpenNote() },
+      ],
+    });
+  });
+
+  // Keyboard shortcut cheat sheet ("?" below, or the command palette's "Show
+  // keyboard shortcuts").
+  const openShortcutSheet = () => {
+    elements.shortcutSheetBackdrop.classList.remove("hidden");
+    elements.shortcutSheet.classList.remove("hidden");
+    elements.shortcutSheetClose.focus();
+  };
+  const closeShortcutSheet = () => {
+    elements.shortcutSheetBackdrop.classList.add("hidden");
+    elements.shortcutSheet.classList.add("hidden");
+  };
+  const isShortcutSheetOpen = () => !elements.shortcutSheet.classList.contains("hidden");
+  elements.shortcutSheetClose.addEventListener("click", closeShortcutSheet);
+  elements.shortcutSheetBackdrop.addEventListener("click", closeShortcutSheet);
+
+  initCommandPalette({
+    createAndOpenScan,
+    createAndOpenNote,
+    toggleTheme: () => {
+      const btn = document.getElementById("theme-btn");
+      if (btn) btn.textContent = themeLabel(cycleTheme());
+    },
+    openShortcutSheet,
+  });
+
+  // Steps the scan-result screen's Text -> Image format -> Full image modes
+  // via the real buttons (same "dispatch a .click() on the original control"
+  // pattern as the guided cleanUpTextBtn/viewOnPhotoBtn in js/main.js) rather
+  // than reaching into main.js's editor state directly - app.js owns the
+  // shell, main.js owns the scan flow, and this keeps that boundary one-way.
+  // A no-op when the scan result isn't even showing.
+  function cycleScanView(direction) {
+    const resultSection = document.getElementById("result-section");
+    if (!resultSection || resultSection.classList.contains("hidden")) return;
+    const order = ["mode-text-btn", "mode-image-btn", "mode-full-btn"];
+    const activeId = document.querySelector(".mode-toggle__btn.is-active")?.id;
+    const currentIndex = Math.max(0, order.indexOf(activeId));
+    const nextIndex = (currentIndex + direction + order.length) % order.length;
+    document.getElementById(order[nextIndex])?.click();
+  }
+
+  // Global keyboard shortcuts (06-INTERACTION-MODEL-SPEC.md). Bound once,
+  // guarded once - every other shortcut handler in this app (the note
+  // editor's Enter-in-checklist, the crop view's arrow-key nudging) is scoped
+  // to its own surface; this is the one dispatcher for cross-cutting actions.
+  // Cmd/Ctrl+K and Escape are checked before the "inside a text field" guard
+  // on purpose: the palette must be reachable while composing a note, and
+  // Escape must be able to close an overlay regardless of what's focused
+  // underneath it.
+  document.addEventListener("keydown", (event) => {
+    const meta = event.metaKey || event.ctrlKey;
+
+    if (meta && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      if (isCommandPaletteOpen()) closeCommandPalette();
+      else openCommandPalette();
+      return;
+    }
+
+    if (event.key === "Escape") {
+      if (isCommandPaletteOpen()) closeCommandPalette();
+      else if (isActionSheetOpen()) closeActionSheet();
+      else if (isShortcutSheetOpen()) closeShortcutSheet();
+      return;
+    }
+
+    const inTextField =
+      ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
+    if (inTextField) return;
+
+    if (meta && !event.shiftKey && event.key.toLowerCase() === "n") {
+      event.preventDefault();
+      createAndOpenScan();
+    } else if (meta && event.shiftKey && event.key.toLowerCase() === "n") {
+      event.preventDefault();
+      createAndOpenNote();
+    } else if (meta && event.key.toLowerCase() === "l") {
+      event.preventDefault();
+      showView(VIEWS.LIBRARY);
+    } else if (meta && event.key === ",") {
+      event.preventDefault();
+      showView(VIEWS.SETTINGS);
+    } else if (event.key === "?") {
+      event.preventDefault();
+      openShortcutSheet();
+    } else if (event.key === "Delete" || event.key === "Backspace") {
+      // Proxied via a real .click() on the card's own trash button, reusing
+      // library.js's existing delegated handler (and its Undo toast) rather
+      // than reaching into that module's private handleAction.
+      document.activeElement?.closest(".doc-card")?.querySelector('[data-action="trash"]')?.click();
+    } else if (event.key === "[" || event.key === "]") {
+      cycleScanView(event.key === "]" ? 1 : -1);
+    }
   });
 
   // Settings actions.

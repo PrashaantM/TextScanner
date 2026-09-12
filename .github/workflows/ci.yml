@@ -61,3 +61,8 @@ jobs:
       # above): a document must not exist until there is real content, the
       # one-time empty-document cleanup sweep, and the delete/Undo toast.
       - run: node test/document-creation.js
+      # The interaction layer (06-INTERACTION-MODEL-SPEC.md): the radial menu
+      # primitive (touch press-drag-release, reduced motion, keyboard-only
+      # operation), the create-menu and card-swipe call sites, the command
+      # palette, and the global keyboard shortcuts.
+      - run: node test/interaction-layer.js

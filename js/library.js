@@ -44,8 +44,9 @@ import {
 } from "./documents.js";
 import { getBlobUrl, releaseObjectUrl } from "./store.js";
 import { showView, VIEWS } from "./views.js";
-import { hapticLight } from "./haptics.js";
+import { hapticLight, hapticMedium } from "./haptics.js";
 import { showToast } from "./toast.js";
+import { openRadialMenu } from "./radialMenu.js";
 
 // Filter state. Kept in the module rather than in the DOM so a re-render after
 // an edit cannot silently drop which folder the person was looking at.
@@ -356,6 +357,17 @@ export async function renderLibrary() {
 
   await renderSidebar();
   setupThumbObserver();
+
+  // Gestures need a real element reference (pointer capture, getBoundingClientRect),
+  // so - like the thumbnail observer above - they're attached fresh after
+  // every render rather than delegated. Every card here is a brand-new element
+  // from the innerHTML write above, so this can never accumulate listeners on
+  // a stale card the way re-attaching to a persistent element would.
+  if (!state.trash) {
+    for (const cardEl of elements.list.querySelectorAll(".doc-card")) {
+      attachCardGestures(cardEl, cardEl.dataset.id);
+    }
+  }
 }
 
 // ---- Actions ----
@@ -469,6 +481,211 @@ async function handleAction(action, target) {
   }
 }
 
+// ---- Card gestures (06-INTERACTION-MODEL-SPEC.md) ----
+//
+// Swipe is primary for the two most frequent actions (pin, delete) - it needs
+// no visual chrome at rest and no explanation, since it's the same gesture as
+// every Mail/Reminders/Things row. A long-press (superseding an in-progress
+// swipe read) opens a three-way radial menu for the same two actions plus
+// "Move to folder". Both are touch/pen only - a mouse keeps the existing
+// hover-revealed Pin/Delete buttons (style.css's doc-card__actions, untouched)
+// plus gains a right-click context menu, the platform convention for a
+// pointer device that doesn't need a drag gesture at all.
+async function runCardAction(action, cardEl) {
+  const shouldRerender = await handleAction(action, cardEl);
+  if (shouldRerender) await renderLibrary();
+}
+
+function attachCardGestures(cardEl, id) {
+  let startX = 0;
+  let dx = 0;
+  let dragging = false;
+  let pressTimer = null;
+
+  cardEl.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse") return; // desktop: hover buttons + right-click, below
+    startX = event.clientX;
+    dragging = true;
+    cardEl.classList.add("is-swiping");
+    try {
+      // Keeps pointermove/pointerup targeting this card even once the finger
+      // has moved outside its bounds - without it, a real drag would stop
+      // reaching these listeners the moment the pointer left the card, since
+      // hit-testing would retarget events to whatever's now underneath.
+      // Wrapped because a capture failure must not silently abort the rest
+      // of this handler (pressTimer below) - the gesture still tracks
+      // correctly for movement that stays within the card, it just loses the
+      // "keeps tracking past the edge" guarantee.
+      cardEl.setPointerCapture(event.pointerId);
+    } catch {
+      // No known real-world trigger on a genuine touch pointer; not worth
+      // failing the whole gesture over.
+    }
+    pressTimer = setTimeout(() => {
+      dragging = false; // a long-press supersedes an in-progress swipe read
+      cardEl.classList.remove("is-swiping", "swipe-armed-delete", "swipe-armed-pin");
+      cardEl.style.transform = "";
+      hapticMedium();
+      const rect = cardEl.getBoundingClientRect();
+      openRadialMenu({
+        originX: startX,
+        originY: rect.top + rect.height / 2,
+        originEl: cardEl,
+        arcSpan: 140,
+        items: [
+          { id: "pin", label: "Pin", icon: "&#128204;", onSelect: () => runCardAction("pin", cardEl) },
+          { id: "folder", label: "Move", icon: "&#128193;", onSelect: () => openFolderPicker(id) },
+          { id: "trash", label: "Delete", icon: "&#128465;", onSelect: () => runCardAction("trash", cardEl) },
+        ],
+      });
+    }, 420);
+  });
+
+  cardEl.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    if (Math.abs(event.clientX - startX) > 8) clearTimeout(pressTimer); // real movement cancels the long-press read
+    dx = event.clientX - startX;
+    cardEl.style.transform = `translateX(${Math.max(-96, Math.min(96, dx))}px)`;
+    cardEl.classList.toggle("swipe-armed-delete", dx < -56);
+    cardEl.classList.toggle("swipe-armed-pin", dx > 56);
+  });
+
+  cardEl.addEventListener("pointerup", () => {
+    clearTimeout(pressTimer);
+    if (!dragging) return; // long-press already took over
+    dragging = false;
+    cardEl.classList.remove("is-swiping", "swipe-armed-delete", "swipe-armed-pin");
+    cardEl.style.transform = "";
+    if (dx < -72) runCardAction("trash", cardEl);
+    else if (dx > 72) runCardAction("pin", cardEl);
+    dx = 0;
+  });
+
+  // A gesture the platform cancels mid-flight (an incoming call, the OS
+  // taking over for a system gesture) must not leave the card stranded
+  // half-swiped with no way to release it back to rest.
+  cardEl.addEventListener("pointercancel", () => {
+    clearTimeout(pressTimer);
+    dragging = false;
+    cardEl.classList.remove("is-swiping", "swipe-armed-delete", "swipe-armed-pin");
+    cardEl.style.transform = "";
+    dx = 0;
+  });
+
+  cardEl.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    openCardContextMenu(cardEl, id, event.clientX, event.clientY);
+  });
+}
+
+// ---- Folder picker ("Move", from the long-press menu or the context menu) ----
+
+let folderPickerElements = null;
+function ensureFolderPickerElements() {
+  if (folderPickerElements) return folderPickerElements;
+  folderPickerElements = {
+    backdrop: document.getElementById("folder-picker-backdrop"),
+    root: document.getElementById("folder-picker"),
+    list: document.getElementById("folder-picker-list"),
+  };
+  return folderPickerElements;
+}
+
+function closeFolderPicker() {
+  const el = ensureFolderPickerElements();
+  if (!el.root) return;
+  el.backdrop.classList.add("hidden");
+  el.root.classList.add("hidden");
+  el.list.innerHTML = "";
+}
+
+async function openFolderPicker(docId) {
+  const el = ensureFolderPickerElements();
+  if (!el.root) return;
+
+  const [folders, docs] = await Promise.all([getFolders(), getAllDocuments()]);
+  const current = docs.find((d) => d.id === docId);
+
+  const moveTo = async (folderId) => {
+    await updateDocument(docId, { folderId });
+    closeFolderPicker();
+    await renderLibrary();
+  };
+
+  const items = [
+    `<button class="folder-picker__item${!current?.folderId ? " is-current" : ""}" type="button" data-folder-id="">No folder</button>`,
+    ...folders.map(
+      (folder) =>
+        `<button class="folder-picker__item${current?.folderId === folder.id ? " is-current" : ""}" type="button" data-folder-id="${escapeHtml(folder.id)}">${escapeHtml(folder.name)}</button>`
+    ),
+    `<button class="folder-picker__item folder-picker__item--new" type="button" data-action="new">+ New folder</button>`,
+  ].join("");
+  el.list.innerHTML = items;
+
+  el.list.onclick = async (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    if (button.dataset.action === "new") {
+      const name = window.prompt("Folder name");
+      if (!name || !name.trim()) return;
+      const folder = await createFolder(name);
+      await moveTo(folder.id);
+      return;
+    }
+    await moveTo(button.dataset.folderId || null);
+  };
+
+  el.backdrop.classList.remove("hidden");
+  el.root.classList.remove("hidden");
+  el.backdrop.onclick = closeFolderPicker;
+}
+
+// ---- Desktop right-click context menu ----
+
+let contextMenuElements = null;
+function ensureContextMenuElements() {
+  if (contextMenuElements) return contextMenuElements;
+  contextMenuElements = {
+    backdrop: document.getElementById("card-context-menu-backdrop"),
+    root: document.getElementById("card-context-menu"),
+  };
+  return contextMenuElements;
+}
+
+function closeCardContextMenu() {
+  const el = ensureContextMenuElements();
+  if (!el.root) return;
+  el.backdrop.classList.add("hidden");
+  el.root.classList.add("hidden");
+  el.root.innerHTML = "";
+}
+
+function openCardContextMenu(cardEl, id, x, y) {
+  const el = ensureContextMenuElements();
+  if (!el.root) return;
+
+  const pinned = cardEl.classList.contains("is-pinned");
+  el.root.innerHTML = `
+    <li><button class="context-menu__item" type="button" data-action="pin">${pinned ? "Unpin" : "Pin"}</button></li>
+    <li><button class="context-menu__item" type="button" data-action="folder">Move to folder&hellip;</button></li>
+    <li><button class="context-menu__item context-menu__item--danger" type="button" data-action="trash">Delete</button></li>
+  `;
+  el.root.style.setProperty("--menu-x", `${x}px`);
+  el.root.style.setProperty("--menu-y", `${y}px`);
+
+  el.root.onclick = async (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    closeCardContextMenu();
+    if (button.dataset.action === "folder") await openFolderPicker(id);
+    else await runCardAction(button.dataset.action, cardEl);
+  };
+  el.backdrop.onclick = closeCardContextMenu;
+
+  el.backdrop.classList.remove("hidden");
+  el.root.classList.remove("hidden");
+}
+
 export function initLibrary({ onNewNote, onNewScan } = {}) {
   elements = {
     root: document.getElementById("view-library"),
@@ -482,6 +699,18 @@ export function initLibrary({ onNewNote, onNewScan } = {}) {
   };
 
   if (!elements.list) return;
+
+  // Escape closes whichever of these two overlays is open. Self-contained
+  // here rather than routed through js/app.js's global dispatcher, matching
+  // how the radial menu and command palette each own their own Escape too -
+  // this module already owns opening and closing both.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const el = ensureFolderPickerElements();
+    const menuEl = ensureContextMenuElements();
+    if (el.root && !el.root.classList.contains("hidden")) closeFolderPicker();
+    else if (menuEl.root && !menuEl.root.classList.contains("hidden")) closeCardContextMenu();
+  });
 
   // Search is debounced because it re-reads every document and re-renders the
   // list; running that per keystroke on a large library is visibly laggy on a

@@ -126,9 +126,59 @@
     </button>
   </div>
 
+  <!-- Command palette (Cmd/Ctrl+K, 06-INTERACTION-MODEL-SPEC.md). The standard
+       Spotlight/Linear/Notion/Raycast combobox+listbox shape. js/commandPalette.js
+       owns open/close/render; js/app.js's global keydown dispatcher opens it. -->
+  <div id="command-palette-backdrop" class="action-sheet-backdrop hidden"></div>
+  <div id="command-palette" class="command-palette hidden" role="dialog" aria-modal="true" aria-label="Command palette">
+    <input id="command-palette-input" class="command-palette__input" type="text" role="combobox"
+           aria-expanded="true" aria-controls="command-palette-list" aria-autocomplete="list"
+           placeholder="Search commands and documents..." autocomplete="off" spellcheck="false" />
+    <ul id="command-palette-list" class="command-palette__list" role="listbox" aria-label="Results"></ul>
+  </div>
+
+  <!-- Keyboard shortcut cheat sheet ("?" or the palette's "Show keyboard
+       shortcuts"). js/app.js owns open/close. -->
+  <div id="shortcut-sheet-backdrop" class="action-sheet-backdrop hidden"></div>
+  <div id="shortcut-sheet" class="shortcut-sheet hidden" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+    <h2 class="shortcut-sheet__title">Keyboard shortcuts</h2>
+    <table class="shortcut-sheet__table">
+      <tbody>
+        <tr><td><kbd>&#8984;</kbd><kbd>K</kbd></td><td>Command palette</td></tr>
+        <tr><td><kbd>&#8984;</kbd><kbd>N</kbd></td><td>Scan a document</td></tr>
+        <tr><td><kbd>&#8984;</kbd><kbd>&#8679;</kbd><kbd>N</kbd></td><td>New note</td></tr>
+        <tr><td><kbd>&#8984;</kbd><kbd>L</kbd></td><td>Go to Library</td></tr>
+        <tr><td><kbd>&#8984;</kbd><kbd>,</kbd></td><td>Settings</td></tr>
+        <tr><td><kbd>?</kbd></td><td>Show this list</td></tr>
+        <tr><td><kbd>Delete</kbd></td><td>Delete the focused library card (same Undo toast as a click)</td></tr>
+        <tr><td><kbd>&#8593;</kbd><kbd>&#8595;</kbd></td><td>Move focus between library cards</td></tr>
+        <tr><td><kbd>Enter</kbd></td><td>Open the focused card</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Close whatever's topmost - palette, radial menu, action sheet, this sheet, in that order</td></tr>
+        <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>Step Text &rarr; Image format &rarr; Full image on the scan-result screen</td></tr>
+        <tr><td colspan="2">Windows/Linux: use <kbd>Ctrl</kbd> wherever <kbd>&#8984;</kbd> is shown</td></tr>
+      </tbody>
+    </table>
+    <button id="shortcut-sheet-close" class="btn btn--secondary btn--small" type="button">Close</button>
+  </div>
+
   <!-- Announces the view to a screen reader on every navigation. Without it,
        switching views is silent and the only cue is focus moving. -->
   <p id="view-status" class="visually-hidden" role="status" aria-live="polite"></p>
+
+  <!-- Folder picker, opened from a library card's long-press radial menu
+       ("Move") or its desktop right-click context menu. js/library.js owns
+       open/close and populates the list. -->
+  <div id="folder-picker-backdrop" class="action-sheet-backdrop hidden"></div>
+  <div id="folder-picker" class="folder-picker hidden" role="menu" aria-label="Move to folder">
+    <h2 class="folder-picker__title">Move to folder</h2>
+    <div id="folder-picker-list" class="folder-picker__list"></div>
+  </div>
+
+  <!-- Desktop right-click context menu for a library card - the standard
+       vertical shape, deliberately not radial (that's a touch idiom; this is
+       the platform convention for a mouse). js/library.js owns it. -->
+  <div id="card-context-menu-backdrop" class="context-menu-backdrop hidden"></div>
+  <ul id="card-context-menu" class="context-menu hidden" role="menu" aria-label="Document actions"></ul>
 
   <!-- Transient notice for actions that change data but shouldn't block on a
        confirmation dialog - "Deleted 'x'. Undo", "Created 'x'". See js/toast.js.
@@ -254,6 +304,11 @@
           <div class="result-toolbar__row result-toolbar__guided">
             <button id="clean-up-text-btn" class="btn btn--primary btn--small" type="button">Clean up this text</button>
             <button id="view-on-photo-btn" class="btn btn--secondary btn--small" type="button">View on photo &rarr;</button>
+            <!-- Coherence Filter's skip-the-call gate (js/coherenceGate.js):
+                 shown instead of silently skipping or silently running, so a
+                 false positive costs one extra click rather than a feature the
+                 person wanted and didn't get. -->
+            <span id="coherence-gate-hint" class="result-toolbar__guided-hint hidden" role="status"></span>
           </div>
 
           <!-- Three-level filter (js/filter.js for Raw/Filtered Text, js/coherence.js for
