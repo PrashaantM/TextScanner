@@ -12,7 +12,7 @@
 //
 // Usage: node test/library-documents.js
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, blobStorageWorks, noteBlobSkip } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -245,7 +245,15 @@ check("the folder itself is gone", folders.remaining === 0, String(folders.remai
 
 console.log("\nPages and blobs");
 
-const pages = await page.evaluate(async () => {
+// The ONLY section in this file that stores a Blob in IndexedDB. Guarded rather
+// than letting the whole gate die here, which is what used to happen on WebKit -
+// an UnknownError at this line took scan filters, edge detection, annotations,
+// translation history, library UI and note sanitization down with it, so an
+// engine that can run six of seven sections was reporting zero.
+const canStoreBlobs = await blobStorageWorks(page);
+if (!canStoreBlobs) noteBlobSkip("pages, blobs and their lifetime");
+
+const pages = !canStoreBlobs ? null : await page.evaluate(async () => {
   const store = await import("/js/store.js");
   const docs = await import("/js/documents.js");
   const filters = await import("/js/scanFilters.js");
@@ -306,15 +314,17 @@ const pages = await page.evaluate(async () => {
   return out;
 });
 
-check("pages are added in order", pages.pageCount === 3, String(pages.pageCount));
-check("initial page order is insertion order", JSON.stringify(pages.orderInitial) === "[1,2,3]", JSON.stringify(pages.orderInitial));
-check("reordering works", JSON.stringify(pages.orderAfter) === "[3,1,2]", JSON.stringify(pages.orderAfter));
-check("a partial reorder does not lose pages", pages.orderRecovered === 3, String(pages.orderRecovered));
-check("page image blobs are stored and readable", pages.blobSize > 500, String(pages.blobSize));
-check("page blobs keep their MIME type", pages.blobType === "image/jpeg", pages.blobType);
-check("deleting a page frees its blob", pages.blobFreed === true);
-check("deleting a page updates the document", pages.pageCountAfterDelete === 2, String(pages.pageCountAfterDelete));
-check("purging a document leaves no orphaned blobs", pages.orphanedBlobs === 0, String(pages.orphanedBlobs));
+if (canStoreBlobs) {
+  check("pages are added in order", pages.pageCount === 3, String(pages.pageCount));
+  check("initial page order is insertion order", JSON.stringify(pages.orderInitial) === "[1,2,3]", JSON.stringify(pages.orderInitial));
+  check("reordering works", JSON.stringify(pages.orderAfter) === "[3,1,2]", JSON.stringify(pages.orderAfter));
+  check("a partial reorder does not lose pages", pages.orderRecovered === 3, String(pages.orderRecovered));
+  check("page image blobs are stored and readable", pages.blobSize > 500, String(pages.blobSize));
+  check("page blobs keep their MIME type", pages.blobType === "image/jpeg", pages.blobType);
+  check("deleting a page frees its blob", pages.blobFreed === true);
+  check("deleting a page updates the document", pages.pageCountAfterDelete === 2, String(pages.pageCountAfterDelete));
+  check("purging a document leaves no orphaned blobs", pages.orphanedBlobs === 0, String(pages.orphanedBlobs));
+}
 
 // ---- Scan filters ----
 
@@ -418,15 +428,30 @@ const edges = await page.evaluate(async () => {
     return canvas;
   };
 
+  // SEEDED, not Math.random(). This used to draw fresh random noise every run,
+  // which made the assertion below a coin flip: measured across 40 frames per
+  // engine, detectDocument finds a spurious "page" in uniform noise 0/40 on
+  // Chromium, 14/40 on WebKit and 17/40 on Firefox. With Math.random() the
+  // Firefox gate was passing roughly three runs in five - passing by luck, which
+  // is worse than failing, because it hides the finding AND cannot be
+  // reproduced. A fixed seed makes the result the same every run on a given
+  // engine, so the number below means something.
   const noPage = () => {
     const canvas = document.createElement("canvas");
     canvas.width = 600;
     canvas.height = 800;
     const ctx = canvas.getContext("2d");
-    // Uniform noise: nothing page-shaped to find.
+    // mulberry32, inlined: four lines, no dependency, identical everywhere.
+    let seed = 0x9e3779b9;
+    const rand = () => {
+      seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
     const img = ctx.createImageData(600, 800);
     for (let i = 0; i < img.data.length; i += 4) {
-      const v = 40 + Math.floor(Math.random() * 180);
+      const v = 40 + Math.floor(rand() * 180);
       img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
       img.data[i + 3] = 255;
     }
@@ -461,6 +486,21 @@ const edges = await page.evaluate(async () => {
 check("a page on a desk is detected", edges.straightFound === true);
 check("the detected quad is roughly the page", edges.straightArea > 400 * 580 * 0.85 && edges.straightArea < 400 * 580 * 1.2, String(edges.straightArea));
 check("a rotated page is detected", edges.rotatedFound === true);
+// KNOWN TO FAIL on WebKit and Firefox, and that is the finding, not a flake.
+// js/edgeDetect.js downscales to ~240px with imageSmoothingQuality "high"
+// before looking for edges, and every engine implements "high" with a different
+// resampling kernel. Chromium's smooths uniform noise into near-flat grey with
+// nothing to find; WebKit's and Firefox's leave enough residual structure for
+// the flood fill to percolate into a spurious quad. So the solidity requirement
+// that fixed this (ANALYSIS.md §8.3, bug 3) was tuned against one engine's
+// resampler and does not hold on the others.
+//
+// Left as a HARD failure deliberately: unlike the Blob-in-IndexedDB skip above,
+// this is a real defect users hit - point the camera at a textured surface with
+// no page and Safari or Firefox will confidently crop to nonsense, which is the
+// exact behaviour README.md promises against ("it deliberately declines to guess
+// when it cannot find a page"). Fixing it is a threshold change and belongs
+// under the merge rule in test/TUNING-2.md, not a quick tighten here.
 check("noise is refused rather than guessed at", edges.noiseFound === false);
 check("isFullFrame recognises the whole frame", edges.fullFrame === true);
 check("isFullFrame rejects a real crop", edges.notFullFrame === false);

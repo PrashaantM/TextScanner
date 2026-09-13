@@ -59,3 +59,69 @@ export function skipUnlessChromium(reason) {
   console.log(`SKIPPED on ${BROWSER_NAME}: ${reason}`);
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// Playwright's WebKit cannot store a Blob in IndexedDB. This is a limitation of
+// that BUILD, not of Safari, and the evidence is specific enough to say so:
+//
+//   - structuredClone(new Blob([...]))  -> works
+//   - port.postMessage(new Blob([...])) -> works
+//     So the structured-clone serializer in this build knows Blobs perfectly
+//     well. What fails is only IndexedDB's file-backed storage path, which is
+//     exactly the piece a headless build omits - WebKit stores IDB blobs as
+//     separate on-disk files referenced by the record, and that machinery needs
+//     platform integration the Playwright build does not ship.
+//   - ArrayBuffer and Uint8Array into IDB -> work. So IndexedDB itself is fine;
+//     only the Blob path is not.
+//   - The transaction aborts with a NULL tx.error. A real quota, constraint or
+//     data failure raises a named DOMException (QuotaExceededError,
+//     DataCloneError). An abort carrying no error object at all is an internal
+//     backend that is not wired up, not a spec-defined rejection.
+//   - Chromium and Firefox are headless Playwright builds too, and both store
+//     Blobs without complaint - so this is not "headless" in general.
+//
+// Safari has shipped Blob-in-IndexedDB since Safari 10, and js/store.js's entire
+// page-image layer would be unusable on iOS if it had not.
+//
+// So the affected assertions SKIP on an engine that cannot do it, with the
+// reason printed, rather than leaving the nightly job permanently red on a
+// non-bug - a nightly nobody trusts is the failure mode the per-push/nightly
+// split exists to prevent. Confirming it on real Safari is a manual item in
+// WEB-COMPLETION-PLAN.md §4.3, because only a real browser can settle it.
+//
+// This PROBES rather than hardcoding "webkit": if a future Playwright build
+// gains the capability, the coverage comes back on its own with no edit here.
+let blobStorageCache = null;
+export async function blobStorageWorks(page) {
+  if (blobStorageCache !== null) return blobStorageCache;
+  blobStorageCache = await page.evaluate(async () => {
+    try {
+      const db = await new Promise((res, rej) => {
+        const r = indexedDB.open("__blobcap", 1);
+        r.onupgradeneeded = () => r.result.createObjectStore("s", { keyPath: "k" });
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+      const ok = await new Promise((res) => {
+        const tx = db.transaction("s", "readwrite");
+        tx.oncomplete = () => res(true);
+        tx.onerror = () => res(false);
+        tx.onabort = () => res(false);
+        try { tx.objectStore("s").put({ k: "probe", blob: new Blob(["x"]) }); } catch { res(false); }
+      });
+      db.close();
+      indexedDB.deleteDatabase("__blobcap");
+      return ok;
+    } catch {
+      return false;
+    }
+  });
+  return blobStorageCache;
+}
+
+// Prints the standard skip notice once, so every call site words it the same.
+export function noteBlobSkip(what) {
+  console.log(`  SKIPPED (${BROWSER_NAME}): ${what} - this build cannot store a Blob in IndexedDB.`);
+  console.log("           See test/browser.js for why that is a build limitation rather than a");
+  console.log("           Safari bug, and WEB-COMPLETION-PLAN.md §4.3 for the real-Safari check.");
+}

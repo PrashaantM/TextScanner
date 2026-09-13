@@ -286,10 +286,47 @@ including `<script>`, event handlers, `javascript:` hrefs and `<iframe>`.
 
 ---
 
-**Nightly will be red on WebKit from its first run**, on exactly X1, X2 and X3 and
-nothing else. That is stated here rather than hidden behind a `continue-on-error`,
-because a nightly nobody trusts is the same failure mode the per-push split exists
-to avoid — the three should be fixed rather than tolerated.
+**X2 is resolved as a build limitation and skipped with a probe** (see below).
+**X1 and X3 are fixed.** What remains red is X4, which is new and real.
+
+---
+
+#### X4 — Edge detection hallucinates a page in pure noise, on every engine but Chromium
+
+Surfaced only because X2's skip let `library-documents.js` run past line 248 on
+WebKit for the first time. Measured over 40 uniform-noise frames per engine:
+
+| engine | spurious "page" detected |
+|---|---|
+| chromium | **0 / 40** |
+| webkit | **14 / 40** |
+| firefox | **17 / 40** |
+
+**Mechanism.** `js/edgeDetect.js:88-97` downscales to ~240px with
+`imageSmoothingQuality = "high"` before looking for edges, and every engine
+implements "high" with a different resampling kernel. Chromium's smooths uniform
+noise into near-flat grey with nothing to find; WebKit's and Firefox's leave
+enough residual structure for the flood fill to percolate into a quad that then
+passes the area and aspect checks. So the solidity requirement that fixed this
+originally (`ANALYSIS.md` §8.3, bug 3) was tuned against one engine's resampler.
+
+**User impact:** point the camera at a cluttered desk or a textured wall with no
+page in frame, and on Safari or Firefox the app confidently crops to nonsense
+about 40% of the time — the exact behaviour `README.md` promises against
+("it deliberately declines to guess when it cannot find a page").
+
+**The test was also lying about it.** That assertion drew fresh `Math.random()`
+noise every run, so on Firefox it passed roughly three runs in five — passing by
+luck, which is worse than failing because it hides the defect *and* cannot be
+reproduced. It is now seeded (inline mulberry32, four lines, no dependency), so
+the result is stable per engine and the number means something.
+
+**Left as a hard failure on purpose.** Unlike X2 this is a real defect, so
+nightly *should* be red on it. Fixing it is a threshold change and belongs under
+`test/TUNING-2.md`'s merge rule, not a quick tighten — and the honest fix is
+probably to stop depending on the engine's resampler at all (a box downscale
+written in JS would be identical everywhere), which is a change worth measuring
+rather than assuming.
 
 ---
 
@@ -943,6 +980,26 @@ thing W8 exists because of), its PWA install behaviour, its home-screen storage
 grants, or iOS Safari's canvas memory ceiling. Confirming those needs you opening
 the live URL in Safari on a Mac and on an iPhone. Small, but nothing in CI
 substitutes for it.
+
+
+**The manual checklist, as of 2026-09-13.** Two things the nightly job explicitly
+cannot settle, both needing nothing more than Safari and five minutes:
+
+1. **Store a scanned page and reopen it.** Scan or add any image as a document
+   page in Safari, close the tab, reopen the app, and confirm the page image is
+   still there. This is the one assertion the nightly *skips* on WebKit —
+   `test/browser.js` documents why that skip is a Playwright build limitation
+   (`structuredClone(new Blob())` and `postMessage(new Blob())` both work in that
+   build, `ArrayBuffer` into IndexedDB works, and the transaction aborts with a
+   **null** `tx.error` rather than a named `DOMException`, which is an unwired
+   backend rather than a spec-defined rejection). Safari has shipped
+   Blob-in-IndexedDB since Safari 10, so this is expected to pass — but "expected"
+   is not "checked", and if it fails, `js/store.js`'s `putBlob`/`getBlob` are a
+   single chokepoint that could store `{ buffer, type }` instead.
+2. **Point the camera at a textured surface with no page in frame** and confirm
+   the app declines to crop rather than guessing. See X4 below — this one is
+   *expected to fail*, and confirming it on real Safari is what turns a
+   Playwright measurement into a user-facing bug report.
 
 ### 4.4 Recognition accuracy — needs 14 photographs only you can take
 

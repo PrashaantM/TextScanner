@@ -31,7 +31,7 @@
 //
 // Usage: node test/destructive-actions.js   (exits non-zero on any failure)
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, blobStorageWorks, noteBlobSkip } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -352,43 +352,52 @@ check("...and the confirm said it could not be undone", sawMessage("can't be und
 // ---- 8. Apply one page's filter to every page (js/scanDoc.js:337) ----
 
 console.log("\nScan document");
+// Both checks here need a page image in IndexedDB. See test/browser.js for why
+// Playwright's WebKit cannot store one and why that is a build limitation
+// rather than a Safari bug.
+const canStoreBlobs = await blobStorageWorks(page);
+if (!canStoreBlobs) noteBlobSkip("apply-filter-to-all and delete-page");
+
 await resetStore();
-let docId = await makeScanDoc();
-await page.goto(`http://localhost:${PORT}/index.html#document/${docId}`);
-await page.waitForFunction(() => document.body.dataset.activeView === "document", null, { timeout: 15000 });
-await page.waitForTimeout(1500);
-check("the document opens with three pages on two different filters",
-      JSON.stringify(await pageFilters(docId)) === '["original","greyscale","greyscale"]', JSON.stringify(await pageFilters(docId)));
+let docId = canStoreBlobs ? await makeScanDoc() : null;
+if (canStoreBlobs) {
+  await page.goto(`http://localhost:${PORT}/index.html#document/${docId}`);
+  await page.waitForFunction(() => document.body.dataset.activeView === "document", null, { timeout: 15000 });
+  await page.waitForTimeout(1500);
+  check("the document opens with three pages on two different filters",
+        JSON.stringify(await pageFilters(docId)) === '["original","greyscale","greyscale"]', JSON.stringify(await pageFilters(docId)));
 
-answerCancel();
-await page.click('[data-scan-action="filter-all"]');
-await page.waitForTimeout(900);
-check("cancelling leaves every page's filter alone",
-      JSON.stringify(await pageFilters(docId)) === '["original","greyscale","greyscale"]', JSON.stringify(await pageFilters(docId)));
+  answerCancel();
+  await page.click('[data-scan-action="filter-all"]');
+  await page.waitForTimeout(900);
+  check("cancelling leaves every page's filter alone",
+        JSON.stringify(await pageFilters(docId)) === '["original","greyscale","greyscale"]', JSON.stringify(await pageFilters(docId)));
 
-answerOk();
-await clickChecked('[data-scan-action="filter-all"]', "Apply filter to all is still available");
-await page.waitForTimeout(4000);
-check("accepting applies the selected page's filter to all of them",
-      (await pageFilters(docId)).every((f) => f === "original"), JSON.stringify(await pageFilters(docId)));
-check("...and the confirm named the filter and the page count", sawMessage("all 3 pages"), JSON.stringify(dialogs));
+  answerOk();
+  await clickChecked('[data-scan-action="filter-all"]', "Apply filter to all is still available");
+  await page.waitForTimeout(4000);
+  check("accepting applies the selected page's filter to all of them",
+        (await pageFilters(docId)).every((f) => f === "original"), JSON.stringify(await pageFilters(docId)));
+  check("...and the confirm named the filter and the page count", sawMessage("all 3 pages"), JSON.stringify(dialogs));
 
-// ---- 9. Delete a page (js/scanDoc.js:367) ----
+  // ---- 9. Delete a page (js/scanDoc.js:367) ----
 
-const beforeDelete = await rowCounts();
-answerCancel();
-await page.click('[data-scan-action="delete-page"]');
-await page.waitForTimeout(800);
-check("cancelling keeps the page", (await rowCounts()).pages === beforeDelete.pages, JSON.stringify(await rowCounts()));
+  const beforeDelete = await rowCounts();
+  answerCancel();
+  await page.click('[data-scan-action="delete-page"]');
+  await page.waitForTimeout(800);
+  check("cancelling keeps the page", (await rowCounts()).pages === beforeDelete.pages, JSON.stringify(await rowCounts()));
 
-answerOk();
-await clickChecked('[data-scan-action="delete-page"]', "Delete page is still available");
-await page.waitForTimeout(1500);
-const afterDelete = await rowCounts();
-check("accepting deletes exactly one page", afterDelete.pages === beforeDelete.pages - 1, `${beforeDelete.pages} -> ${afterDelete.pages}`);
-// deletePage removes blobKey, originalBlobKey and thumbKey, so a deleted page
-// must take its bytes with it rather than orphaning them in the blob store.
-check("...and its blobs with it", afterDelete.blobs < beforeDelete.blobs, `${beforeDelete.blobs} -> ${afterDelete.blobs}`);
+  answerOk();
+  await clickChecked('[data-scan-action="delete-page"]', "Delete page is still available");
+  await page.waitForTimeout(1500);
+  const afterDelete = await rowCounts();
+  check("accepting deletes exactly one page", afterDelete.pages === beforeDelete.pages - 1, `${beforeDelete.pages} -> ${afterDelete.pages}`);
+  // deletePage removes blobKey, originalBlobKey and thumbKey, so a deleted page
+  // must take its bytes with it rather than orphaning them in the blob store.
+  check("...and its blobs with it", afterDelete.blobs < beforeDelete.blobs, `${beforeDelete.blobs} -> ${afterDelete.blobs}`);
+
+}
 
 // ---- 10. Clear translation history (js/app.js:503) ----
 
@@ -435,7 +444,7 @@ check("...and the confirm said saved phrases were included", sawMessage("saved p
 console.log("\nDelete all local data - the unrecoverable one");
 await resetStore();
 await makeNote("Survivor");
-docId = await makeScanDoc();
+if (canStoreBlobs) docId = await makeScanDoc();
 await ev(async () => {
   const h = await import("/js/translateHistory.js");
   await h.recordTranslation({ sourceText: "hola", translatedText: "hello", sourceLang: "es", targetLang: "en", tier: "claude" });
@@ -448,7 +457,10 @@ await page.click("#nav-settings");
 await page.waitForTimeout(700);
 const populated = await rowCounts();
 check("the store is populated across every kind of row before we press it",
-      populated.documents >= 2 && populated.pages === 3 && populated.blobs > 0 && populated.folders === 1 && populated.history === 1,
+      populated.documents >= (canStoreBlobs ? 2 : 1) &&
+        populated.pages === (canStoreBlobs ? 3 : 0) &&
+        (canStoreBlobs ? populated.blobs > 0 : true) &&
+        populated.folders === 1 && populated.history === 1,
       JSON.stringify(populated));
 
 // Cancelling EITHER confirm must stop it. Two separate checks, because a single
