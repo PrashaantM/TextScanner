@@ -43,7 +43,9 @@ const REGION_BACKGROUND_DOWNSCALE_TARGET = 16;
 // flat, and worth also trying edge-based binarization for.
 const HIGH_BACKGROUND_VARIANCE_THRESHOLD = 18;
 
-function drawToCanvas(source, width, height) {
+// Exported because js/ocrEngine.js needs it for the very first recognition
+// pass, not just the preprocessed one - see the HEIC note there.
+export function drawToCanvas(source, width, height) {
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;

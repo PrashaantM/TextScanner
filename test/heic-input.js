@@ -10,18 +10,34 @@
 //   a categorized, human-readable message, no uncaught exception, no hang, and
 //   no silent success that would render a blank preview and scan nothing.
 //
-//   WKWebView on iOS CAN decode HEIC, natively and without help, because the
-//   codec is part of the OS. There the correct assertion is that it succeeds.
-//   That half is not automatable here and lives in
-//   docs/DEVICE-VERIFICATION-CHECKLIST.md.
+//   A browser WITH the codec - Playwright's WebKit, and WKWebView on iOS, where
+//   it is part of the OS - must SUCCEED. That assertion was written at the same
+//   time as the failure one, but had nothing to run it: headless Chromium is
+//   the only engine CI had.
 //
 // Both halves are required. The CI half alone would let a real HEIC regression
 // on device pass unnoticed; the device half alone would never run.
 //
-// A note on what is NOT being asserted: this file does not claim the app
-// "supports HEIC". It asserts the failure is graceful where the codec is
-// missing. If HEIC support on the web ever becomes a goal, it needs a decoder
-// (and a very different test) - see the closing note below.
+// THE SUCCESS HALF NOW RUNS, AND IT FOUND THE BUG IT WAS WRITTEN FOR. The first
+// time this file was pointed at an engine with a codec (BROWSER=webkit, after
+// test/browser.js landed), it failed: "This browser CAN decode HEIC, so the scan
+// should have succeeded, but the outcome was categorized-error", plus an
+// uncaught "Error attempting to read image." from vendor/tesseract.
+//
+// The cause was in js/ocrEngine.js, not here. Recognition pass 1 handed
+// tesseract.js the <img> element, and the engine re-reads the bytes behind its
+// src with its OWN decoders - which have no HEIC. The browser had already
+// decoded the file perfectly, so the preview looked right and only the scan
+// died. js/ocrEngine.js now checks the source's real MIME type and draws
+// through a canvas for anything the engine cannot read itself. See the long
+// comment there for why that is a pre-check rather than the simpler
+// always-use-a-canvas (it costs 8.83 WER points) or a try/catch (tesseract
+// dispatches the worker error to window, where no catch reaches it).
+//
+// What is still NOT claimed: that the app "supports HEIC" everywhere. It
+// asserts the failure is graceful where the codec is missing and success where
+// it is present. Both are now executed - the first on chromium, the second on
+// webkit - so the pair runs in the nightly job rather than waiting for a phone.
 //
 // Usage: node test/heic-input.js   (exits non-zero if the failure is not graceful)
 
@@ -184,8 +200,11 @@ if (failures.length) {
 }
 
 console.log(
-  "\nHEIC fails safely where the codec is missing.\n" +
-    "The other half of this case - HEIC decoding and scanning correctly on a real iPhone,\n" +
-    "where WKWebView has the codec - is in docs/DEVICE-VERIFICATION-CHECKLIST.md and cannot\n" +
-    "be verified here."
+  canDecodeHeic
+    ? "\nHEIC decoded and scanned successfully on an engine that has the codec.\n" +
+        "Confirming the same on a real iPhone's WKWebView is still a device-checklist item,\n" +
+        "but it is now a confirmation rather than the only place this could be tested."
+    : "\nHEIC fails safely where the codec is missing.\n" +
+        "Run this with BROWSER=webkit for the other half - an engine WITH a codec, where the\n" +
+        "assertion is that the scan succeeds. The nightly cross-browser job does exactly that."
 );

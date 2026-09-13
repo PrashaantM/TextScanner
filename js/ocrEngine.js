@@ -30,7 +30,7 @@
 // corrected for as data.rotateRadians, which this module inverts to map returned
 // word boxes back onto the original, on-screen image.
 
-import { preprocessImage, preprocessRegion } from "./preprocess.js";
+import { preprocessImage, preprocessRegion, drawToCanvas } from "./preprocess.js";
 import { detectKeystoneQuad, warpPerspective } from "./perspective.js";
 
 // Tesseract.js's PSM constants (see naptha/tesseract.js src/constants/PSM.js) are
@@ -362,6 +362,33 @@ async function reprocessRegion(worker, PSM, previewImg, naturalWidth, naturalHei
 
 // Runs the full Phase 1 pipeline -> { words, text, preprocessed }. `onProgress`
 // receives Tesseract's raw logger messages ({status, progress}); this module stays
+// Image types tesseract.js decodes itself, from its own bundled decoders. A
+// source whose bytes are one of these is handed to the engine directly, so
+// recognition is byte-identical to what it has always been; anything else is
+// drawn through a canvas first and the browser does the decoding.
+//
+// A POSITIVE list, deliberately. "Everything except HEIC" would be a guess that
+// silently breaks on the next format Apple ships; "only what the engine
+// documents it reads" fails safe - an unknown type takes the canvas path, which
+// always works.
+const ENGINE_DECODABLE_TYPES = new Set([
+  "image/jpeg", "image/jpg", "image/png", "image/bmp", "image/x-ms-bmp", "image/webp", "image/x-portable-bitmap",
+]);
+
+// Asks what the image on screen ACTUALLY is, rather than trusting a filename.
+// previewImg.src is a blob: URL, so this resolves locally with no network and
+// the Blob keeps the MIME type it was created with. Anything unreadable or
+// unrecognized answers false, which routes to the canvas.
+async function engineCanDecodeSource(previewImg) {
+  try {
+    const response = await fetch(previewImg.src);
+    const type = (await response.blob()).type.toLowerCase();
+    return ENGINE_DECODABLE_TYPES.has(type);
+  } catch {
+    return false;
+  }
+}
+
 // UI-agnostic and leaves rendering the progress bar to the caller.
 export async function recognizeImage(previewImg, naturalWidth, naturalHeight, onProgress) {
   const PSM = { ...FALLBACK_PSM, ...((window.Tesseract && window.Tesseract.PSM) || {}) };
@@ -386,7 +413,49 @@ export async function recognizeImage(previewImg, naturalWidth, naturalHeight, on
   };
 
   try {
-    let best = await runPass(previewImg, naturalWidth, naturalHeight, PSM.AUTO, false);
+    // Pass 1 hands Tesseract the <img> element, and falls back to a canvas
+    // only if the engine cannot read it.
+    //
+    // THE BUG THIS FIXES. Given an HTMLImageElement, tesseract.js re-reads the
+    // bytes behind its src inside the worker and decodes them with its OWN
+    // bundled decoders. It has no HEIC decoder, so an unconverted photo straight
+    // off an iPhone camera roll - the iPhone default format - died with "Error
+    // attempting to read image" from vendor/tesseract/worker.min.js, even though
+    // the browser had already decoded the file perfectly. That is why the
+    // preview rendered correctly and only the scan failed, with a generic
+    // message pointing nowhere near the cause. Found by running
+    // test/heic-input.js under Playwright's WebKit, which unlike headless
+    // Chromium HAS the platform HEIC codec - the half of that two-part case
+    // that had been deferred to the device checklist.
+    //
+    // WHY THIS IS A FALLBACK AND NOT A STRAIGHT SWAP. Always drawing through a
+    // canvas looks tidier and was tried first. It costs 8.83 WER points.
+    // Measured against test/baseline-2026-08-28.json, the corpus average moved
+    // +0.69 CER / +8.83 WER, against a 2pt tolerance, and the per-image
+    // breakdown showed it is not noise: complexPic8 alone went +21.5 CER /
+    // +45.2 WER while complexPic1 went -11.6 CER. The mechanism is
+    // `rotateAuto` - Tesseract derives a different deskew angle from
+    // browser-decoded RGBA than from the original JPEG bytes (on complexPic7,
+    // -0.0110 rad vs +0.0057 rad), and on a borderline image that cascades
+    // through binarization and segmentation into materially different text.
+    //
+    // So the canvas is strictly a rescue path: every format Tesseract can
+    // already decode keeps recognizing byte-identically, and the formats it
+    // cannot - which used to be a dead end - now succeed. A try/catch rather
+    // than a format sniff, because the engine's own failure is the exact
+    // signal, and a hardcoded list of "formats Tesseract supports" would be one
+    // more thing to keep true.
+    // Decided BEFORE the call, not after a failure. A try/catch around the
+    // recognize() was tried and does recover - but tesseract.min.js also
+    // dispatches the worker's failure to window as an `error` event, which no
+    // caller-side catch can stop, so every HEIC scan still left an uncaught
+    // "Error attempting to read image." in the console and tripped every gate's
+    // uncaught-page-error assertion. Not handing the engine bytes it cannot read
+    // is the only way to not produce the error at all.
+    const source = (await engineCanDecodeSource(previewImg))
+      ? previewImg
+      : drawToCanvas(previewImg, naturalWidth, naturalHeight);
+    let best = await runPass(source, naturalWidth, naturalHeight, PSM.AUTO, false);
 
     if (best.meanConfidence < PREPROCESS_WORTH_TRYING_THRESHOLD) {
       const { canvas } = await preprocessImage(previewImg, naturalWidth, naturalHeight);
