@@ -428,26 +428,130 @@ question, and a backup path is the honest answer to it.
 
 ---
 
-### W9 — Run the 17 web checks in `TEXTSCANNER-HARDENING-PLAN.md` §1
+### W9 — Run the 17 web checks in `TEXTSCANNER-HARDENING-PLAN.md` §1 — **DONE, 3 findings**
 
-**The problem.** Two same-day passes (`8d37a35`, `e181738`) landed the nav
-redesign, the coherence router, the skip-the-call gate, the radial menus, the
-command palette and the global shortcuts. All have automated gates and all are
-green. **None has been looked at by a person in a real browser.** The hardening
-plan already enumerates the 17 checks; they are not restated here.
+**Method.** All 17 driven against `http://localhost:8199` serving the repo, through
+a real headless Chromium (`playwright-core`), at a 430×900 touch viewport with
+real touch-typed `PointerEvent`s — plus a 1280×900 pass where width mattered.
+Screenshots captured and looked at for the checks that are visual judgements
+rather than assertions. The harness was a throwaway; it is **not** committed, since
+these are manual checks and turning them into a gate was not the task.
 
-**Files.** None — or whatever the checks turn up.
+**Result: 64 assertions pass, 3 fail, 2 deferred. Zero uncaught page errors.**
+Checks 1, 2, 3, 4, 8, 9, 10, 11, 12, 14, 15, 16 and 17 pass outright — including
+every eager-document-creation repro, the whole interaction layer's create menu,
+card long-press/swipe/right-click, the folder picker, the command palette from
+three views, and both `[`/`]` mode steps.
 
-**Definition of done.** `python3 -m http.server 8080`, then all 17 checks pass or
-are filed as issues. Checks 10-13 need touch: Chrome DevTools device toolbar with
-touch simulation is the honest first pass, and the plan is right that it is not the
-last word. Check 6 (receipt/business-card routing) needs an Anthropic key on the
-web build — if you would rather not spend one on it, mark it deferred rather than
-passed.
+Findings below are **reported, not fixed**, as asked. None is a crash; all three
+are judgement calls that belong to you.
 
-**Risk.** None; it is verification. But **a failure here almost certainly means a
-gate is wrong too**, and the same "fix the gate, not just the symptom" rule the
-device pass carries applies.
+---
+
+#### F1 — Check 5: the guided buttons are the *smallest* text on the result panel
+
+The check expects *"'Clean up this text' / 'View on photo →' prominently, with the
+original Raw/Filtered/Text/Image controls still present underneath, just smaller."*
+Measured, identically at 430px and 1280px:
+
+| Control | Size | Font |
+|---|---|---|
+| Text / Image format / Full image | 26px tall | **13.6px** |
+| Filter: Raw / Filtered / Coherence | 25px tall | **12.8px** |
+| **Clean up this text** | **20px** tall | **12px** |
+| **View on photo →** | **22px** tall | **12px** |
+
+So the literal expectation is inverted twice over: the guided buttons are the
+smallest type in the panel, and the mode control sits **above** them, not
+underneath.
+
+**Looking at it rather than only measuring it, the intent is partly carried
+anyway:** "Clean up this text" is the only *filled accent-coloured* button in the
+panel, and colour is doing the prominence work that size and position are not.
+That is a legitimate strategy, which is why this is a finding and not a bug.
+
+**The decision is yours** and it is one of two: resize/reorder so the guided pair
+actually leads, or amend the check to describe what shipped. What should not
+happen is leaving a check that anyone walking the list will mark failed.
+
+**Should a gate have caught it?** No, and it should not try. `test/document-creation.js`
+asserts the buttons exist and drive the right filter/mode, which is the testable
+part. "Prominent" is a visual judgement; pinning font sizes in CI would gate
+styling, not behaviour.
+
+---
+
+#### F2 — Check 13: the theme radial menu does not exist on any phone
+
+`style.css`'s `@media (max-width: 600px)` block sets `.app-bar__actions #theme-btn
+{ display: none }`, with a comment explaining the trade honestly: the bar cannot
+hold four controls and a title, and Theme is the one that drops.
+
+That is a reasonable call for the *button*. Its consequence for the **radial
+picker** is the finding: `06-INTERACTION-MODEL-SPEC.md` names the theme button as
+**call site 3**, and its rollout order puts it *first* — "smallest surface area,
+cheapest to verify the primitive works before depending on it elsewhere." Measured:
+
+| Context | Theme button visible | Long-press opens the radial |
+|---|---|---|
+| 1280px, mouse | yes | **yes** |
+| 1280px, touch | yes | **yes** |
+| 430px, touch | **no** | **no** |
+
+So a press-drag-release gesture designed for a thumb is available on desktop and
+absent on every phone. Not broken — but the call site is doing none of the work it
+was added for, and check 13 cannot be performed as written on a phone at all. (The
+check also says the button is "bottom-right of the nav bar area"; it is in the top
+app bar.)
+
+**Should a gate have caught it?** **Yes.** See F3.
+
+---
+
+#### F3 — The two radial call sites disagree about the mouse, and nothing tests the third
+
+`js/app.js:374` gates `#nav-add`'s radial on `event.pointerType !== "touch" &&
+!== "pen"` — a mouse click deliberately gets the flat action sheet, and
+`test/interaction-layer.js` asserts exactly that. `js/main.js:1060`'s theme handler
+applies **no such filter**, so a mouse press-and-hold of 420ms opens a radial menu
+(verified above). Two call sites of one primitive, two different answers to "is
+this gesture for touch?"
+
+Either answer is defensible. Having both is the problem, and a desktop user who
+happens to hold the mouse button on Theme gets a gesture menu they did not ask for
+and cannot discover.
+
+**Should a gate have caught it? Yes — this is the real gate gap of the three.**
+`test/interaction-layer.js` covers call site 1 (`#nav-add`) and call site 2 (library
+cards) and **never touches call site 3** (`grep -c theme test/interaction-layer.js`
+→ 0). It also sets no viewport, so it runs at Playwright's 1280×720 default and has
+never seen the 600px breakpoint. A gate that exercised call site 3 at a phone width
+would have caught F2 and F3 both. That is the fix worth making — not a patch to the
+symptom.
+
+---
+
+#### Deferred, with reasons
+
+- **Check 6, second half.** The Coherence router *was* verified: it distinguishes a
+  receipt and a business card from prose. Whether the **output reads** as an
+  itemized list or contact fields needs a real Anthropic call on a real receipt
+  photo — no key was used here, and CI mocks the endpoint.
+- **Checks 10, 12, 13 — how the gesture feels.** Synthetic `PointerEvent`s prove the
+  state machine fires; they cannot tell you whether a press-drag-release reads
+  naturally under a thumb. `TEXTSCANNER-HARDENING-PLAN.md` §5.1 already has this
+  as a device-pass item and is right that CI cannot settle it.
+
+#### One thing that looked like a failure and is not
+
+Pressing `?` on the **Library** does not open the shortcut sheet — it types a `?`
+into the search box. That is correct: the Library auto-focuses its search input on
+arrival, so `?` there is inside a text field and the `inTextField` guard fires by
+design (`test/interaction-layer.js` goes to Settings first for exactly this reason,
+with a comment saying so). Check 15 says "outside a text field" without noting that
+the default view puts you inside one — **worth a parenthesis in the check**, because
+anyone walking the list literally will land on the Library first and record a
+failure.
 
 ---
 
@@ -585,7 +689,7 @@ Vision migration, and on the web it is not.
 | W6 replace native dialogs | **Yes** | Gates 12, 13, 14 | L |
 | W7 web app manifest | No | No | S |
 | W8 storage durability + backup | Adds Settings ids | Gate 12 | L |
-| W9 run the 17 checks | No | Only if it finds something | S |
+| ~~W9 run the 17 checks~~ **done** | No | Found 3 (F1-F3), none fixed | S |
 | ~~W10 doc accuracy~~ **done** | No | No | S |
 | W11 og: + 404 | No | No | S |
 | W12 version stamp | One new id | No | S |
@@ -595,8 +699,11 @@ Vision migration, and on the web it is not.
 
 ## 3. Suggested order
 
-**First, because they are cheap and they protect everything after them:**
-W3 (id gate) → W4 (motion gate) → W10 (docs) → W9 (run the 17 checks).
+**~~First, because they are cheap and they protect everything after them:~~
+~~W3 (id gate) → W4 (motion gate) → W10 (docs) → W9 (run the 17 checks).~~ Done.**
+W9 left three findings (F1-F3) that are unassigned; **F3 is the one to pick up**,
+since a gate covering the interaction spec's call site 3 at a phone width would
+have caught two of the three by itself.
 
 **Then the two that decide what "shippable web app" even means:**
 W2 (cross-browser — do this before building anything new, so you are not
