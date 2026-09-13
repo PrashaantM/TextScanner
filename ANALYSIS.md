@@ -196,6 +196,38 @@ With a floor of zero, Phase 2's merge rule ("twice the noise floor") reduces to 
 
 All six now reference the tokens, so the comment is true. The finding is worth recording for a reason beyond the fix: **the comment was the only thing asserting the invariant, and a comment cannot fail.** The single-block design is good precisely because it is checkable — `grep -E '^\s*(transition|animation):' style.css | grep -v 'var(--motion-'` returns nothing, and that is a real check where the prose was not.
 
+> **Correction, 2026-09-13 (after `e181738`).** Two claims in the paragraph above
+> have not survived, and are corrected here rather than left standing.
+>
+> **The invariant broke again, and nothing noticed for two commits.** `e181738`
+> added `.radial-menu__item` with `transform 140ms … opacity 100ms … box-shadow
+> 120ms … background 120ms` — four hardcoded durations, none reachable from the
+> single block. Reduced motion still worked for that menu, but by a *second*
+> mechanism (`js/radialMenu.js` adds `.radial-menu--instant` off `matchMedia`),
+> not by the one this section is about. All four are tokenized now, with a new
+> `--motion-bloom` for the 140ms travel, which `js/radialMenu.js`'s
+> `CLOSE_TRANSITION_MS` is coupled to and which the single block zeroes with the
+> other three. The `opacity` fade moved 100ms → 120ms in the process; that is a
+> deliberate, stated change, not a rounding.
+>
+> **And the grep above is not a sufficient check.** Two problems, both found by
+> trying to use it as one. It reports four false positives it cannot reason
+> about — `transition: none` (no duration to tokenize), a declaration *inside*
+> the reduced-motion block (it is the reduced path), and the infinite
+> `.scan-busy__spinner`, whose duration must **not** be tokenized because a
+> zeroed `animation-duration` on an infinite animation freezes the spinner
+> instead of calming it. And its `^\s*` anchor is a hole: a rule written on one
+> line (`.thing { transition: opacity 200ms; }`) never matches it at all.
+>
+> [`test/motion-contract.js`](test/motion-contract.js) replaces it and runs in
+> CI, second step, before any browser is installed. It strips comments, tracks
+> block structure to recognise the reduced-motion path, covers the `-duration`
+> longhands, and carries the spinner as the single allowlist entry *with its
+> reason attached* — plus an assertion that the allowlist entry still matches
+> something, so a stale exemption cannot quietly become a hole. Verified against
+> six seeded regressions, including the exact `e181738` one and the two
+> single-line cases the old grep missed.
+
 ### 3.8 Haptics — correctly scoped, correctly silent
 
 [`js/haptics.js`](js/haptics.js) is gated behind `window.Capacitor?.isNativePlatform?.()`, optional-chained through to the plugin, and every call ends in `.catch(() => {})`. On web it is a silent no-op rather than a throw — verified by every browser test in the suite running through code paths that call it without a single uncaught page error.

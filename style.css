@@ -50,17 +50,29 @@
   --motion-medium: 200ms;
   --motion-slow: 320ms;
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  /* The radial menu's spoke travel is its own value rather than a point on the
+     scale above, for a reason that is not taste: js/radialMenu.js waits
+     CLOSE_TRANSITION_MS before removing the menu from the DOM, and that
+     constant has to equal this duration or the element is torn down mid-close.
+     Naming it here is what makes the coupling visible from both sides. */
+  --motion-bloom: 140ms;
+  --ease-bloom: cubic-bezier(0.2, 0.8, 0.3, 1.2);
 }
 
 /* Every transition below references these tokens rather than a hardcoded
    duration, so a person who's set the OS-level "reduce motion" preference
    gets every one of them disabled from this single block - no per-rule
-   exceptions to track down. */
+   exceptions to track down.
+   That claim used to be asserted only here, in prose, and a comment cannot
+   fail: ANALYSIS.md §3.7 caught 3 of 6 declarations ignoring it, and the
+   radial menu added a fourth in e181738. test/motion-contract.js now checks it
+   on every push, so the invariant is enforced rather than described. */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-fast: 0ms;
     --motion-medium: 0ms;
     --motion-slow: 0ms;
+    --motion-bloom: 0ms;
   }
 }
 
@@ -402,8 +414,13 @@ body {
   color: var(--text);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 140ms cubic-bezier(0.2, 0.8, 0.3, 1.2), opacity 100ms ease-out, box-shadow 120ms ease-out,
-    background 120ms ease-out;
+  /* box-shadow and background were already 120ms, which is --motion-fast
+     exactly. opacity was 100ms and is now 120ms with them: a 20ms change,
+     stated rather than smuggled in, and still comfortably inside the 140ms
+     travel so nothing pops into place before it has finished moving. */
+  transition: transform var(--motion-bloom) var(--ease-bloom),
+    opacity var(--motion-fast) ease-out, box-shadow var(--motion-fast) ease-out,
+    background var(--motion-fast) ease-out;
 }
 
 .radial-menu--open .radial-menu__item {
@@ -411,8 +428,15 @@ body {
   opacity: 1;
 }
 
+/* Belt and braces, deliberately. --motion-bloom is already 0ms under reduced
+   motion from the single block at the top of this file, so this rule is no
+   longer the only thing stopping the bloom - but js/radialMenu.js also branches
+   on matchMedia to decide how long to wait before removing the menu, and having
+   the CSS agree from its own side costs nothing. `transition: none` has no
+   duration to tokenize, which is why test/motion-contract.js treats it as
+   inherently reduced rather than as an exception. */
 .radial-menu--instant .radial-menu__item {
-  transition: none; /* prefers-reduced-motion: appear in place, no bloom animation */
+  transition: none;
 }
 
 .radial-menu__item.is-armed,

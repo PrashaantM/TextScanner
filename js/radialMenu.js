@@ -14,7 +14,9 @@
 import { hapticLight, hapticMedium } from "./haptics.js";
 
 const PREFERS_REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
-// Matches the CSS transition duration in style.css's .radial-menu__item rule.
+// Must equal --motion-bloom in style.css, which is what .radial-menu__item's
+// transform transition uses. If they drift, the menu is removed from the DOM
+// either mid-close (too short) or after a visible dead pause (too long).
 const CLOSE_TRANSITION_MS = 140;
 
 /**

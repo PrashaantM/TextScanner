@@ -22,6 +22,16 @@ jobs:
       # getElementById returns null rather than throwing, so a renamed id imports
       # cleanly and only breaks whichever gate happens to touch that control.
       - run: node test/dom-contract.js
+      # The prefers-reduced-motion contract, also browser-free and also seconds.
+      # style.css zeroes --motion-* from one block, which only works if every
+      # duration comes from a token. That was asserted by a comment, and a
+      # comment cannot fail: ANALYSIS.md §3.7 caught 3 of 6 declarations ignoring
+      # it, and e181738's radial menu broke it again undetected. The one-line
+      # grep §3.7 proposed can't be the gate - it cannot tell a violation from
+      # `transition: none`, from a declaration inside the reduced-motion block,
+      # or from the infinite spinner that must NOT be zeroed - so the reasoning
+      # lives in the script, next to each exemption.
+      - run: node test/motion-contract.js
       - run: npm ci
         working-directory: test
       # playwright-core, NOT playwright. test/package.json depends on

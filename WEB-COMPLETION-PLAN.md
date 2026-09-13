@@ -219,7 +219,7 @@ contract — without asserting them.
 
 ---
 
-### W4 — The `prefers-reduced-motion` invariant broke again, and its check still isn't in CI
+### W4 — The `prefers-reduced-motion` invariant broke again — **DONE**
 
 **The problem.** `ANALYSIS.md` §3.7 established this greppable invariant:
 
@@ -227,33 +227,65 @@ contract — without asserting them.
 grep -E '^\s*(transition|animation):' style.css | grep -v 'var(--motion-'
 ```
 
-It was supposed to return nothing. It now returns five lines. Three are legitimate
-— `style.css:415` and `:1749` are `transition: none` *inside* reduced-motion /
-active-drag rules, and `:2299`/`:2313` are the deliberate spinner→pulse
-substitution. One is a genuine regression: **`style.css:405`,
-`.radial-menu__item`, hardcodes `140ms / 100ms / 120ms / 120ms`**, added by the
-interaction layer in `e181738`.
+It was supposed to return nothing. It returned five lines. One was a genuine
+regression: **`style.css:405`, `.radial-menu__item`**, hardcoding
+`140ms / 100ms / 120ms / 120ms`, added by the interaction layer in `e181738`.
+Behaviour was not broken — `js/radialMenu.js:82` adds `.radial-menu--instant`
+under `PREFERS_REDUCED_MOTION.matches` — but reduced motion was working there by a
+*second* mechanism, not by the single block, and the grep that was supposed to
+prove the whole stylesheet had become noise nobody ran.
 
-The behaviour is *not* broken — `js/radialMenu.js:82` adds
-`.radial-menu--instant` under `PREFERS_REDUCED_MOTION.matches`, and
-`test/interaction-layer.js` covers it. But the invariant's whole value was that
-one grep proved it for the entire stylesheet, and that grep now returns noise, so
-the next genuinely-unguarded transition hides in it. §3.7's own lesson was that a
-comment cannot fail; a check nobody runs cannot either.
+**What was built.**
 
-**Files.** `style.css` (line 405, and decide explicitly about 1749/2299/2313);
-`.github/workflows/ci.yml`.
+*Tokenized `style.css:405`.* The 140ms travel is now `--motion-bloom`, a new token
+zeroed in the same block as the other three. It is its own token rather than
+rounded onto `--motion-fast` for a non-aesthetic reason: `js/radialMenu.js:18`'s
+`CLOSE_TRANSITION_MS = 140` has to equal it or the menu is removed from the DOM
+mid-close. Both sides now name the coupling. `box-shadow` and `background` were
+already exactly 120ms = `--motion-fast`. **`opacity` moved 100ms → 120ms** — a
+real 20ms change, stated in the CSS comment and here rather than smuggled in; it
+still completes well inside the 140ms travel.
 
-**Definition of done.** The grep above returns **nothing**, with the legitimate
-exceptions either tokenized or moved onto an explicit, commented allowlist inside
-the CI step — and that step is a real job in `ci.yml` that goes red when you
-re-add a hardcoded duration. Verify by adding `transition: opacity 200ms;` to any
-rule and watching CI fail.
+*The other three lines, decided explicitly:*
 
-**Risk.** Low. `style.css` only. No ids. The one thing to be careful of: if you
-tokenize `.radial-menu__item`, the reduced-motion path then has two mechanisms
-zeroing it, which is harmless, but re-run `test/interaction-layer.js` — it asserts
-the bloom animation is absent under emulated reduced motion.
+| Line | Verdict |
+|---|---|
+| `style.css:439` `.radial-menu--instant { transition: none }` | **Legitimate.** No duration exists to tokenize. Kept as belt-and-braces now that `--motion-bloom` also zeroes it — the repo's own preference after the `views.js` double-fix |
+| `style.css:1773` `.doc-card.is-swiping { transition: none }` | **Legitimate.** Same category: a swipe must track the finger 1:1 |
+| `style.css:2323` `.scan-busy__spinner { animation: scan-spin 700ms … infinite }` | **Must NOT be tokenized.** A zeroed `animation-duration` on an infinite animation *freezes* the spinner rather than calming it — a busy indicator that has stopped reads as a hung app. The reduced-motion block already substitutes a slower pulse. This is the single allowlist entry |
+| `style.css:2337` `animation: scan-pulse 1.4s` | **Legitimate.** It is inside the reduced-motion block — it *is* the reduced path |
+
+*Replaced the grep with `test/motion-contract.js`,* CI's second step, before any
+browser is installed. **The one-liner could not be the gate**, and finding out why
+was most of the work: it cannot distinguish any of the four rows above (row 4
+needs block structure, which line matching does not have), and its `^\s*` anchor
+is a hole — a rule written on one line, `.thing { transition: opacity 200ms; }`,
+never matches it. The script strips comments (style.css's own prose discusses
+`transition: none`), tracks brace depth, covers the `-duration` longhands, and
+asserts the allowlist entry still matches something so a stale exemption cannot
+become a silent hole.
+
+**Proved it gates, six ways.** Seeded regressions, all caught: a single-line
+hardcoded rule; the exact `e181738` multi-line partly-tokenized case; a single-line
+`animation`; a `transition-duration` longhand; a duration in seconds (`.3s`) rather
+than ms; and a renamed spinner leaving the allowlist entry stale. The first and
+third are the two the old grep would have missed. Output on a clean tree:
+
+```
+Checked 25 transition/animation declarations in style.css:
+  21 fully tokenized, 4 exempt, 0 violating.
+```
+
+The denominator is reported because a gate that says "checked 4" while the file
+has 25 is describing its own blind spot as a result.
+
+**Re-ran `test/interaction-layer.js`:** all 24 checks green, including
+*"a radial menu opened under reduced motion carries the instant class"* and
+*"selecting a spoke still works under reduced motion, just without the bloom."*
+
+`ANALYSIS.md` §3.7 carries a dated correction saying the invariant broke again and
+that its own proposed grep was insufficient — corrected in place, which is that
+document's stated standard for its own history.
 
 ---
 
@@ -516,7 +548,7 @@ Vision migration, and on the web it is not.
 | W1 offline / service worker | No | New gate; SW must not intercept existing gates | M |
 | W2 cross-browser CI | No | **Yes, by design** | M–L |
 | ~~W3 dom-id gate~~ **done** | No (protects them) | New gate only | S |
-| W4 motion invariant | No | New gate only | S |
+| ~~W4 motion invariant~~ **done** | No | New gate only | S |
 | W5 dialog-path coverage | No | Likely finds a real bug | S–M |
 | W6 replace native dialogs | **Yes** | Gates 12, 13, 14 | L |
 | W7 web app manifest | No | No | S |
