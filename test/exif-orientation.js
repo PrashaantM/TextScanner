@@ -21,7 +21,7 @@
 //
 // Usage: node test/exif-orientation.js   (exits non-zero if anything regressed)
 
-import { chromium } from "playwright-core";
+import { launchBrowser } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -43,7 +43,7 @@ const server = createServer(async (req, res) => {
   }
 }).listen(PORT);
 
-const browser = await chromium.launch({ headless: true });
+const browser = await launchBrowser({ headless: true });
 const failures = [];
 const results = [];
 

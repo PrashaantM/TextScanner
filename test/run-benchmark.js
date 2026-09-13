@@ -18,7 +18,7 @@
 // any machine - no absolute paths and no borrowed node_modules, both of which this
 // harness previously depended on.
 
-import { chromium } from "playwright-core";
+import { launchBrowser, BROWSER_NAME } from "./browser.js";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join, basename } from "node:path";
@@ -71,13 +71,17 @@ async function scanImage(page, imagePath) {
   return page.$eval("#result-text", (el) => el.value);
 }
 
-async function launchBrowser() {
+// Wraps browser.js's launcher to keep this file's original, more helpful
+// failure message - the one that tells you how to install the browser
+// playwright-core actually pins. Named distinctly from the imported
+// launchBrowser so the two cannot shadow each other.
+async function launchBenchmarkBrowser() {
   try {
-    return await chromium.launch({ headless: true });
+    return await launchBrowser({ headless: true });
   } catch (err) {
     throw new Error(
-      `Couldn't launch Chromium: ${err.message.split("\n")[0]}\n` +
-        `Install the browser this playwright-core pins with:  cd test && npm install && npm run install-browser`
+      `Couldn't launch ${BROWSER_NAME}: ${err.message.split("\n")[0]}\n` +
+        `Install the browser this playwright-core pins with:  cd test && npm install && npx playwright-core install ${BROWSER_NAME}`
     );
   }
 }
@@ -101,7 +105,7 @@ async function main() {
   const server = serveStatic();
   const files = (await readdir(GROUNDTRUTH_DIR)).filter((f) => f.endsWith(".txt")).sort();
 
-  const browser = await launchBrowser();
+  const browser = await launchBenchmarkBrowser();
   const page = await browser.newPage();
 
   const rows = [];

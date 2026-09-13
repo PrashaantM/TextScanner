@@ -29,7 +29,7 @@
 //
 // Usage: node test/move-inpaint.js   (exits non-zero if anything regressed)
 
-import { chromium } from "playwright-core";
+import { launchBrowser } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -51,7 +51,7 @@ const server = createServer(async (req, res) => {
 }).listen(PORT);
 
 const failures = [];
-const browser = await chromium.launch();
+const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 1200, height: 1600 } });
 const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(e.message));

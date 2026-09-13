@@ -31,7 +31,7 @@
 //
 // Usage: node test/destructive-actions.js   (exits non-zero on any failure)
 
-import { chromium } from "playwright-core";
+import { launchBrowser } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -59,7 +59,7 @@ const check = (name, condition, detail = "") => {
   else { console.log(`  FAIL ${name}${detail ? ` - ${detail}` : ""}`); failures.push(`${name}${detail ? `: ${detail}` : ""}`); }
 };
 
-const browser = await chromium.launch({ headless: true });
+const browser = await launchBrowser({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 const page = await context.newPage();
 const pageErrors = [];

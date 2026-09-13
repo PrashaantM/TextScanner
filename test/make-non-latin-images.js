@@ -9,7 +9,7 @@
 //
 // Usage: node test/make-non-latin-images.js
 
-import { chromium } from "playwright-core";
+import { launchBrowser } from "./browser.js";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,7 +44,7 @@ const SAMPLES = [
   },
 ];
 
-const browser = await chromium.launch({ headless: true });
+const browser = await launchBrowser({ headless: true });
 const page = await browser.newPage();
 await mkdir(OUT, { recursive: true });
 

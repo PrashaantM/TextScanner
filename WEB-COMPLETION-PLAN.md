@@ -133,46 +133,163 @@ intercepting during tests; register it behind a check for `location.protocol ===
 
 ---
 
-### W2 — Cross-browser CI: the app ships to Safari and Firefox, CI only tests Chromium
+### W2 — Cross-browser CI — **DONE, 3 findings, and one prediction that didn't hold**
 
-**The problem.** Every one of the 12 browser gates does `import { chromium } from
-"playwright-core"` and `chromium.launch()`. Nothing has ever executed this app in
-WebKit or Gecko. For a web app that is the largest unmeasured risk on the list —
-larger than anything in the scan pipeline, which at least has a benchmark. And
-WebKit coverage is worth double here, because it is the same engine family the iOS
-WKWebView build runs on, so a WebKit failure is very likely an iOS failure you
-would otherwise discover on the device pass.
+**What was built.** `test/browser.js` is now the single place that picks an
+engine; every gate imports `launchBrowser` from it and honours `BROWSER=`
+(default `chromium`, so nothing about the existing signal changed). 15 gates
+rewired.
 
-The places I would expect it to bite, from reading the code:
-- `js/notesEditor.js:242` — the whole rich-text editor is `document.execCommand`,
-  whose output markup differs materially between Blink and WebKit/Gecko.
-  `sanitizeHtml` and `stripMarkup` are written against what Chromium emits.
-- `js/store.js` — IndexedDB transaction auto-commit timing is the classic
-  Safari divergence; `withTransaction` resolves on `oncomplete`, which is the
-  correct design, so this may well pass. Worth knowing rather than assuming.
-- `canvas.toBlob` (6 call sites) and iOS Safari's canvas area ceiling.
-- `js/library.js:187` `IntersectionObserver`, fine everywhere but untested.
+`test/touch-interactions.js` stays **chromium-pinned on purpose** and now says so
+in ten lines of comment: it exists because the app once handled `pointerdown` but
+not `touchstart`, and Playwright's own mouse/touchscreen APIs synthesize events
+that would have passed against that broken code. Its value is entirely that
+`cdp.send("Input.dispatchTouchEvent", …)` emits *genuine, trusted* touch at the
+protocol level. CDP is Chromium-only; `page.touchscreen.tap()` is exactly the
+synthesized input the gate was written to rule out, so swapping to it would keep
+the gate green on three engines while destroying the property it pins. On the
+other two it skips with a stated reason and exit 0.
 
-**Files.** `test/touch-interactions.js`, `interaction-layer.js`, `heic-input.js`,
-`exif-orientation.js`, `malformed-input.js`, `library-documents.js`,
-`move-inpaint.js`, `non-latin-limitation.js`, `run-benchmark.js`,
-`document-creation.js`, `render-fidelity.js`, `web-tier-smoke.js`, `pdf-export.js`;
-`.github/workflows/ci.yml`; `test/package.json`.
+**CI structure — per the override, not the original plan.** Per-push stays
+chromium-only and unchanged. `webkit` and `firefox` run as a separate
+`cross-browser` matrix job on a nightly `schedule` (04:20 UTC) plus
+`workflow_dispatch`, gated `if: github.event_name == 'schedule' || …
+'workflow_dispatch'` so it never fires on a push or a PR; the per-push job carries
+`if: github.event_name != 'schedule'` so the two never double-run. The reasoning
+is in the workflow itself: a per-push gate that goes red for reasons nobody can
+act on teaches everyone to re-run until green, which costs the per-push signal the
+meaning it exists to have.
 
-**Definition of done.** A `BROWSER` env var (default `chromium`) selects the engine
-in every gate, and `BROWSER=webkit node test/library-documents.js` and
-`BROWSER=firefox node test/document-creation.js` run to completion locally. `ci.yml`
-runs a matrix over chromium/webkit/firefox for at least gates 4, 10, 12, 13, 14, and
-CI is green on all three. Every gate that genuinely cannot run on an engine says so
-in a comment and skips with a stated reason rather than silently.
+**Firefox: 12 of 12 green.** No findings at all.
 
-**Risk.** **This is the task most likely to go red, and that is the point** — a
-failure here is a bug your users already have. No DOM ids touched. One gate cannot
-be made portable as written: `test/touch-interactions.js` uses
-`context.newCDPSession()` + `Input.dispatchTouchEvent` (lines 47-59) specifically
-to get *genuine* touch events, and CDP is Chromium-only. Leave it Chromium-pinned
-and document why, rather than downgrading it to `page.touchscreen` and losing the
-fidelity it was built for. Also expect CI wall time to roughly triple — 3m30s → ~10m.
+**WebKit: 3 findings.** All three are reported, none is fixed — that was the
+instruction, and it matches the W9 precedent.
+
+---
+
+#### X1 — HEIC scans fail, and this is the device checklist's open question answered
+
+`test/heic-input.js` was written as half a case: *"CI has no codec, so this
+asserts the failure is graceful; the other half — it must SUCCEED on device,
+where WKWebView does have the codec — is in the device checklist."*
+
+**Playwright's WebKit has the codec, so the other half finally ran. It fails.**
+
+```
+This browser can decode HEIC: true
+outcome=categorized-error
+message="Something went wrong while scanning this image. ..."
+uncaught page errors: 1  ->  Error: Error attempting to read image.
+```
+
+**Root cause, and it is one line.** `js/ocrEngine.js:389` starts recognition with
+`runPass(previewImg, …)` — the raw `<img>` element. Tesseract.js, handed an
+`HTMLImageElement`, re-reads the bytes behind its `src` in its worker and decodes
+them with its own bundled decoders. It has no HEIC decoder, and the error string
+comes from `vendor/tesseract/worker.min.js`. The *browser* decoded the file
+perfectly — which is why the preview renders correctly and only the scan dies,
+with a generic message that points nowhere near the cause.
+
+**Who this hits:** anyone on iOS Safari scanning an unconverted photo straight
+from the camera roll, which is the iPhone default format. The native build
+dispatches to ML Kit and is unaffected.
+
+**The fix is already in the file.** The *second* pass hands Tesseract a canvas
+(`preprocessImage` → `drawToCanvas`). Drawing the first pass through a canvas too
+makes the decode the browser's job in every case. Not applied here.
+
+---
+
+#### X2 — WebKit cannot store a Blob in IndexedDB, and it masks half a gate
+
+`test/library-documents.js` dies at line 248 with
+`UnknownError: Error preparing Blob/File data to be stored in object store`,
+and `test/destructive-actions.js` with the same. Isolated to a 40-line repro on a
+real origin, across all three engines:
+
+| | chromium | webkit | firefox |
+|---|---|---|---|
+| plain `Blob` into IDB | ok | **fails** | ok |
+| canvas `toBlob` JPEG into IDB | ok | **fails** | ok |
+| same bytes as `ArrayBuffer` | ok | **ok** | ok |
+| read the blob back | ok, 1470 bytes | **record present, blob missing** | ok |
+| `canvas.toBlob` itself | ok | **ok** | ok |
+
+Two things worth separating out. **`canvas.toBlob` is not the problem** — it works
+on all three, so the flakiness this plan and the override both expected there is
+not where the risk actually is. And **`ArrayBuffer` round-trips fine on WebKit**,
+which is what makes this actionable rather than merely alarming: `js/store.js`'s
+`putBlob`/`getBlob` are already the single chokepoint for every image byte in the
+app, so storing `{ buffer, type }` and reconstructing the Blob on read would work
+identically on all three engines.
+
+**Honest limit on this finding: I cannot tell from here whether real Safari does
+this.** Safari has shipped Blob-in-IndexedDB for years, so this is most likely a
+limitation of Playwright's WebKit build rather than a bug users hit — but this
+harness cannot distinguish "Playwright's WebKit" from "Safari", and that
+distinction is exactly §4.3, which needs a real browser on a real machine. Do not
+act on this as though it were confirmed; do note that the ArrayBuffer change would
+make the question moot.
+
+**Blast radius while it stands:** everything after `library-documents.js:248` —
+scan filters, edge detection, annotations, translation history, library UI and
+note sanitization — never executes on WebKit. Those were run separately to get
+coverage (see below); they are not covered by the nightly job until this is
+resolved.
+
+---
+
+#### X3 — Turning on Reduce Motion while the app is open does nothing, on WebKit
+
+`js/radialMenu.js:16` caches the MediaQueryList at module load:
+
+```js
+const PREFERS_REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
+```
+
+and reads `.matches` later. Measured against the real app, opening a radial menu:
+
+| | preference set **before** load | toggled **after** load |
+|---|---|---|
+| chromium | `--instant` applied | `--instant` applied |
+| firefox | `--instant` applied | `--instant` applied |
+| **webkit** | `--instant` applied | **not applied**, while a fresh `matchMedia(...).matches` reads `true` |
+
+So on WebKit the cached list goes stale: a person who turns on Reduce Motion in
+System Settings while TextScanner is open keeps getting the bloom animation until
+they reload. iOS is both where that preference matters most and where the
+WKWebView build runs.
+
+This is the only `matchMedia` call in the app, and the fix is to read
+`matchMedia(...).matches` fresh at the point of use (or listen for `change`)
+rather than caching the list. Not applied here.
+
+---
+
+#### The prediction that didn't hold, recorded because null results are findings
+
+**`notesEditor.js`'s `execCommand` output is near-identical across all three
+engines.** The override expected this to be a problem area. Driven against a
+*visible* editor — the first attempt no-op'd on all three because `execCommand`
+silently does nothing on a hidden `contenteditable`, which would have reported
+"all identical" for entirely the wrong reason:
+
+```
+bold/italic/underline/strike/h2/link/removeFormat   identical on all three
+insertUnorderedList   chromium & firefox: <ul><li>hello world</li></ul>
+                      webkit:             <ul><li>hello world<br></li></ul>
+```
+
+One trailing `<br>` inside `<li>`, cosmetic, survives `sanitizeHtml` harmlessly.
+And **note sanitization is identical and clean on all three** — all 8 checks,
+including `<script>`, event handlers, `javascript:` hrefs and `<iframe>`.
+
+---
+
+**Nightly will be red on WebKit from its first run**, on exactly X1, X2 and X3 and
+nothing else. That is stated here rather than hidden behind a `continue-on-error`,
+because a nightly nobody trusts is the same failure mode the per-push split exists
+to avoid — the three should be fixed rather than tolerated.
 
 ---
 
@@ -745,7 +862,7 @@ Vision migration, and on the web it is not.
 | Task | Touches the 71 ids | Can turn CI red | Effort |
 |---|---|---|---|
 | W1 offline / service worker | No | New gate; SW must not intercept existing gates | M |
-| W2 cross-browser CI | No | **Yes, by design** | M–L |
+| ~~W2 cross-browser CI~~ **done** | No | Nightly red on WebKit: X1, X2, X3 | M–L |
 | ~~W3 dom-id gate~~ **done** | No (protects them) | New gate only | S |
 | ~~W4 motion invariant~~ **done** | No | New gate only | S |
 | ~~W5 dialog-path coverage~~ **done** | No | Found F4 (copy, not a broken path) | S–M |

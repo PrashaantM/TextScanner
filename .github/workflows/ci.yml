@@ -4,9 +4,18 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # 04:20 UTC daily, for the cross-browser job below only.
+  schedule:
+    - cron: "20 4 * * *"
+  workflow_dispatch:
 jobs:
+  # Per-push: chromium only, exactly as before. The other two engines run on a
+  # nightly schedule in the second job below - see its comment for why they are
+  # deliberately NOT gating every commit.
   test:
+    name: chromium (per-push)
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -93,3 +102,68 @@ jobs:
       # Includes "Delete all local data", the only unrecoverable action in the
       # app, which nothing automated had ever pressed.
       - run: node test/destructive-actions.js
+
+  # ---------------------------------------------------------------------------
+  # Nightly only, and that is a deliberate choice rather than a lack of nerve.
+  #
+  # The app ships to Safari and Firefox users and had never been executed in
+  # either until test/browser.js was added. WebKit coverage matters twice over,
+  # because it is the same engine family as the iOS WKWebView the native build
+  # runs inside - a WebKit divergence is very likely an iOS one.
+  #
+  # But these do NOT gate every push. Playwright's WebKit build is timing-flaky
+  # around exactly this app's hottest paths (canvas toBlob, IndexedDB commit),
+  # and a per-push gate that goes red for reasons nobody can act on teaches
+  # everyone to re-run until green - which costs the per-push signal the meaning
+  # it exists to have. Nightly catches real divergence without that cost.
+  #
+  # touch-interactions.js skips itself here with a stated reason: it needs CDP
+  # Input.dispatchTouchEvent for genuine trusted touch, and CDP is Chromium-only.
+  cross-browser:
+    name: ${{ matrix.browser }} (nightly)
+    runs-on: ubuntu-latest
+    # Schedule and manual dispatch ONLY. Never on push, never on a PR - that is
+    # the whole point of splitting it out.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [webkit, firefox]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: test/package.json
+      - run: npm ci
+        working-directory: test
+      - run: npx playwright-core install --with-deps ${{ matrix.browser }}
+        working-directory: test
+      # The two contract gates need no browser, so they are not repeated here.
+      - run: node test/malformed-input.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      - run: node test/exif-orientation.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      - run: node test/move-inpaint.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      - run: node test/render-fidelity.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      - run: node test/non-latin-limitation.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      - run: node test/heic-input.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      - run: node test/web-tier-smoke.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      - run: node test/pdf-export.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      - run: node test/library-documents.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      - run: node test/document-creation.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      - run: node test/interaction-layer.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      - run: node test/destructive-actions.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      - run: node test/touch-interactions.js
+        env: { BROWSER: "${{ matrix.browser }}" }

@@ -13,7 +13,7 @@
 //
 // Usage: node test/render-fidelity.js   (writes PNGs to test/manual-output/)
 
-import { chromium } from "playwright-core";
+import { launchBrowser } from "./browser.js";
 import { createServer } from "node:http";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { extname, join } from "node:path";
@@ -317,7 +317,7 @@ async function replayMlkitFixtures(page) {
 async function main() {
   const server = serveStatic();
   await mkdir(OUT, { recursive: true });
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchBrowser({ headless: true });
   const page = await browser.newPage({ viewport: { width: 900, height: 1400 }, deviceScaleFactor: 2 });
 
   for (const fontMode of ["system", "display"]) {

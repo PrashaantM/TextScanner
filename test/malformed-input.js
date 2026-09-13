@@ -27,7 +27,7 @@
 // minified file, so it's allowlisted below by exact message rather than
 // ignored silently.
 
-import { chromium } from "playwright-core";
+import { launchBrowser } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -48,7 +48,7 @@ const server = createServer(async (req, res) => {
   }
 }).listen(PORT);
 
-const browser = await chromium.launch({ headless: true });
+const browser = await launchBrowser({ headless: true });
 const failures = [];
 
 const KNOWN_VENDOR_QUIRKS = ["Error: Error attempting to read image."];

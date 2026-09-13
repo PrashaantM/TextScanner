@@ -23,6 +23,7 @@
 // Usage: node test/touch-interactions.js   (exits non-zero if anything regressed)
 
 import { chromium } from "playwright-core";
+import { skipUnlessChromium } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -37,6 +38,28 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": MIME[extname(p)] || "application/octet-stream" }); res.end(body);
   } catch { res.writeHead(404); res.end("nf"); }
 }).listen(PORT);
+
+// CHROMIUM-PINNED ON PURPOSE - do not "fix" this to honour BROWSER=webkit.
+//
+// This gate exists because the app once handled pointerdown but not touchstart,
+// and Playwright's own mouse/touchscreen APIs synthesize events that would have
+// passed against that broken code. The whole value of this file is that
+// `cdp.send("Input.dispatchTouchEvent", ...)` below makes the browser emit
+// GENUINE, trusted touch input at the protocol level rather than a script-
+// dispatched approximation.
+//
+// The Chrome DevTools Protocol is Chromium-only. Playwright exposes no
+// equivalent on WebKit or Firefox: `context.newCDPSession()` throws there. The
+// available substitute, `page.touchscreen.tap()`, is exactly the synthesized
+// input this file was written to avoid - swapping to it would keep the gate
+// green on all three engines while silently destroying the property it pins.
+//
+// So on any other engine this skips with a stated reason and exit 0. A skip that
+// says why is information; a red build for a test that was never applicable is
+// noise, and a downgraded test that still says "ok" is worse than either.
+if (skipUnlessChromium("needs CDP Input.dispatchTouchEvent for genuine trusted touch input; page.touchscreen would synthesize the very events this gate exists to rule out")) {
+  process.exit(0);
+}
 
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 3 });
