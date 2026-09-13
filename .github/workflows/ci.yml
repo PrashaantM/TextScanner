@@ -14,6 +14,14 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: test/package.json
+      # The element-id contract, first because it needs nothing - no npm install,
+      # no browser - and a broken contract should fail in seconds rather than
+      # after three and a half minutes of browser gates. js/dom.js's ids are the
+      # app's de-facto public interface (every browser gate below drives the app
+      # through them) and until this step nothing enforced that they exist:
+      # getElementById returns null rather than throwing, so a renamed id imports
+      # cleanly and only breaks whichever gate happens to touch that control.
+      - run: node test/dom-contract.js
       - run: npm ci
         working-directory: test
       # playwright-core, NOT playwright. test/package.json depends on
