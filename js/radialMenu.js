@@ -13,7 +13,24 @@
 
 import { hapticLight, hapticMedium } from "./haptics.js";
 
-const PREFERS_REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
+// Queried fresh on every read rather than cached as a MediaQueryList at module
+// load, which is what this used to do:
+//
+//     const PREFERS_REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
+//
+// On WebKit that cached object's .matches stays at whatever it was when the
+// module loaded, so someone who turned on Reduce Motion in System Settings
+// while the app was open kept getting the bloom animation until they reloaded -
+// while a fresh matchMedia() call in the same page read true. Chromium and
+// Firefox both updated the cached list; WebKit did not, and WebKit is the
+// engine family the iOS build runs inside, on the platform where that
+// preference matters most.
+//
+// matchMedia() is cheap and this is called twice per menu open, so there is no
+// reason to hold the object at all. Nothing else in js/ matchMedia's anything.
+function prefersReducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 // Must equal --motion-bloom in style.css, which is what .radial-menu__item's
 // transform transition uses. If they drift, the menu is removed from the DOM
 // either mid-close (too short) or after a visible dead pause (too long).
@@ -81,7 +98,7 @@ export function openRadialMenu({ originX, originY, originEl, items, radius = 92,
   // actually plays instead of starting from the final state.
   root.getBoundingClientRect();
   root.classList.add("radial-menu--open");
-  if (PREFERS_REDUCED_MOTION.matches) root.classList.add("radial-menu--instant");
+  if (prefersReducedMotion()) root.classList.add("radial-menu--instant");
 
   let armedId = null;
   let closed = false;
@@ -128,7 +145,7 @@ export function openRadialMenu({ originX, originY, originEl, items, radius = 92,
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("keydown", onKeydown);
     root.classList.remove("radial-menu--open");
-    setTimeout(() => root.remove(), PREFERS_REDUCED_MOTION.matches ? 0 : CLOSE_TRANSITION_MS);
+    setTimeout(() => root.remove(), prefersReducedMotion() ? 0 : CLOSE_TRANSITION_MS);
   }
 
   const onMove = (event) => {

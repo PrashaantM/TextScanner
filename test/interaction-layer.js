@@ -191,6 +191,13 @@ check("Undo after a swipe-delete restores the document", true);
 
 console.log("\nprefers-reduced-motion");
 
+// Deliberately emulated AFTER the page (and radialMenu.js) has loaded: this is
+// the "someone turns on Reduce Motion in System Settings while the app is open"
+// case, not the "it was already on at load" one. Keep it this way round - the
+// module used to cache a MediaQueryList at load, which made this exact case
+// fail on WebKit while passing on Chromium and Firefox, so a gate that set the
+// preference before navigating would have been green on all three and proved
+// nothing.
 await page.emulateMedia({ reducedMotion: "reduce" });
 await touchDrag(page, { downSelector: "#nav-add", path: [], up: false }); // finger stays down until a real release below
 await page.waitForFunction(() => document.querySelector(".radial-menu"), null, { timeout: 2000 });
