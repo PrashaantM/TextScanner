@@ -84,3 +84,12 @@ jobs:
       # operation), the create-menu and card-swipe call sites, the command
       # palette, and the global keyboard shortcuts.
       - run: node test/interaction-layer.js
+      # The eleven paths behind a native window.confirm/prompt, driven through
+      # their real UI controls. Playwright auto-dismisses any dialog nothing is
+      # listening for, so until this file NO test had ever installed a
+      # page.on("dialog") handler and every one of these handlers had only ever
+      # taken its "user pressed Cancel" branch in CI. Asserts all three halves:
+      # OK acts, Cancel does not, and the message says what it claims to.
+      # Includes "Delete all local data", the only unrecoverable action in the
+      # app, which nothing automated had ever pressed.
+      - run: node test/destructive-actions.js

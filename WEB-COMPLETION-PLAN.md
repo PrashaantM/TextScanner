@@ -289,46 +289,109 @@ document's stated standard for its own history.
 
 ---
 
-### W5 — Eleven destructive or creative paths are behind native dialogs, and CI has never run one of them
+### W5 — Eleven dialog-gated paths, none of them ever run in CI — **DONE**
 
-**The problem.** There are 19 `window.alert` / `confirm` / `prompt` call sites, and
-**no test file anywhere handles a Playwright `dialog` event** (`grep -rn
-"page.on(\"dialog\"" test/` returns nothing). Playwright auto-dismisses unhandled
-dialogs, so in every CI run `window.confirm(...)` returns `false` and these
-handlers return early. `test/library-documents.js` does exercise deletion and
-trash — but by importing `/js/documents.js` and calling `purgeDocument` directly
-(line 197), which is the model, not the handler.
+**The problem.** Playwright auto-dismisses any dialog nothing is listening for,
+and no test file had ever installed a `page.on("dialog", …)` handler. So in every
+CI run to date `window.confirm(...)` returned **false** and all eleven handlers
+took their early-return branch. The suite had been exercising *"the user pressed
+Cancel"* eleven times over and reporting it as coverage.
+`test/library-documents.js` does test deletion — by importing `/js/documents.js`
+and calling `purgeDocument()` directly, which is the model, not the button.
 
-Uncovered by any gate today:
+**What was built.** `test/destructive-actions.js`, 46 assertions, driving every
+row through its **real UI control** and asserting the store afterwards. Three
+assertions per path, not one:
 
-| Call site | Action gated |
+1. **Accept** — the action happens, and the row counts show it.
+2. **Dismiss** — it does *not*. This is the branch CI was taking by accident;
+   asserting it deliberately is what turns an accident into a contract, and it is
+   the half that catches an inverted `if (!confirm(...))`.
+3. **The message** — a confirm that quietly stopped asking would still pass an
+   accept/dismiss test, so each check pins the text it answered.
+
+| Path | Covered by |
 |---|---|
-| `js/library.js:422` | permanent delete from Recently Deleted |
-| `js/library.js:743` | empty the trash |
-| `js/library.js:460`, `:629` | create a folder |
-| `js/library.js:467`, `:471` | rename or delete a folder |
-| `js/notesEditor.js:575` | insert a link |
-| `js/scanDoc.js:337` | apply a filter to all pages |
-| `js/scanDoc.js:367` | delete a page |
-| `js/app.js:503` | clear translation history + saved phrases |
-| `js/app.js:512`, `:513` | **delete every document, page and image on the device** |
+| `library.js:460` create folder (nav) | cancel / accept / whitespace-only name refused |
+| `library.js:467` rename folder | cancel / accept, and the prompt offers both options |
+| `library.js:467,471` delete folder | cancel / accept, the "N documents moved out" alert, documents kept |
+| `library.js:629` create folder (picker) | creates **and** moves the document into it |
+| `notesEditor.js:575` insert link | cancel / safe URL / **`javascript:` rejected** |
+| `library.js:422` purge from trash | cancel / accept, confirm names the document, blobs go too |
+| `library.js:743` empty trash | button appears only when non-empty, cancel / accept |
+| `scanDoc.js:337` apply filter to all | cancel / accept, on pages whose filters actually differ |
+| `scanDoc.js:367` delete page | cancel / accept, exactly one page, blobs go too |
+| `app.js:503` clear history + saved | the *pair*: "Clear history" spares the saved row, this one takes it |
+| `app.js:512-513` **delete all local data** | populated store → both confirms → every store at zero |
 
-That last one is the most consequential button in the app and no automated test has
-ever pressed it.
+**Proved it gates, three ways.**
 
-**Files.** `test/library-documents.js` or a new `test/destructive-actions.js`;
-`.github/workflows/ci.yml`.
+*The plan's first probe* — make `app.js:513`'s second confirm unconditional-true.
+The plan predicted "nothing changes", and pre-gate that was right; it is now the
+demonstration of the hole that was filled:
 
-**Definition of done.** A gate that installs `page.on("dialog", d => d.accept(…))`
-and drives each row above **through the real UI control**, asserting the effect on
-the store afterwards — a purged document is gone from `getAllDocuments()`, "delete
-everything" leaves `estimateStorage().usage` at the floor, a created folder appears
-in the folder list. Verify it gates: make `js/app.js:513`'s second confirm
-unconditional-true and watch nothing change; delete the handler's body and watch it
-go red.
+```
+With the probe applied:
+  GREEN (blind)  dom-contract · motion-contract · library-documents
+                 document-creation · interaction-layer · unit tests
+  RED  (caught)  destructive-actions.js
+                 FAIL cancelling the SECOND confirm also deletes nothing
+                      -> {"documents":0,"pages":0,...}  the store was wiped on Cancel
+```
 
-**Risk.** Low, and it is test-only — but it will very likely *find* something, which
-is why it should land before W6 rather than after.
+*The plan's second probe* — delete the handler body: 8 failures, exit 1, naming
+every store that should have emptied and did not.
+
+*A third, unasked-for, because two probes of the same handler prove less than two
+handlers* — invert `library.js:422`'s purge confirm. Caught by the **dismiss**
+assertion: `FAIL cancelling the purge keeps the document in the trash`. Cancel
+deleted it.
+
+**One thing found while proving it, and fixed in the gate rather than the app.**
+The first two probe runs *crashed* after their first failure instead of reporting:
+the cancel half failing means the accept half's target is already gone, so the
+next `page.click()` threw 30s later and took the remaining forty assertions with
+it. A `clickChecked()` helper and a `gotoSettings()` guard now turn that into a
+named failure. One real bug must not cost the rest of the file.
+
+---
+
+#### F4 — `"All local data deleted."` is not true
+
+**No destructive path is broken.** All eleven do exactly what their copy says, and
+"Delete all local data" empties all six IndexedDB stores — documents, pages,
+blobs, folders, history, settings — verified from a populated store.
+
+But `clearAll()` reaches IndexedDB and nothing else, and **the Anthropic API key
+lives in `localStorage`** (`js/coherenceClaude.js:26,117`), as do the theme choice
+and the command palette's frecency counts. Measured, with a canary:
+
+```
+localStorage before: ["textscanner.anthropicApiKey"]
+localStorage after:  ["textscanner.anthropicApiKey"]
+API KEY SURVIVES: YES -> sk-ant-canary-value
+```
+
+So: after pressing **Delete all local data** and being told **"All local data
+deleted."**, a saved API key is still readable by the next person to open that
+browser profile.
+
+The section's hint copy is accurate — *"every document, page, image and
+translation on this device"*, none of which is the key. The **button label**
+(`index.html:675`) and the **closing alert** (`js/app.js:517`) are the two that
+overreach. This is a copy/scope mismatch, not a failure to delete, which is why
+the gate **pins the current behaviour** rather than asserting a fix nobody has
+chosen — the same pattern as `test/non-latin-limitation.js`. If someone makes
+`clearAll()` reach `localStorage`, that check fails on purpose, and the comment
+plus both strings need updating together.
+
+**Your call**, and it is three-way: clear the key too (and keep the copy), narrow
+the copy to match (and keep the key), or leave both and accept that the alert
+overstates. Worth noting the shared-`github.io` origin (§4.1) already makes that
+key readable by any other site on the origin — so "delete everything" not reaching
+it is the second-order problem, not the first.
+
+**Risk.** Test-only, as predicted. No app code changed, no ids touched.
 
 ---
 
@@ -685,7 +748,7 @@ Vision migration, and on the web it is not.
 | W2 cross-browser CI | No | **Yes, by design** | M–L |
 | ~~W3 dom-id gate~~ **done** | No (protects them) | New gate only | S |
 | ~~W4 motion invariant~~ **done** | No | New gate only | S |
-| W5 dialog-path coverage | No | Likely finds a real bug | S–M |
+| ~~W5 dialog-path coverage~~ **done** | No | Found F4 (copy, not a broken path) | S–M |
 | W6 replace native dialogs | **Yes** | Gates 12, 13, 14 | L |
 | W7 web app manifest | No | No | S |
 | W8 storage durability + backup | Adds Settings ids | Gate 12 | L |
@@ -711,7 +774,7 @@ debugging new code and a WebKit divergence at once) → W1 (offline).
 
 **Then the product gaps, in dependency order:**
 W7 (manifest) → W8 (storage durability, which depends on W7 for persistence) →
-W5 (cover the dialog paths) → W6 (replace them).
+~~W5 (cover the dialog paths)~~ done → W6 (replace them, now that a test of the old behaviour exists to port).
 
 **Last, optional:** W11, W12, W13.
 
