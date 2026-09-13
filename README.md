@@ -78,7 +78,7 @@ What this doesn't claim: better raw recognition accuracy than those tools on har
 - Live progress feedback while the OCR engine loads and processes the image
 - Copy the extracted text to your clipboard or download it as a `.txt` file, from any view
 - A built-in sample image so you can try it out with no image of your own
-- Everything runs on-device, and the web app works offline outright: Tesseract.js, its worker, its WebAssembly core and its English language data are all served from this repository rather than a CDN, so the first scan needs no network either. The precise, honest claim is that **your image is never uploaded** - recognition happens on the device and the picture itself goes nowhere. The app is not, however, wholly silent on the network: Coherence Filter makes an opt-in call to Claude's API with your extracted text (disclosed every time the panel is open), and the iOS build links Google's ML Kit, which performs its own usage logging (see `ios/` notes and the App Store readiness work)
+- Everything runs on-device, and **recognition needs no network at all, ever** - not even the first time: Tesseract.js, its worker, its WebAssembly core and its English language data are all served from this repository rather than a CDN, so nothing is fetched from a third party at scan time. To be precise about what that does *not* mean: the page itself is still loaded over the network like any website, so opening the app with no connection at all does not currently work - there is no service worker yet. Once the tab is open, no network is needed to scan, edit or export. The precise, honest claim is that **your image is never uploaded** - recognition happens on the device and the picture itself goes nowhere. The app is not, however, wholly silent on the network: Coherence Filter makes an opt-in call to Claude's API with your extracted text (disclosed every time the panel is open), and the iOS build links Google's ML Kit, which performs its own usage logging (see `ios/` notes and the App Store readiness work)
 - Responsive layout with automatic light and dark themes
 
 ## How it works
@@ -102,35 +102,96 @@ Then open `http://localhost:8000` in your browser.
 
 ## Project structure
 
+The web app has no build step: `index.html` loads `js/main.js` as an ES module and
+the browser resolves the rest. 44 modules, grouped by what they own.
+
 ```
-index.html           Markup and layout
-style.css            Styling, including light/dark themes
-js/main.js           Bootstrap: file handling, drag and drop, Scan/Copy/Download wiring
-js/dom.js            Every DOM element reference, looked up once and shared
-js/state.js          Shared app/editor state and tunable constants
-js/editor.js         The Image format / Full image editing surface: render, select,
-                      drag/resize, undo/redo, PNG export
-js/ocrEngine.js      Tesseract.js worker lifecycle, page segmentation, auto-deskew,
-                     confidence-based raw-vs-preprocessed selection, and per-region
-                     block reprocessing
-js/preprocess.js     Canvas-based image preprocessing, both whole-image and per-region
-                     (grayscale, local contrast normalization, upscale, edge-based
-                     binarization for textured/gradient backgrounds)
-js/perspective.js    Keystone correction (line-geometry-based) and the generic
-                     perspective warp it's built on
-js/filter.js         Raw / Filtered Text level logic (noise stripping over OCR words)
-js/coherence.js      Coherence Filter: API key storage and the Claude API call that
-                     reconstructs Filtered Text into prose
-vendor/tesseract/    Tesseract.js 5.1.1, its worker, wasm cores and English language
-                     data, served from this origin instead of a CDN (see its README)
+index.html            Markup and layout. Every view's markup is present at all
+                      times, hidden with a class - see js/views.js for why
+style.css             Styling, light/dark themes, and the --motion-* tokens a
+                      single prefers-reduced-motion block zeroes
+
+Shell and navigation
+  js/app.js           The app shell: five views, settings, storage, wiring
+  js/views.js         View switching and pushState routing
+  js/dom.js           Every shared DOM element reference, looked up once.
+                      Its ids are a contract - test/dom-contract.js gates them
+  js/state.js         Shared app/editor state and tunable constants
+  js/theme.js         System / light / dark, remembered in localStorage
+  js/toast.js         Transient messages, including delete-with-Undo
+
+Library and persistence
+  js/store.js         IndexedDB: documents, pages, blobs, folders, settings
+  js/documents.js     The document model over that store
+  js/library.js       The library view: search, folders, tags, trash, gestures
+
+Notes
+  js/notesEditor.js   Rich text, checklists, inline images, autosave, paste
+                      sanitization
+
+Scanned documents
+  js/scanDoc.js       Multi-page documents, reordering, export
+  js/cropView.js      Four-corner adjustment with a magnifier
+  js/edgeDetect.js    Automatic page-boundary detection
+  js/scanFilters.js   The six page filters
+  js/annotate.js      Pen, highlighter and redaction, stored as vectors
+  js/pdf.js           Hand-written PDF writer with an invisible OCR text layer
+
+Recognition
+  js/recognize.js     The single engine seam: Tesseract.js on web, ML Kit native
+  js/ocrEngine.js     Tesseract.js worker lifecycle, page segmentation,
+                      auto-deskew, confidence-based raw-vs-preprocessed
+                      selection, per-region block reprocessing
+  js/mlkitEngine.js   The native path, including the cornerPoints geometry
+  js/preprocess.js    Canvas preprocessing, whole-image and per-region
+  js/perspective.js   Keystone correction and the perspective warp beneath it
+  js/filter.js        Raw / Filtered Text level logic
+
+Image-text editor
+  js/main.js          Bootstrap: file handling, drag and drop, Scan/Copy/Download
+  js/editorObjects.js Renders each recognized word as an editable object
+  js/editorInteractions.js  Select, drag, resize, marquee, undo/redo
+  js/editorExport.js  PNG export and writing translations back onto the image
+  js/inpaint.js       Repairs the pixels under a deleted or moved word
+
+Coherence Filter and translation (two tiers: on-device, or BYOK Claude)
+  js/coherence.js     Tier dispatch
+  js/coherenceClaude.js     API key storage and the Claude call
+  js/coherenceOnDevice.js   Apple Foundation Models, via the native plugin
+  js/coherenceRouter.js     Receipt / business-card prompt specialization
+  js/coherenceGate.js       Offers "Reconstruct anyway" on already-clean text
+  js/factCheck.js     Flags a rewrite that dropped a price, date, time or number
+  js/translate.js     Translation tier dispatch
+  js/translateClaude.js     The Claude tier
+  js/translateOnDevice.js   The on-device tier
+  js/translateLanguages.js  Target language list
+  js/translateHistory.js    Local, capped history so nothing is billed twice
+  js/langDetect.js    Script and language detection, reported with a confidence
+
+Interaction layer (see 06-INTERACTION-MODEL-SPEC.md)
+  js/radialMenu.js    One press-drag-release primitive, three call sites
+  js/commandPalette.js  Cmd/Ctrl+K
+  js/haptics.js       Native-only, silent no-op on the web
+
+Other
+  js/tts.js           Read the recognized text aloud
+  js/diagnostics.js   User-triggered, opt-in diagnostic export
+
+vendor/tesseract/     Tesseract.js 5.1.1, its worker, wasm cores and English
+                      language data, served from this origin instead of a CDN
+                      (see its README)
 docs/PRIVACY-DECISIONS.md
-                     What leaves the device and what doesn't, the ML Kit telemetry
-                     decision, and how each claim was verified
-docs/origins/        Early OpenCV exploration scripts from this project's origins,
-                     plus the sample media they read (history, not a dependency)
-test/                CER/WER benchmark harness (Playwright-driven), unit tests for the
-                     pure pipeline functions, the benchmark image corpus (test/images/)
-                     and its ground-truth transcriptions (test/groundtruth/)
+                      What leaves the device and what doesn't, the ML Kit
+                      telemetry decision, and how each claim was verified
+docs/origins/         Early OpenCV exploration scripts from this project's
+                      origins, plus the sample media they read (history, not a
+                      dependency)
+test/                 The CI gates: the CER/WER benchmark harness
+                      (Playwright-driven), unit tests for the pure pipeline
+                      functions, the browser gates, and the two browser-free
+                      contract gates (test/dom-contract.js,
+                      test/motion-contract.js). The benchmark image corpus is
+                      test/images/ and its ground truth test/groundtruth/
 ```
 
 ## Origins

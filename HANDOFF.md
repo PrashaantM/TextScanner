@@ -39,6 +39,12 @@ view's markup in the document permanently, hidden with a class. All 68 ids
 `js/dom.js` resolves still exist, every pre-existing gate passes, and the
 benchmark is **+0.00pts** — recognition was not touched.
 
+> **Updated 2026-09-13: the count is now 71, and it is finally gated.** 68 was
+> right at `ca341d7`; `8d37a35` and `e181738` added three more ids without any
+> document noticing. `test/dom-contract.js` runs first in CI and pins the
+> number, so the contract can no longer drift away from the prose describing it.
+> See `ANALYSIS.md` §8.2 and `WEB-COMPLETION-PLAN.md` §W3.
+
 `ANALYSIS.md` §8 is the addendum covering this, including the four bugs found
 while building it. `js/app.js` is the shell; `js/main.js` still owns the scan
 flow and reaches the document model only through `bridge`.
@@ -114,8 +120,12 @@ Two commits, one per part, plus one for a CI fix that could not wait.
   eight images with *complete* ground truth. complexPic7, 10 and 11 have
   deliberately partial transcriptions, so an engine that reads more real text
   scores worse on them. **Do not optimize against the 11-image number.**
-- **CI: 6 test gates → 12.** Unit tests 45 → 60. The two newest gates
-  (`test/pdf-export.js`, `test/library-documents.js`) cover the document layer.
+- **CI: 6 test gates → 12** at `ca341d7`. Unit tests 45 → 60. The two newest
+  gates (`test/pdf-export.js`, `test/library-documents.js`) covered the document
+  layer. **It is 16 as of 2026-09-13**: `8d37a35` and `e181738` added
+  `test/document-creation.js` and `test/interaction-layer.js`, and the two
+  contract gates (`test/dom-contract.js`, `test/motion-contract.js`) run first,
+  before any browser is installed, because neither needs one.
 - **Run-to-run noise: the two recorded measurements disagree** — see §5.2. Use
   0.6 WER points as the merge bar until it is settled.
 - Native build: `** BUILD SUCCEEDED **`, exit 0, zero errors (Xcode 26.6).

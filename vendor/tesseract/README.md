@@ -73,7 +73,14 @@ embedded, which is what tesseract.js requests.
 
 ~11 MB total, dominated by the two core builds (3.8 MB each) and the language
 data (2.9 MB). That is the deliberate trade: repository size in exchange for
-removing an entire class of supply-chain risk and making the offline claim true.
+removing an entire class of supply-chain risk and making *recognition* need no
+network at all.
+
+Worth stating precisely, because the wider claim does not follow from this:
+vendoring makes the **scan** offline-capable, not the **app**. The page is still
+loaded over the network like any website, and there is no service worker, so
+opening TextScanner with no connection does not work yet. See
+`WEB-COMPLETION-PLAN.md` §W1.
 
 ## Updating
 

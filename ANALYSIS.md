@@ -436,6 +436,20 @@ programmatically, not by eye), every pre-existing gate passes, and the benchmark
 reports **+0.00pts CER and WER** — the recognition pipeline was not touched at
 all.
 
+> **Update, 2026-09-13.** 68 was correct at `ca341d7` and is no longer the
+> current number: `8d37a35` added `clean-up-text-btn` and `view-on-photo-btn`,
+> `e181738` added `coherence-gate-hint`, and **`js/dom.js` now resolves 71**.
+> The drift is the point of the correction. The number was quoted in this
+> section, in `HANDOFF.md` §0 and in the interaction spec, and *the contract it
+> describes was enforced by nothing* — `getElementById` returns `null` rather
+> than throwing, so a renamed id imports cleanly and only breaks whichever gate
+> happens to touch that control. "Checked programmatically" above was a one-off
+> check at one commit, not a gate. [`test/dom-contract.js`](test/dom-contract.js)
+> is now CI's first step: it asserts every id `dom.js` resolves exists in
+> `index.html`, that none is declared or resolved twice, and it pins the count,
+> so the next change to the contract is a deliberate edit rather than a number
+> three documents quietly disagree with.
+
 Two tests needed one line each: `render-fidelity.js` and `web-tier-smoke.js`
 drive the editor directly rather than through `loadFile`, so they now switch to
 the scan view first. Without it the editor's container is `display: none` and

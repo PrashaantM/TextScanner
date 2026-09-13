@@ -451,29 +451,61 @@ device pass carries applies.
 
 ---
 
-### W10 — Documentation accuracy pass
+### W10 — Documentation accuracy pass — **DONE**
 
-**The problem.** Three concrete errors, found while mapping:
+**The problem.** Three concrete errors, found while mapping; a fourth surfaced
+while fixing them.
 
-1. **`README.md:111` documents `js/editor.js`, which does not exist.** It has not
-   existed since the editor was split into `editorObjects.js` /
-   `editorInteractions.js` / `editorExport.js`. The Project structure block lists
-   12 modules out of 44 and omits the entire document layer — no `store.js`,
-   `documents.js`, `library.js`, `notesEditor.js`, `scanDoc.js`, `pdf.js`,
-   `views.js`, `app.js`, `radialMenu.js`, `commandPalette.js`.
-2. **"68 ids" is wrong in `HANDOFF.md` §0 and `ANALYSIS.md` §8.2.** It is 71 (§0
-   above).
-3. **`README.md:81`'s offline claim** — W1.
+**1. `README.md` documented `js/editor.js`, which does not exist** and has not
+since the editor split into `editorObjects.js` / `editorInteractions.js` /
+`editorExport.js`. The Project structure block listed 12 modules out of 44 and
+omitted the entire document layer — no `store.js`, `documents.js`, `library.js`,
+`notesEditor.js`, `scanDoc.js`, `pdf.js`, `views.js`, `app.js`, `radialMenu.js`,
+`commandPalette.js`. Its `js/coherence.js` description was stale too: that module
+is the tier dispatcher now; the key storage and Claude call it described live in
+`coherenceClaude.js`.
 
-**Files.** `README.md` (81, 103-134), `HANDOFF.md` §0, `ANALYSIS.md` §8.2.
+Rewritten as all 44 modules grouped by what they own. **Every path in the block
+was then verified to resolve — 55 of 55**, by extracting them from the rendered
+block and stat-ing each one, not by reading.
 
-**Definition of done.** Every path named in README's Project structure block
-resolves (`ls` each one); the id count matches `grep -c getElementById js/dom.js`;
-the offline sentence matches whatever W1 decided.
+**2. The "68 ids" count**, in `ANALYSIS.md` §8.2 and `HANDOFF.md` §0. Both were
+correct at `ca341d7` and both are corrected in place with the current number
+(71) and what moved it, rather than silently overwritten — these are historical
+documents and that is their stated standard. The more useful half of each
+correction is the *reason* the drift went unnoticed: the contract was enforced by
+nothing until W3.
 
-**Risk.** None. Docs only. Worth doing because this repo's documents are
-unusually load-bearing, and a citation standard that cites a deleted file is
-the failure mode `ANALYSIS.md` §1.3 is explicitly proud of avoiding.
+**3. The offline claim.** `README.md` said the web app "works offline outright."
+It does not — there is no service worker, so opening the app with no connection
+gives the browser's error page. Reworded to the claim that is true and is
+actually the stronger one for this project: **recognition needs no network at
+all, ever, not even the first time**, because nothing is fetched from a third
+party at scan time — followed by an explicit statement that the page itself is
+still loaded over the network and that offline *launch* does not work yet.
+
+`vendor/tesseract/README.md` carried the same overreach ("making the offline
+claim true") and is corrected the same way: vendoring makes the **scan**
+offline-capable, not the **app**.
+
+**This closes the claim, not the gap.** W1 above — build the service worker — is
+still open, and rewording does not advance it. What it does is stop the README
+promising something the app cannot do while W1 waits.
+
+**4. Found while fixing the above: `HANDOFF.md`'s "CI: 6 test gates → 12"** was
+stale before this work (`8d37a35` and `e181738` made it 14) and would have been
+made staler by it. Corrected to 16, with what each addition was.
+
+**Verify it yourself.** Every path in README's structure block resolves:
+
+```
+grep -oE '(js|test|docs|vendor)/[A-Za-z0-9_./-]*' README.md | sort -u | while read p; do
+  [ -e "$p" ] || echo "MISSING $p"; done
+```
+
+`grep -rn "works offline outright" .` returns nothing, and `grep -c getElementById
+js/dom.js` agrees with every count quoted in prose — which `test/dom-contract.js`
+now enforces rather than leaving to the next person to notice.
 
 ---
 
@@ -554,7 +586,7 @@ Vision migration, and on the web it is not.
 | W7 web app manifest | No | No | S |
 | W8 storage durability + backup | Adds Settings ids | Gate 12 | L |
 | W9 run the 17 checks | No | Only if it finds something | S |
-| W10 doc accuracy | No | No | S |
+| ~~W10 doc accuracy~~ **done** | No | No | S |
 | W11 og: + 404 | No | No | S |
 | W12 version stamp | One new id | No | S |
 | W13 more languages | Adds picker ids | Gate 8 | M |
