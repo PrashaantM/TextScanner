@@ -20,7 +20,8 @@
 // original single-shot scanner rather than showing an error wall, because
 // scanning an image and copying the text out never needed a database.
 
-import { isAvailable, estimateStorage, requestPersistence, clearAll } from "./store.js";
+import { isAvailable, estimateStorage, requestPersistence, isPersisted, clearAll } from "./store.js";
+import { exportLibraryToBlob, importLibraryFromFile } from "./backup.js";
 import {
   DOC_TYPES,
   createDocument,
@@ -263,6 +264,28 @@ async function renderSettings() {
     elements.storageFill.style.width = "0%";
   }
 
+  // Persistence, stated plainly rather than as a boolean nobody can act on.
+  //
+  // "Persistent" is not a nicety. Safari's ITP deletes all script-writable
+  // storage - IndexedDB included - after 7 days without a visit, for any site
+  // that is not installed. This app has no server to re-download from, so for a
+  // person in that situation the honest message is "your documents can be
+  // deleted by the browser, here is what to do", not silence.
+  const persisted = await isPersisted();
+  if (persisted === null) {
+    elements.persistState.textContent = "This browser doesn't say whether storage is permanent.";
+    elements.persistExplain.textContent =
+      "Back up regularly - see below - since there is no way to know whether this browser will keep your documents.";
+  } else if (persisted) {
+    elements.persistState.textContent = "Storage is permanent on this browser.";
+    elements.persistExplain.textContent =
+      "Your documents will not be removed automatically. They are still only on this device, so a backup is still the only copy that survives losing it.";
+  } else {
+    elements.persistState.textContent = "Storage is NOT permanent on this browser.";
+    elements.persistExplain.textContent =
+      "The browser may delete your documents to reclaim space - Safari does this after about 7 days without a visit unless the app is installed to your home screen. Install it, press \u201cKeep storage permanently\u201d above, or back up below.";
+  }
+
   const stats = await historyStats();
   elements.historyStats.textContent = stats.total
     ? `${stats.total} translation${stats.total === 1 ? "" : "s"} remembered, ${stats.saved} saved`
@@ -292,6 +315,12 @@ export async function initApp() {
     storage: document.getElementById("settings-storage"),
     storageFill: document.getElementById("settings-storage-fill"),
     historyStats: document.getElementById("settings-history-stats"),
+    persistState: document.getElementById("settings-persist-state"),
+    persistExplain: document.getElementById("settings-persist-explain"),
+    backupExport: document.getElementById("settings-backup-export"),
+    backupImport: document.getElementById("settings-backup-import"),
+    backupFile: document.getElementById("settings-backup-file"),
+    backupStatus: document.getElementById("settings-backup-status"),
   });
 
   storageReady = await isAvailable();
@@ -504,6 +533,77 @@ export async function initApp() {
     const removed = await clearHistory({ includeSaved: true });
     await renderSettings();
     window.alert(removed ? `Cleared ${removed} entries.` : "Nothing to clear.");
+  });
+
+  // ---- Back up / restore ----
+  //
+  // The download is a plain object-URL anchor: no Web Share, because a backup is
+  // a file you keep rather than something you send, and the share sheet on
+  // desktop cannot take a file at all.
+  elements.backupExport?.addEventListener("click", async () => {
+    if (!storageReady) {
+      window.alert("This browser isn't allowing local storage, so there is nothing to back up.");
+      return;
+    }
+    elements.backupExport.disabled = true;
+    elements.backupStatus.textContent = "Collecting documents\u2026";
+    try {
+      const { blob, counts } = await exportLibraryToBlob({
+        onProgress: (done, total) => {
+          elements.backupStatus.textContent = `Encoding images\u2026 ${done} of ${total}`;
+        },
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `textscanner-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Revoked on a timer rather than immediately: Safari has historically
+      // cancelled an in-flight download when its object URL was revoked in the
+      // same tick as the click.
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      elements.backupStatus.textContent =
+        `Backed up ${counts.documents} document${counts.documents === 1 ? "" : "s"}, ` +
+        `${counts.pages} page${counts.pages === 1 ? "" : "s"} and ${counts.blobs} image${counts.blobs === 1 ? "" : "s"} ` +
+        `(${formatBytes(blob.size)}). Your API key is not in this file.`;
+      hapticMedium();
+    } catch (err) {
+      console.error("Backup failed:", err);
+      elements.backupStatus.textContent = "Couldn't build the backup. Try again.";
+    } finally {
+      elements.backupExport.disabled = false;
+    }
+  });
+
+  elements.backupImport?.addEventListener("click", () => elements.backupFile?.click());
+
+  elements.backupFile?.addEventListener("change", async () => {
+    const file = elements.backupFile.files?.[0];
+    elements.backupFile.value = "";
+    if (!file) return;
+    if (!storageReady) {
+      window.alert("This browser isn't allowing local storage, so a backup can't be restored here.");
+      return;
+    }
+    elements.backupStatus.textContent = "Reading backup\u2026";
+    try {
+      const added = await importLibraryFromFile(file, {
+        onProgress: (done, total) => {
+          elements.backupStatus.textContent = `Restoring images\u2026 ${done} of ${total}`;
+        },
+      });
+      await renderLibrary();
+      await renderSettings();
+      elements.backupStatus.textContent = added.documents
+        ? `Restored ${added.documents} document${added.documents === 1 ? "" : "s"} and ${added.pages} page${added.pages === 1 ? "" : "s"}.`
+        : "Nothing new to restore - everything in that backup is already here.";
+      hapticMedium();
+    } catch (err) {
+      console.error("Restore failed:", err);
+      elements.backupStatus.textContent = err?.message || "Couldn't read that backup.";
+    }
   });
 
   document.getElementById("settings-delete-all")?.addEventListener("click", async () => {

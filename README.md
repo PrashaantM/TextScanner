@@ -36,6 +36,12 @@ What this doesn't claim: better raw recognition accuracy than those tools on har
 - **Search that reaches inside your scans.** Every page's recognized text is indexed, so searching "deductible" finds the insurance policy you photographed months ago — and the result shows the matching passage, not just the title.
 - **Recently Deleted.** Deletion is two-stage: documents sit in the trash for 30 days and nothing is actually destroyed until they are purged. A scan's pages are megabytes each, so an undo that could not restore them would be a lie.
 - **Everything is local.** IndexedDB, on your device. No sync, no account, no server. Settings shows exactly how much space it uses and can delete all of it.
+- **Back up everything, to one file.** Because there is no server, the browser's storage is the only copy - and browsers do delete storage. Settings exports every document, page, image and folder as a single JSON file and reads it back. It deliberately does **not** contain your API key: a backup is exactly the file you email yourself or drop in a synced folder.
+- **What "stored on your device" actually guarantees, per browser.** Settings now says which situation you are in, because it differs:
+  - **Installed to the home screen or desktop** (any browser): storage is persistent and will not be evicted automatically. Install it from your browser's menu, or Share → Add to Home Screen on iOS.
+  - **Chrome, Edge, Firefox in a normal tab:** persistence is usually granted once you have used the site a little; until then storage can be cleared under disk pressure, which is rare in practice.
+  - **Safari in a normal tab:** storage is deleted after about **7 days** without a visit. This is Safari's policy for every site that is not installed, not something this app can opt out of. Install it to the home screen, or keep a backup.
+  - **Private / incognito windows:** nothing is kept after the window closes, in any browser.
 
 ### Scanning
 

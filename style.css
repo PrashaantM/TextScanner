@@ -2629,6 +2629,17 @@ kbd {
   font-weight: 600;
 }
 
+/* A row of related settings buttons - wraps rather than overflowing on a phone.
+   No transition or animation here, so nothing for test/motion-contract.js to
+   check; the buttons inherit .btn's, which are already tokenized. */
+.settings-group__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+
 .settings-group__hint {
   margin: 0.5rem 0;
   color: var(--text-muted);

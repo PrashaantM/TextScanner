@@ -658,6 +658,27 @@
         </p>
         <button id="settings-persist" class="btn btn--secondary btn--small" type="button">Keep storage permanently</button>
         <p id="settings-persist-status" class="settings-group__hint" role="status"></p>
+        <!-- Filled by js/app.js's renderSettings with the ACTUAL answer from
+             navigator.storage.persisted(), in plain language rather than a
+             boolean. Someone whose browser has not granted persistence needs to
+             know their documents are evictable, and what to do about it. -->
+        <p id="settings-persist-state" class="settings-group__value"></p>
+        <p id="settings-persist-explain" class="settings-group__hint"></p>
+      </div>
+
+      <div class="settings-group">
+        <h2 class="settings-group__heading">Back up everything</h2>
+        <p class="settings-group__hint">
+          One file containing every document, page, image and folder on this device.
+          There is no server and no sync, so this is the only copy that can outlive this
+          browser. It does <strong>not</strong> contain your API key.
+        </p>
+        <div class="settings-group__row">
+          <button id="settings-backup-export" class="btn btn--primary btn--small" type="button">Back up everything</button>
+          <button id="settings-backup-import" class="btn btn--secondary btn--small" type="button">Restore from a backup</button>
+          <input type="file" id="settings-backup-file" accept="application/json,.json" hidden />
+        </div>
+        <p id="settings-backup-status" class="settings-group__hint" role="status"></p>
       </div>
 
       <div class="settings-group">

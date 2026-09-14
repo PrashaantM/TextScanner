@@ -1016,7 +1016,7 @@ substitutes for it.
 **The manual checklist, as of 2026-09-13.** Two things the nightly job explicitly
 cannot settle, both needing nothing more than Safari and five minutes:
 
-1. **Store a scanned page and reopen it.** Scan or add any image as a document
+1. **Store a scanned page and reopen it, then restore a backup.** Scan or add any image as a document
    page in Safari, close the tab, reopen the app, and confirm the page image is
    still there. This is the one assertion the nightly *skips* on WebKit —
    `test/browser.js` documents why that skip is a Playwright build limitation
@@ -1027,6 +1027,12 @@ cannot settle, both needing nothing more than Safari and five minutes:
    Blob-in-IndexedDB since Safari 10, so this is expected to pass — but "expected"
    is not "checked", and if it fails, `js/store.js`'s `putBlob`/`getBlob` are a
    single chokepoint that could store `{ buffer, type }` instead.
+   **`test/backup-roundtrip.js` skips entirely on WebKit for this reason**, so
+   the whole backup/restore path — the one thing standing between a Safari user
+   and total loss — is unverified on the engine Safari users actually run. Doing
+   this by hand is: Settings → **Back up everything**, then **Delete all local
+   data**, then **Restore from a backup**, and confirm the library and a search
+   for a word inside a scanned page both come back.
 2. **Point the camera at a textured surface with no page in frame** and confirm
    the app declines to crop rather than guessing. See X4 below — this one is
    *expected to fail*, and confirming it on real Safari is what turns a

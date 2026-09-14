@@ -116,6 +116,13 @@ jobs:
       # that puts back convincing wood grain in different places scores worse
       # than a flat blur while looking incomparably better.
       - run: node test/inpaint-fidelity.js
+      # The library backup, end to end: build a library, back it up, run the
+      # real "Delete all local data", import, and assert both the documents AND
+      # a full-text search for a word that exists only inside a scanned page
+      # come back. Plus a canary: an API key is saved before the export and the
+      # serialized bytes are searched for it, because a library backup is
+      # exactly the file someone emails themselves or drops in a synced folder.
+      - run: node test/backup-roundtrip.js
 
   # ---------------------------------------------------------------------------
   # Nightly only, and that is a deliberate choice rather than a lack of nerve.
@@ -182,6 +189,10 @@ jobs:
       - run: node test/radial-call-sites.js
         env: { BROWSER: "${{ matrix.browser }}" }
       - run: node test/inpaint-fidelity.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      # Skips itself on WebKit, which cannot store a Blob in IndexedDB in
+      # Playwright's build - see test/browser.js and §4.3.
+      - run: node test/backup-roundtrip.js
         env: { BROWSER: "${{ matrix.browser }}" }
       - run: node test/touch-interactions.js
         env: { BROWSER: "${{ matrix.browser }}" }

@@ -351,6 +351,23 @@ export async function requestPersistence() {
   }
 }
 
+// Reports whether the browser has ALREADY granted persistent storage, without
+// asking for it. requestPersistence() above prompts or silently decides; this
+// only observes, so Settings can tell someone the truth about their situation on
+// every render rather than triggering a permission decision each time they look.
+//
+// Returns null - not false - where the browser does not implement the API at
+// all. "It hasn't granted persistence" and "it won't say" need different copy:
+// the first has a remedy, the second only has "back up".
+export async function isPersisted() {
+  if (!navigator.storage?.persisted) return null;
+  try {
+    return await navigator.storage.persisted();
+  } catch {
+    return null;
+  }
+}
+
 // ---- Availability ----
 //
 // Storage can be unavailable outright: Safari private browsing, a browser with
