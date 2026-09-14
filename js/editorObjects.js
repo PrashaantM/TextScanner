@@ -30,6 +30,7 @@ import {
   deleteBtn,
 } from "./dom.js";
 import { state, MAX_UNDO_STEPS, FONT_SIZE_CORRECTION, LOW_CONFIDENCE_THRESHOLD } from "./state.js";
+import { largestFittingSize, INK_GRID_STEP_PX } from "./inkFit.js";
 import { wordPasses } from "./filter.js";
 
 // ---- Object lookup ----
@@ -581,40 +582,38 @@ export function describeNotTextWarning(objects) {
 // where it does the most damage.
 //
 // The figure has to be the one that holds AT THE SIZE THE WORD ACTUALLY RENDERS
-// AT, and that makes this a fixed point rather than a division: the size
-// depends on the metric and the metric depends on the size. solveInkFitPx below
-// iterates it. It converges quickly because the metric's sensitivity to size is
-// small - about 0.12 in log-log at the steepest point in that table - so each
-// pass cuts the remaining error by close to an order of magnitude; measured,
-// three quarters of the solves on this corpus finish in one or two passes. See
-// INK_SOLVE_MAX_PASSES for the distribution and for the handful that do not
-// converge at all.
+// AT. That much was right. What was WRONG was the next step: solving for it by
+// fixed-point iteration, size := target / perEm(size), which assumes ink is a
+// continuous function of size.
+//
+// It is continuous on `.SF NS`, and on almost nothing else. Every hinted static
+// face grid-fits ink to whole pixels, so the quantity being solved against is a
+// STAIRCASE: for most targets no size renders the wanted ink at all, the
+// iteration has nothing to converge to, and it oscillates. Liberation Sans -
+// which is what CI actually resolves - swings 6.8% per em across five pixels of
+// size and skips ink values entirely; DejaVu Sans swings 9.06% and is
+// NON-MONOTONIC. That is not an edge case; `.SF NS` is the edge case, and
+// developing against it is how this shipped red.
+//
+// So the size is no longer solved for, it is SEARCHED for: the largest size
+// whose ink still fits. js/inkFit.js does that, is pure, and is tested against
+// synthetic staircase and non-monotonic metrics in test/unit/ink-fit.test.js
+// rather than against whichever faces this machine happens to have.
 
 const INK_REF_FONT_PX = 100;
 
-// A measurement size is rounded to this before it is taken, so that a cached
-// figure is exact for its key rather than approximately right across a range,
-// and so the solve below cannot chatter between two sizes that differ by less
-// than the renderer can express. 1/64px is Chromium's LayoutUnit, the
-// granularity layout stores a used font-size at, so rounding to it discards
-// nothing the renderer would have kept.
-const INK_SIZE_QUANTUM = 1 / 64;
+// A measurement size is rounded to the solver's own grid before it is taken, so
+// the sizes that CAN be measured and the sizes that CAN be chosen are the same
+// set. They have to be: the search below asks "does this size fit", and a
+// measurement taken at a slightly different size than the one that gets
+// rendered would answer a question about a size nobody uses.
+const INK_SIZE_QUANTUM = INK_GRID_STEP_PX;
 
-// Cap on the fixed-point solve, and it is load-bearing rather than defensive:
-// the non-converging case is real and was measured, not guessed at. Over the
-// 440 solves complexPic1/2/5 need, the passes actually taken were
-//
-//     1 pass: 209    2: 125    3: 98    4: 6    capped at 6: 2
-//
-// and the two that hit the cap are both the word "the" on its width, where the
-// metric steps between two adjacent sizes and the iteration alternates between
-// them forever. What the cap returns in that case is the last iterate, which
-// is fine and does not need to be the better of the two: once the iteration is
-// alternating, both iterates are within one step of the target, and measured,
-// the "the" that never settles still lands within 0.046% of its box - a tenth
-// of what test/replacement-size.js allows. Worst miss over all 440 solves,
-// converged or not, is 0.113%.
-const INK_SOLVE_MAX_PASSES = 6;
+// The search is bounded by these rather than by nothing. Below 1px nothing is
+// legible and the browser floors the used size anyway; above 2048 no word in a
+// photograph belongs. Bisecting this range on the grid costs ~16 measurements.
+const INK_MIN_FONT_PX = 1;
+const INK_MAX_FONT_PX = 2048;
 
 // Keyed by the string AND the size it was measured at, because - per the table
 // above - the per-em figure is a function of both. Keying it on the string
@@ -749,32 +748,6 @@ export function inkMetricsPerEm(text, fontPx = INK_REF_FONT_PX, family = null) {
   return metrics;
 }
 
-// The font size, in source-image pixels, whose rendered ink matches `targetPx`
-// in `dimension` ("height" or "width").
-//
-// A fixed point rather than a division, for the reason set out at the top of
-// this section. Seeded from the reference measurement - which is exactly the
-// answer the old code returned - and then re-solved at the size that answer
-// implies, until it stops moving by more than the renderer can express.
-function solveInkFitPx(text, targetPx, dimension, scale, family) {
-  const seed = inkMetricsPerEm(text, INK_REF_FONT_PX, family);
-  if (!seed || !(seed[dimension] > 0)) return null;
-  let fitPx = targetPx / seed[dimension];
-  for (let pass = 0; pass < INK_SOLVE_MAX_PASSES; pass++) {
-    const at = inkMetricsPerEm(text, fitPx * scale, family);
-    if (!at || !(at[dimension] > 0)) return fitPx;
-    const next = targetPx / at[dimension];
-    const settled = Math.abs(next - fitPx) * scale < INK_SIZE_QUANTUM;
-    fitPx = next;
-    if (settled) break;
-  }
-  return fitPx;
-}
-
-// The largest font size, as a percentage of the image's natural WIDTH (this
-// module's unit convention for fontSizePct), at which `text` still fits the
-// source word's ink box.
-//
 // Height alone is not the target, and the reason is worth stating because it
 // was tried first and measured: sizing purely to match ink height puts the
 // replacement at exactly the right height (1.015x measured, against 0.581x
@@ -800,30 +773,54 @@ function solveInkFitPx(text, targetPx, dimension, scale, family) {
 export const MIN_WIDTH_FIT_SCALE = 0.5;
 
 // The fit for `text` inside a source ink box, in source-image pixels, plus the
-// one fact that cannot be recovered from the answer alone: whether the width
-// floor is what chose it.
+// two facts that cannot be recovered from the answer alone: whether the width
+// floor is what chose it, and whether anything fit at all.
+//
+// The search runs in CSS pixels, not image pixels, because CSS pixels are where
+// the browser grid-fits the ink - that is the unit the staircase has treads in.
+// The source box arrives in image pixels, so both ends convert through the
+// render scale.
 //
 // Exported for test/replacement-size.js, which has to exempt a floor-sized word
 // from its spill assertion. That gate used to recognise the floor with an
 // ABSOLUTE threshold on rendered height - "0.5 of the source box, give or take"
 // - while this code applies the floor RELATIVELY, against the height-matched
 // size. Those two agree only if the per-em metric is constant across a 2x
-// change of size, which the table at the top of this section shows it is not,
-// so the gate reported a spill failure on a word this code had floored exactly
-// right. Handing out the predicate makes the gate ask this module's question
-// instead of a similar-looking one of its own; widening its threshold would
-// only have moved the disagreement somewhere else.
+// change of size, which the tables above show it is not, so the gate reported a
+// spill failure on a word this code had floored exactly right. Handing out the
+// predicate makes the gate ask this module's question instead of a similar-
+// looking one of its own.
 export function inkFitPx(text, inkHeightPx, inkWidthPx, naturalWidth) {
   if (!naturalWidth || !inkHeightPx) return null;
   const family = wordFontFamily();
   const scale = inkRenderScale(naturalWidth);
-  const heightFitPx = solveInkFitPx(text, inkHeightPx, "height", scale, family);
-  if (!heightFitPx) return null;
-  const widthFitPx = inkWidthPx ? solveInkFitPx(text, inkWidthPx, "width", scale, family) : null;
+  const inkAt = (dimension) => (cssPx) => {
+    const m = inkMetricsPerEm(text, cssPx, family);
+    return m ? m[dimension] * cssPx : NaN;
+  };
+  const bounds = { minPx: INK_MIN_FONT_PX, maxPx: INK_MAX_FONT_PX };
+  const height = largestFittingSize(inkHeightPx * scale, inkAt("height"), bounds);
+  if (!height) return null;
+  const width = inkWidthPx ? largestFittingSize(inkWidthPx * scale, inkAt("width"), bounds) : null;
+
+  const heightFitPx = height.px / scale;
+  const widthFitPx = width ? width.px / scale : null;
   const flooredByWidth = widthFitPx !== null && widthFitPx < heightFitPx * MIN_WIDTH_FIT_SCALE;
   const fitPx =
     widthFitPx === null ? heightFitPx : Math.max(Math.min(heightFitPx, widthFitPx), heightFitPx * MIN_WIDTH_FIT_SCALE);
-  return { heightFitPx, widthFitPx, fitPx, flooredByWidth, renderScale: scale };
+  return {
+    heightFitPx,
+    widthFitPx,
+    fitPx,
+    flooredByWidth,
+    renderScale: scale,
+    // False when the source box is smaller than the smallest ink the face can
+    // render - a two-pixel OCR box. The word still gets a size, but nothing
+    // about it fits, and a caller that cannot tell this apart from success will
+    // report the overflow as a sizing bug.
+    heightFits: height.fits,
+    widthFits: width ? width.fits : null,
+  };
 }
 
 export function fontSizePctForInk(text, inkHeightPx, inkWidthPx, naturalWidth) {
