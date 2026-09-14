@@ -158,10 +158,17 @@ const measureAll = (page) =>
     const { PROPERTY_SPAN, SLACK } = window.__gateConstants;
     const s = window.__state;
     const view = document.getElementById("image-format-view");
-    // clientWidth, not getBoundingClientRect().width: font-size is in `cqw`,
-    // which resolves against the container's CONTENT box, and this element has
-    // a 1px border.
-    const scale = view.clientWidth / s.lastNaturalWidth;
+    // The CONTENT box, fractionally. `cqw` resolves against the container's
+    // content box, so the border comes off - but clientWidth cannot be used to
+    // get it, because clientWidth is an INTEGER and the real layout width is
+    // not. At a 359px phone width that rounding is 0.14%, which is bigger than
+    // the grid the app picks sizes on; a gate measuring on the integer would
+    // bake that error into every number it prints and would disagree with the
+    // app about which size is even being rendered.
+    const viewStyle = getComputedStyle(view);
+    const viewBorder = (parseFloat(viewStyle.borderLeftWidth) || 0) + (parseFloat(viewStyle.borderRightWidth) || 0);
+    const viewPadding = (parseFloat(viewStyle.paddingLeft) || 0) + (parseFloat(viewStyle.paddingRight) || 0);
+    const scale = (view.getBoundingClientRect().width - viewBorder - viewPadding) / s.lastNaturalWidth;
     const mctx = document.createElement("canvas").getContext("2d");
     const rows = [];
     for (const o of s.editorObjects) {
@@ -443,6 +450,7 @@ for (const image of ["complexPic1.jpeg", "complexPic5.jpeg"]) {
   }
 
   // ---- As recognized ----
+  const wideWidth = await page.evaluate(() => document.getElementById("image-format-view").clientWidth);
   check(await measureAll(page), `${image} as-scanned`, failures);
 
   // ---- After retyping, through the real contenteditable spans ----
@@ -472,6 +480,29 @@ for (const image of ["complexPic1.jpeg", "complexPic5.jpeg"]) {
     failures.push(`${image}: expected ${ids.length} retyped words back from the measurement, got ${retyped.length}`);
   }
   check(retyped, `${image} retyped`, failures);
+
+  // ---- And it survives the container changing width ----
+  //
+  // A word's font-size is a percentage of the editor surface's width, so every
+  // size above is only correct for the width it was derived at. This gate ran
+  // at one fixed viewport and asserted nothing about any other, which is the
+  // guided-path bug's exact shape: one door tested, a second door shipped. The
+  // second door here is a phone rotating.
+  //
+  // Re-checked rather than re-scanned: the OCR result is unchanged, it is the
+  // LAYOUT that moved, which is precisely the thing that was untested.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  await page.waitForTimeout(300);
+  const narrowWidth = await page.evaluate(() => document.getElementById("image-format-view").clientWidth);
+  if (!(narrowWidth > 0) || narrowWidth >= wideWidth) {
+    failures.push(`${image}: resizing to a phone viewport did not narrow the editor surface (${wideWidth} -> ${narrowWidth}), so this proves nothing`);
+  }
+  check(await measureAll(page), `${image} after resize to ${narrowWidth}px`, failures);
+
+  await page.setViewportSize({ width: 1200, height: 1600 });
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  await page.waitForTimeout(300);
 
   // ---- A size the user chose by hand outranks the refit ----
   // Resizing is how someone overrides the automatic size; a later retype must

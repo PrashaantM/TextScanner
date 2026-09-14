@@ -694,10 +694,17 @@ function editorContentWidth() {
   for (let el = imageFormatView; el; el = el.parentElement) {
     const cs = getComputedStyle(el);
     const padding = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
-    // clientWidth is the padding box, so only the padding comes off here - the
-    // element's own border is already outside it.
-    if (el.clientWidth > 0) return Math.max(el.clientWidth - padding - inset, 0);
-    inset += padding + (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+    const border = (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+    // getBoundingClientRect, NOT clientWidth. clientWidth is an integer, and
+    // `cqw` resolves against the real, fractional layout width - so on a phone
+    // the two disagree by up to half a pixel in ~359, which is 0.14%. That is
+    // larger than the grid the size is chosen on, so the browser ends up
+    // rendering at a size the solver never evaluated, and the word can spill by
+    // the difference. Measured: two words over their box after a rotate, and
+    // every size 0.01-0.02px off the grid. Fractional in, fractional out.
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0) return Math.max(rect.width - border - padding - inset, 0);
+    inset += padding + border;
   }
   return 0;
 }
@@ -851,6 +858,58 @@ export function refitWordFontSize(obj) {
   return true;
 }
 
+// The container width the current word sizes were solved against.
+//
+// Everything in this section sizes a word by measuring its ink AT THE SIZE IT
+// WILL RENDER AT, and that size depends on how wide the editor surface is:
+// fontSizePct is a percentage of the container, resolved through `cqw`. So a
+// size is only correct for the width it was derived for. Change the width -
+// rotate a phone, open the app on a different screen - and every word's
+// rendered size changes with it; because ink per em is NOT constant in size,
+// the fit drifts, and it drifts in the direction that spills.
+//
+// That is measured, not feared. complexPic5 sized against a 998px container and
+// then re-laid-out at 359px: 108 of its 115 words spilled their box, the worst
+// by 15%. Nothing re-derived them, and nothing tested it - the gate ran at one
+// fixed viewport, so the door nobody opened was the one that was broken.
+//
+// So a width change re-derives the sizes, through the same refitWordFontSize a
+// retype uses, which declines for the same two reasons: a user-added word has
+// no source ink to match, and a word the user resized by hand keeps their size.
+let lastFitContainerWidth = 0;
+
+export function refitWordsForContainerWidth() {
+  const width = editorContentWidth();
+  // 0 while the surface is display:none. Nothing to re-derive against yet, and
+  // the first real width will bring this straight back.
+  if (!width || width === lastFitContainerWidth) return 0;
+  lastFitContainerWidth = width;
+  let changed = 0;
+  for (const obj of state.editorObjects) {
+    if (obj.type === "word" && refitWordFontSize(obj)) changed++;
+  }
+  return changed;
+}
+
+// A ResizeObserver rather than a window resize listener, because it is the
+// CONTAINER's width the sizes depend on and that can change while the window
+// does not - entering Full image mode, a panel opening beside it, the page
+// zooming. Coalesced to one pass per frame; re-entrancy is not possible anyway,
+// since changing a child's font-size cannot change this element's inline size
+// (it is width:100% with a fixed aspect-ratio), and the width-equality guard
+// above would stop it if it could.
+if (typeof ResizeObserver !== "undefined" && imageFormatView) {
+  let queued = false;
+  new ResizeObserver(() => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      refitWordsForContainerWidth();
+    });
+  }).observe(imageFormatView);
+}
+
 export function applyObjectStyle(obj) {
   obj.el.style.left = `${obj.x}%`;
   obj.el.style.top = `${obj.y}%`;
@@ -893,6 +952,7 @@ export function clearImageFormatView() {
   resetEditorObjects();
   state.imageFormatLines = [];
   inkPerEmCache.clear();
+  lastFitContainerWidth = 0;
   state.objectIdCounter = 0;
   state.lastNaturalWidth = 0;
   state.lastNaturalHeight = 0;
@@ -1452,6 +1512,10 @@ export function renderImageFormatView(previewImg, ocrWords, naturalWidth, natura
   });
 
   if (lineSpans.length) state.imageFormatLines.push(lineSpans);
+  // The width every size above was solved against, so the observer can tell a
+  // real width change from the surface simply becoming visible at the width
+  // that was already predicted for it.
+  lastFitContainerWidth = editorContentWidth();
   // After the loop, not inside it: both thresholds are medians over the whole
   // image, so no word can be scored until every word exists.
   scoreRegionsForNotText(state.editorObjects);
