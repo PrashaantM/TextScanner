@@ -40,7 +40,7 @@
 //
 // Usage: node test/replacement-size.js   (exits non-zero if anything regressed)
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, BROWSER_NAME } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -64,32 +64,81 @@ const server = createServer(async (req, res) => {
 
 // Fill and spill, as fractions of the source word's own ink box.
 //
-// The band around 1.0 is 6% rather than tighter for the reason spelled out in
-// render-fidelity.js: the size is derived from one measurement at a 100px
-// reference and scaled, and a face's metrics per em are not perfectly linear in
-// size once hinting is involved (~1.5% on this stack, varying with the rendered
-// size, which varies with the viewport). Nowhere near wide enough to admit 0.58.
-// Measured worst case on this corpus is 1.062, on "vnanir" - six x-height
-// letters rendered about ten pixels tall, where the dot on the "i" and the
-// x-height both grid-fit to whole pixels and a single pixel is 10% of the ink.
-// Small text is exactly where the quantization bites, and a real photo is full
-// of it, so this band is wider than render-fidelity.js's 1.06 over synthetic
-// boxes. It still cannot admit 0.58, nor the 2.12x and 3.18x that the
-// envelope-inflation bug produced.
+// This is the OUTER statement of the property, in the terms the header
+// describes it: a replacement fills the box and does not spill out of it. The
+// band around 1.0 is 6% and stays 6% - deliberately, now that the precision
+// check below carries the real weight. It is the assertion that holds whatever
+// face the stack resolves to, so widening or narrowing it should track what the
+// property means, not what this month's font happens to measure.
+//
+// (The reason it USED to be 6% no longer applies and should not be cited: the
+// size was derived from one measurement at a 100px reference and scaled, and
+// the scaling was wrong by up to 18%. That is fixed - see js/editorObjects.js.)
 const MAX_SPILL = 1.1;
 const MIN_TIGHT_FIT = 0.94;
-// The floor in fontSizePctForInk: a replacement much longer than the original
-// stops shrinking at half the height-matched size and overflows instead, rather
-// than becoming unreadable inside a short word's box. A word sized by that floor
-// is exempt from the spill assertion - it is the documented escape hatch, not a
-// regression - but it must still not be shrinking below the floor.
-const WIDTH_FIT_FLOOR = 0.5;
+
+// How far the BINDING dimension - the one the sizing chose to fit, height or
+// width - may miss the source box by. This is the assertion that actually
+// catches a sizing bug, and it can be three orders of magnitude tighter than
+// the band above because both sides measure the same thing the same way: the
+// app solves for the size whose canvas-measured ink equals the source box, and
+// this measures the canvas ink at the size it actually rendered at.
+//
+// Chosen from measurement, with the separation stated rather than assumed.
+// Correct code, over all 259 words of complexPic1/2/5 as-scanned and retyped,
+// misses by at most 0.047% (median 0.005-0.010%). Reverting the per-size
+// measurement in js/editorObjects.js - going back to one reading at a 100px
+// reference - misses by 1.64% to 11.92% on those same populations. 0.5% sits
+// ~10x above the first and ~3x below the second.
+//
+// AND IT IS NOT A ONE-FONT NUMBER, which matters because everything else in
+// this file is. Re-run over complexPic5 with the stack forced to eight
+// different faces, the residual under correct code was:
+//
+//     .SF NS 0.047%   Helvetica 0.030%   Arial Narrow 0.040%   Georgia 0.035%
+//     Verdana 0.046%  Courier New 0.028%  American Typewriter 0.052%  Optima 0.052%
+//
+// The spread is 0.028-0.052% - it does not track the face, because the app
+// solves against whatever face it measures and this checks the same face the
+// same way. That is why this threshold can be tight where MAX_SPILL above
+// cannot: MAX_SPILL is absorbing the app's font and the photo's font being
+// different faces, and this is not.
+//
+// WHAT WOULD STILL MAKE IT FLAKY, stated because it is a real risk and not a
+// hypothetical: the app solves the size by fixed-point iteration, which
+// converges only because a face's ink per em varies smoothly-ish with size.
+// Where the metric STEPS between two adjacent sizes, a target can sit in the
+// gap and the iteration alternates instead of settling. That is not theory -
+// it already happens on .SF NS, on 2 of the 440 solves this corpus needs (the
+// word "the", on width), and it costs 0.046%, comfortably inside the number
+// above. But how big a step is depends entirely on the face, and a heavily
+// hinted face with coarser steps could land outside it. This assertion would
+// then go red on correct code. That is a known limitation of the gate, not a
+// licence to widen the number: the fix is to look at the face it happened on,
+// which is why the run prints which face it resolved.
+const MAX_BINDING_FIT_ERROR = 0.005;
 
 // Measures every word's rendered ink against the source box it stands in, in
 // source-image pixels. Ink, not the span's border box: the box carries
 // line-height and padding, so comparing it to a glyph height means nothing.
 const measureAll = (page) =>
-  page.evaluate(() => {
+  page.evaluate(async () => {
+    // inkFitPx answers the one question this gate cannot answer from pixels:
+    // whether the width floor is what chose a word's size. The floor is
+    // RELATIVE - half of whatever the height-matched size came out at - and
+    // this gate used to detect it with an ABSOLUTE threshold on rendered
+    // height, "0.5 of the source box give or take 0.05". The two agree only
+    // while the per-em metric is constant across a 2x change of size, which it
+    // is not, so a word the app had floored exactly right was reported as a
+    // spill failure. Asking the module is the fix; widening the 0.05 would only
+    // have moved the disagreement to the next font.
+    //
+    // Note what is and is not being taken from the implementation here. The
+    // DENOMINATORS stay this gate's own - originalBbox, what the OCR engine
+    // reported - and every fill below is still measured from rendered pixels.
+    // The only thing imported is the classification, which is not derivable
+    // from the outside.
+    const { inkFitPx, MIN_WIDTH_FIT_SCALE } = await import("/js/editorObjects.js");
     const s = window.__state;
     const view = document.getElementById("image-format-view");
     // clientWidth, not getBoundingClientRect().width: font-size is in `cqw`,
@@ -117,11 +166,20 @@ const measureAll = (page) =>
       const m = mctx.measureText(text);
       const inkH = (m.actualBoundingBoxAscent + m.actualBoundingBoxDescent) / scale;
       const inkW = m.width / scale;
+      // Asked with the OCR box, not with the inkTarget* the renderer kept, so
+      // the question goes in on this gate's numbers.
+      const fit = inkFitPx(text, srcH, srcW, s.lastNaturalWidth);
       rows.push({
         id: o.id,
         text,
+        renderedPx: parseFloat(cs.fontSize),
         hFill: inkH / srcH,
         wFill: inkW / srcW,
+        // Which dimension the size was chosen to fit, so the check below knows
+        // which fill is supposed to land on 1.0. "floor" means neither: the
+        // height is deliberately held above what the width allows.
+        binding: !fit ? null : fit.flooredByWidth ? "floor" : fit.widthFitPx !== null && fit.widthFitPx < fit.heightFitPx ? "width" : "height",
+        floorScale: MIN_WIDTH_FIT_SCALE,
         fontSizeLocked: !!o.fontSizeLocked,
       });
     }
@@ -135,14 +193,19 @@ function check(rows, label, failures) {
   }
   let worstSpill = 0;
   let worstSlack = 1;
+  let worstBindingError = 0;
   let flooredCount = 0;
   for (const r of rows) {
     const tight = Math.max(r.hFill, r.wFill);
     worstSlack = Math.min(worstSlack, tight);
-    // Sized by the floor: height is deliberately held above what the width
-    // allows, so width spills on purpose. Recognised by the height having
-    // stopped shrinking - anything at or below the floor is the escape hatch.
-    const flooredOut = r.wFill > MAX_SPILL && r.hFill <= WIDTH_FIT_FLOOR + 0.05;
+    if (!r.binding) {
+      failures.push(`${label}/"${r.text}": js/editorObjects.js could not size this word at all - inkFitPx returned nothing`);
+      continue;
+    }
+    // Sized by the floor: the height is deliberately held above what the width
+    // allows, so the width spills on purpose. This is the app's own answer, not
+    // a guess from the rendered height - see the note in measureAll.
+    const flooredOut = r.binding === "floor";
     if (flooredOut) flooredCount++;
     else worstSpill = Math.max(worstSpill, tight);
     if (!flooredOut && (r.hFill > MAX_SPILL || r.wFill > MAX_SPILL)) {
@@ -157,16 +220,58 @@ function check(rows, label, failures) {
           `and ${r.wFill.toFixed(3)} of its width - short in both, so the replacement is smaller than the text it replaces`
       );
     }
+    if (flooredOut) {
+      // A floored word is exempt from the spill assertion, but not from being
+      // AT the floor: the floor is half the height-matched size, and the ink at
+      // a smaller size is never less per em than at a larger one, so its height
+      // fill cannot come out under half. Anything below that is the floor
+      // failing to hold rather than the escape hatch working.
+      //
+      // There is deliberately no upper bound to match. How far above 0.5 a
+      // floored word lands is exactly the quantity that varies with the face -
+      // 0.500 on the font this ran against, 0.613 reported on another - and
+      // bounding it is how this gate came to fail correct code in the first
+      // place. Which words reach the floor at all varies just as much: the same
+      // complexPic5 floors 1 word under .SF NS, 7 under Courier New and none at
+      // all under Helvetica, Georgia, Verdana or Arial Narrow. Nothing about
+      // this path is stable enough to pin with an absolute number.
+      const atLeast = r.floorScale * (1 - MAX_BINDING_FIT_ERROR);
+      if (r.hFill < atLeast) {
+        failures.push(
+          `${label}/"${r.text}": sized by the width floor but its ink is only ${r.hFill.toFixed(4)}x the source word's ` +
+            `height, under the ${atLeast.toFixed(4)} the floor guarantees - the floor stopped holding`
+        );
+      }
+      continue;
+    }
+    // The dimension the sizing actually bound on has to land on the source box,
+    // and land on it tightly. This is what catches a per-em figure read at the
+    // wrong size: the arithmetic still picks a winner between height and width,
+    // it just picks the wrong number of pixels, and only the binding dimension
+    // says so - the other one is under the box by design and cannot tell.
+    const bindingFill = r.binding === "height" ? r.hFill : r.wFill;
+    const err = Math.abs(bindingFill - 1);
+    worstBindingError = Math.max(worstBindingError, err);
+    if (err > MAX_BINDING_FIT_ERROR) {
+      failures.push(
+        `${label}/"${r.text}": sized to fit the source word's ${r.binding}, but its rendered ink is ` +
+          `${bindingFill.toFixed(4)}x that ${r.binding} - off by ${(err * 100).toFixed(3)}%, over the ` +
+          `${(MAX_BINDING_FIT_ERROR * 100).toFixed(3)}% this allows. The per-em figure used to pick the size does not ` +
+          `hold at ${r.renderedPx.toFixed(2)}px, which is the size the word renders at`
+      );
+    }
   }
   const med = (xs) => [...xs].sort((a, b) => a - b)[xs.length >> 1];
   console.log(
     `  ${label}: ${rows.length} words | median fill h=${med(rows.map((r) => r.hFill)).toFixed(3)} ` +
       `w=${med(rows.map((r) => r.wFill)).toFixed(3)} | worst spill ${worstSpill.toFixed(3)} | loosest fit ${worstSlack.toFixed(3)}` +
+      ` | binding dim off by <=${(worstBindingError * 100).toFixed(3)}%` +
       (flooredCount ? ` | ${flooredCount} sized by the overflow floor` : "")
   );
 }
 
 const failures = [];
+let resolvedFontReported = false;
 const browser = await launchBrowser();
 
 // complexPic1 is the poster set in a condensed hand-drawn face - the case where
@@ -188,6 +293,28 @@ for (const image of ["complexPic1.jpeg", "complexPic5.jpeg"]) {
     window.__state = state;
   });
   await page.waitForTimeout(300);
+
+  // Which FACE the stack resolved to, printed once. Every number this gate
+  // prints is a measurement of that face, so a run whose numbers are compared
+  // against another run's has to be able to tell whether it was even the same
+  // font. -apple-system / Segoe UI / Roboto / sans-serif resolve to four
+  // different faces with different ink per em, and the gate's own thresholds
+  // were chosen against one of them. CDP only, so it is a chromium nicety
+  // rather than an assertion - the gate does not fail for lack of it.
+  if (!resolvedFontReported) {
+    resolvedFontReported = true;
+    try {
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("DOM.enable");
+      await cdp.send("CSS.enable");
+      const { root } = await cdp.send("DOM.getDocument");
+      const { nodeId } = await cdp.send("DOM.querySelector", { nodeId: root.nodeId, selector: ".image-format-word" });
+      const { fonts } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId });
+      console.log(`  [font] word spans render in: ${fonts.map((f) => `${f.familyName} (${f.postScriptName})`).join(", ") || "(none reported)"}`);
+    } catch (e) {
+      console.log(`  [font] could not read the resolved face on ${BROWSER_NAME}: ${e.message}`);
+    }
+  }
 
   // ---- As recognized ----
   check(await measureAll(page), `${image} as-scanned`, failures);
