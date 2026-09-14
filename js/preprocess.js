@@ -11,7 +11,11 @@
 // the identical script loads in about a second in isolation. That's an
 // unacceptable risk for a step every scan goes through, so this module avoids
 // OpenCV.js entirely - the original spec explicitly allows either approach here.
-// (OpenCV.js is still used, much more narrowly, for Phase 2's inpainting.)
+// This once said OpenCV.js was "still used, much more narrowly, for Phase 2's
+// inpainting". That has not been true since js/inpaint.js was written: it
+// implements Gauss-Seidel harmonic diffusion directly, in plain JS, for the same
+// tab-freeze reason described above. There is no OpenCV anywhere in shipped code
+// - `grep -rn opencv js/ index.html` returns nothing.
 //
 // Only the upscale step changes geometry; its scale factor is returned so
 // callers can map returned word bboxes back into the source's pixel space.

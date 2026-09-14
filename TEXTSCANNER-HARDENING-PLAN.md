@@ -125,6 +125,13 @@ capture section below), in which case push to `main` and use the live
 15. Outside a text field, press **`?`** — confirm the shortcut sheet opens.
     Inside a text field (e.g., a note's title), type `?` — confirm it types
     the character instead of opening anything.
+    **Do this from Settings or an open document, not from the Library.** The
+    Library auto-focuses its search input on arrival, so `?` there IS inside a
+    text field and correctly types into the search box rather than opening the
+    sheet — that is the `inTextField` guard working, not a failure.
+    `test/interaction-layer.js` navigates to Settings first for exactly this
+    reason. Anyone walking this list literally lands on the Library and would
+    otherwise record a false failure.
 16. On the scan-result screen, press **`[`** and **`]`** — confirm they step
     Text → Image format → Full image and back.
 17. Focus a library card (Tab to it) and press **Delete** — confirm the same

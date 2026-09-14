@@ -122,10 +122,16 @@ Two commits, one per part, plus one for a CI fix that could not wait.
   scores worse on them. **Do not optimize against the 11-image number.**
 - **CI: 6 test gates → 12** at `ca341d7`. Unit tests 45 → 60. The two newest
   gates (`test/pdf-export.js`, `test/library-documents.js`) covered the document
-  layer. **It is 16 as of 2026-09-13**: `8d37a35` and `e181738` added
-  `test/document-creation.js` and `test/interaction-layer.js`, and the two
-  contract gates (`test/dom-contract.js`, `test/motion-contract.js`) run first,
-  before any browser is installed, because neither needs one.
+  layer. **It is 18 as of 2026-09-13**: `8d37a35` and `e181738` added
+  `test/document-creation.js` and `test/interaction-layer.js`; the two contract
+  gates (`test/dom-contract.js`, `test/motion-contract.js`) run first, before any
+  browser is installed, because neither needs one; and
+  `test/destructive-actions.js` and `test/radial-call-sites.js` cover the
+  dialog-gated paths and the three radial call sites. A **second CI job** runs 14
+  of those on WebKit and Firefox nightly rather than per-push - see
+  `WEB-COMPLETION-PLAN.md` §W2 for why that split, and for the four bugs it found
+  (X1 HEIC, X3 stale reduced-motion, X4 edge detection on noise, plus X2 resolved
+  as a Playwright build limitation).
 - **Run-to-run noise: the two recorded measurements disagree** — see §5.2. Use
   0.6 WER points as the merge bar until it is settled.
 - Native build: `** BUILD SUCCEEDED **`, exit 0, zero errors (Xcode 26.6).
