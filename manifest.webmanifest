@@ -1,0 +1,16 @@
+{
+  "name": "TextScanner",
+  "short_name": "TextScanner",
+  "description": "Scan documents, take notes, and translate text - all on your device. No upload, no server, no account.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f7f9",
+  "theme_color": "#f7f7f9",
+  "orientation": "any",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

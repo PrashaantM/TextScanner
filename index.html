@@ -61,6 +61,27 @@
   <!-- Matches the app icon concept (ios/App/App/Assets.xcassets/AppIcon.appiconset):
        a viewfinder frame for "scan", a text cursor for "edit the text in place". -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2222%22 fill=%22%233457d5%22/><g stroke=%22white%22 stroke-width=%225.5%22 stroke-linecap=%22round%22 fill=%22none%22><path d=%22M20,34 L20,22 Q20,20 22,20 L34,20%22/><path d=%22M66,20 L78,20 Q80,20 80,22 L80,34%22/><path d=%22M20,66 L20,78 Q20,80 22,80 L34,80%22/><path d=%22M80,66 L80,78 Q80,80 78,80 L66,80%22/></g><g fill=%22white%22><rect x=%2246%22 y=%2232%22 width=%228%22 height=%2236%22 rx=%222%22/><rect x=%2239%22 y=%2232%22 width=%2222%22 height=%224.5%22 rx=%221.8%22/><rect x=%2239%22 y=%2263.5%22 width=%2222%22 height=%224.5%22 rx=%221.8%22/></g></svg>" />
+  <!--
+    Web app manifest. start_url and scope are RELATIVE ("./") on purpose: the app
+    is served from /TextScanner/ on GitHub Pages and would be served from / on a
+    custom domain, and an absolute path would break on whichever one it was not
+    written for.
+
+    Installability is not cosmetic here. Browsers grant navigator.storage.persist()
+    far more readily to an installed app than to a plain tab, and this app's
+    entire premise is that your documents live on your device with no server to
+    re-download them from. js/app.js asks for persistence on every launch; on an
+    uninstalled Safari tab it is simply told no, and Safari then evicts all
+    script-writable storage after 7 days without a visit. See Settings > Storage,
+    which now says which of those two situations you are in.
+  -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <!-- iOS reads the manifest from 16.4, but still needs these for the older
+       home-screen path. Both are harmless where the manifest is honoured. -->
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="TextScanner" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
