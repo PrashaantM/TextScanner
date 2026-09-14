@@ -548,23 +548,80 @@ export function describeNotTextWarning(objects) {
 // x-height. One number cannot serve all three, so it is wrong for all three.
 //
 // So measure instead of guessing. The browser will tell us exactly how tall a
-// given string renders in a given font, and font metrics scale linearly with
-// font-size, so one measurement at a reference size answers every size. The
-// result needs no magic number, adapts to whatever the font stack resolves to
-// on the device, and - because it is driven by the CURRENT text - re-derives
-// when the user retypes a word, which is the half the constant could never do.
+// given string renders in a given font. The result needs no magic number,
+// adapts to whatever the font stack resolves to on the device, and - because it
+// is driven by the CURRENT text - re-derives when the user retypes a word,
+// which is the half the constant could never do.
 //
 // Falls back to FONT_SIZE_CORRECTION when the measurement is unavailable
 // (no canvas, or a browser without actualBoundingBox* on TextMetrics), so the
 // old behaviour is the floor rather than a crash.
+//
+// ---- ONE MEASUREMENT DOES NOT ANSWER EVERY SIZE ----
+//
+// That measurement used to be taken once, at a 100px reference, and scaled to
+// whatever size was wanted - on the assumption that a face's ink per em is the
+// same at every size, so one measurement answers all of them. It is not, and
+// measurably so. The stack starts with -apple-system, which on macOS
+// resolves to `.SF NS` - a VARIABLE font carrying an optical-size axis. The
+// browser is not scaling one outline, it is interpolating a different outline
+// at every size, and small sizes are deliberately drawn wider and taller so
+// they stay legible. Measured in Chromium, per-em ink for "energy":
+//
+//     font-size   100px    30px     20px     16px     12px     8px
+//     height      0.6982   0.6982   0.7157   0.7212   0.7212   0.7212
+//     width       2.8701   2.9492   3.0216   3.1274   3.2446   3.3989
+//
+// Height moves 3.3% and WIDTH moves 18.4% between the reference size and the
+// ten-pixel type a photo of a screen is full of. A word sized from the 100px
+// figure therefore renders bigger than the arithmetic predicted, and the error
+// grows as the word gets smaller - so small replacements systematically
+// overshoot. Width is also the dimension that decides whether a word spills or
+// gets held at the floor below, so the larger of the two errors lands exactly
+// where it does the most damage.
+//
+// The figure has to be the one that holds AT THE SIZE THE WORD ACTUALLY RENDERS
+// AT, and that makes this a fixed point rather than a division: the size
+// depends on the metric and the metric depends on the size. solveInkFitPx below
+// iterates it. It converges quickly because the metric's sensitivity to size is
+// small - about 0.12 in log-log at the steepest point in that table - so each
+// pass cuts the remaining error by close to an order of magnitude; measured,
+// three quarters of the solves on this corpus finish in one or two passes. See
+// INK_SOLVE_MAX_PASSES for the distribution and for the handful that do not
+// converge at all.
 
 const INK_REF_FONT_PX = 100;
 
-// Keyed by the exact string. Bounded by the word count of one image, and
-// cleared with the view.
+// A measurement size is rounded to this before it is taken, so that a cached
+// figure is exact for its key rather than approximately right across a range,
+// and so the solve below cannot chatter between two sizes that differ by less
+// than the renderer can express. 1/64px is Chromium's LayoutUnit, the
+// granularity layout stores a used font-size at, so rounding to it discards
+// nothing the renderer would have kept.
+const INK_SIZE_QUANTUM = 1 / 64;
+
+// Cap on the fixed-point solve, and it is load-bearing rather than defensive:
+// the non-converging case is real and was measured, not guessed at. Over the
+// 440 solves complexPic1/2/5 need, the passes actually taken were
+//
+//     1 pass: 209    2: 125    3: 98    4: 6    capped at 6: 2
+//
+// and the two that hit the cap are both the word "the" on its width, where the
+// metric steps between two adjacent sizes and the iteration alternates between
+// them forever. What the cap returns in that case is the last iterate, which
+// is fine and does not need to be the better of the two: once the iteration is
+// alternating, both iterates are within one step of the target, and measured,
+// the "the" that never settles still lands within 0.046% of its box - a tenth
+// of what test/replacement-size.js allows. Worst miss over all 440 solves,
+// converged or not, is 0.113%.
+const INK_SOLVE_MAX_PASSES = 6;
+
+// Keyed by the string AND the size it was measured at, because - per the table
+// above - the per-em figure is a function of both. Keying it on the string
+// alone is what made every size share one wrong answer. Bounded by (words in
+// one image x passes) and cleared with the view.
 const inkPerEmCache = new Map();
 let inkMeasureCtx;
-let inkFontFamily = null;
 
 function inkMeasureContext() {
   if (inkMeasureCtx === undefined) {
@@ -577,33 +634,141 @@ function inkMeasureContext() {
   return inkMeasureCtx;
 }
 
+function quantizeInkSize(px) {
+  if (!Number.isFinite(px) || px <= 0) return 0;
+  return Math.max(INK_SIZE_QUANTUM, Math.round(px / INK_SIZE_QUANTUM) * INK_SIZE_QUANTUM);
+}
+
 // Resolved from the live editor surface, which the word spans inherit from, so
 // the measurement is of the font the browser will actually paint rather than a
 // stack copied into a second place that can drift out of step with the CSS.
+//
+// RE-RESOLVED on every sizing pass rather than resolved once and kept for the
+// module's lifetime, and that is a deliberate reversal of what this did before.
+// The cached version was the same shape as bug X3 - read once, trusted forever
+// - and it cannot be justified here: the stack is inherited from :root, so any
+// restyle of the document changes it and nothing in this module would ever
+// learn. Re-reading costs one getComputedStyle per word sized, against a
+// per-word cost that already reads the image's pixels twice. When the stack
+// does change, every figure in the cache was measured against the old one, so
+// the cache goes with it.
+//
+// What re-resolving does NOT cover is the same stack resolving to a different
+// FACE - a webfont arriving after the first measurement. That cannot happen
+// here, and the reason is checkable rather than assumed: this app declares no
+// @font-face and loads no font resource (nothing matches `@font-face`,
+// `fonts.googleapis` or `new FontFace(` in style.css, index.html or js/), so
+// every family in the stack is either present on the platform at load or never.
+let inkFontFamily = null;
+
 function wordFontFamily() {
-  if (inkFontFamily === null) {
-    inkFontFamily = getComputedStyle(imageFormatView).fontFamily || "sans-serif";
+  const family = getComputedStyle(imageFormatView).fontFamily || "sans-serif";
+  if (family !== inkFontFamily) {
+    if (inkFontFamily !== null) inkPerEmCache.clear();
+    inkFontFamily = family;
   }
-  return inkFontFamily;
+  return family;
 }
 
-// How tall and wide `text` renders, per 1px of font-size. Nulls when it cannot
-// be measured.
-export function inkMetricsPerEm(text) {
-  if (inkPerEmCache.has(text)) return inkPerEmCache.get(text);
+// The CSS-pixel width of the box a word's `cqw` font-size resolves against:
+// #image-format-view's CONTENT box, which `container-type: inline-size` makes
+// the query container.
+//
+// Words are sized DURING THE SCAN, while the app is still showing the text
+// view - and at that point neither this element nor #result-section around it
+// has been revealed, so both report a clientWidth of 0. The common case is the
+// one where the element cannot measure itself, which is why this walks out to
+// the first ancestor the browser HAS laid out and takes the edges back off.
+//
+// That walk is sound because every element on the path is a full-width
+// border-box block (box-sizing: border-box is global, style.css:149), so each
+// one's border box is its parent's content box: the view's content width is the
+// laid-out ancestor's content width less the border and padding of everything
+// between. Checked against the real value at two viewport widths - a 1200px
+// viewport predicts 998 and measures 998; 390px predicts 359 and measures 359.
+//
+// If that ever stops holding the cost is bounded rather than silent: an
+// estimate wrong by a factor k moves the per-em figure by roughly 0.2 * ln(k),
+// so even a 20% error in the width costs about 4% in the metric.
+function editorContentWidth() {
+  let inset = 0;
+  for (let el = imageFormatView; el; el = el.parentElement) {
+    const cs = getComputedStyle(el);
+    const padding = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    // clientWidth is the padding box, so only the padding comes off here - the
+    // element's own border is already outside it.
+    if (el.clientWidth > 0) return Math.max(el.clientWidth - padding - inset, 0);
+    inset += padding + (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+  }
+  return 0;
+}
+
+// Source-image pixels -> the CSS pixels the browser actually paints them at.
+// Everything in this section works in source-image pixels, because that is the
+// unit the OCR box arrives in, but the font size the renderer resolves is
+// `fontSizePct` of the container's width - so a word whose fit is 12 image
+// pixels is painted at 12 * scale CSS pixels, and THAT is the size its metrics
+// have to be read at.
+//
+// Falls back to 1 when neither box can be measured (a detached document, a
+// non-browser host). The fallback is not free, but it is bounded and small:
+// getting the scale wrong by a factor k costs about 0.12 * ln(k) in the metric,
+// so even a 2x error costs 8%, against the 18% the reference-size measurement
+// was already costing.
+function inkRenderScale(naturalWidth) {
+  if (!naturalWidth) return 1;
+  const width = editorContentWidth();
+  return width > 0 ? width / naturalWidth : 1;
+}
+
+// How tall and wide `text` renders, per 1px of font-size, WHEN SET AT `fontPx`.
+// Nulls when it cannot be measured. `family` is passed in by callers that have
+// already resolved it, so sizing one word costs one getComputedStyle rather
+// than one per measurement pass.
+export function inkMetricsPerEm(text, fontPx = INK_REF_FONT_PX, family = null) {
+  // Resolved before the cache lookup and never after: wordFontFamily() is what
+  // notices the stack changing and empties the cache, so a lookup that ran
+  // first could return a figure measured against the stack that just went away.
+  const resolved = family || wordFontFamily();
+  const px = quantizeInkSize(fontPx);
+  if (!px) return null;
+  const key = `${px} ${text}`;
+  if (inkPerEmCache.has(key)) return inkPerEmCache.get(key);
   let metrics = null;
   const ctx = inkMeasureContext();
   if (ctx) {
-    ctx.font = `${INK_REF_FONT_PX}px ${wordFontFamily()}`;
+    ctx.font = `${px}px ${resolved}`;
     const m = ctx.measureText(text);
     const ascent = m.actualBoundingBoxAscent;
     const descent = m.actualBoundingBoxDescent;
     if (Number.isFinite(ascent) && Number.isFinite(descent) && ascent + descent > 0 && m.width > 0) {
-      metrics = { height: (ascent + descent) / INK_REF_FONT_PX, width: m.width / INK_REF_FONT_PX };
+      metrics = { height: (ascent + descent) / px, width: m.width / px };
     }
   }
-  inkPerEmCache.set(text, metrics);
+  inkPerEmCache.set(key, metrics);
   return metrics;
+}
+
+// The font size, in source-image pixels, whose rendered ink matches `targetPx`
+// in `dimension` ("height" or "width").
+//
+// A fixed point rather than a division, for the reason set out at the top of
+// this section. Seeded from the reference measurement - which is exactly the
+// answer the old code returned - and then re-solved at the size that answer
+// implies, until it stops moving by more than the renderer can express.
+function solveInkFitPx(text, targetPx, dimension, scale, family) {
+  const seed = inkMetricsPerEm(text, INK_REF_FONT_PX, family);
+  if (!seed || !(seed[dimension] > 0)) return null;
+  let fitPx = targetPx / seed[dimension];
+  for (let pass = 0; pass < INK_SOLVE_MAX_PASSES; pass++) {
+    const at = inkMetricsPerEm(text, fitPx * scale, family);
+    if (!at || !(at[dimension] > 0)) return fitPx;
+    const next = targetPx / at[dimension];
+    const settled = Math.abs(next - fitPx) * scale < INK_SIZE_QUANTUM;
+    fitPx = next;
+    if (settled) break;
+  }
+  return fitPx;
 }
 
 // The largest font size, as a percentage of the image's natural WIDTH (this
@@ -628,19 +793,44 @@ export function inkMetricsPerEm(text) {
 // a short word's box; below half the height-matched size it stops shrinking and
 // is allowed to overflow instead, because unreadable-but-contained is not a
 // better answer than readable-but-wide.
-const MIN_WIDTH_FIT_SCALE = 0.5;
+//
+// Exported because the floor is RELATIVE - half of whatever the height-matched
+// size came out at - and a caller that wants to know whether a word is sitting
+// on it has no way to re-derive that from the outside. See inkFitPx.
+export const MIN_WIDTH_FIT_SCALE = 0.5;
+
+// The fit for `text` inside a source ink box, in source-image pixels, plus the
+// one fact that cannot be recovered from the answer alone: whether the width
+// floor is what chose it.
+//
+// Exported for test/replacement-size.js, which has to exempt a floor-sized word
+// from its spill assertion. That gate used to recognise the floor with an
+// ABSOLUTE threshold on rendered height - "0.5 of the source box, give or take"
+// - while this code applies the floor RELATIVELY, against the height-matched
+// size. Those two agree only if the per-em metric is constant across a 2x
+// change of size, which the table at the top of this section shows it is not,
+// so the gate reported a spill failure on a word this code had floored exactly
+// right. Handing out the predicate makes the gate ask this module's question
+// instead of a similar-looking one of its own; widening its threshold would
+// only have moved the disagreement somewhere else.
+export function inkFitPx(text, inkHeightPx, inkWidthPx, naturalWidth) {
+  if (!naturalWidth || !inkHeightPx) return null;
+  const family = wordFontFamily();
+  const scale = inkRenderScale(naturalWidth);
+  const heightFitPx = solveInkFitPx(text, inkHeightPx, "height", scale, family);
+  if (!heightFitPx) return null;
+  const widthFitPx = inkWidthPx ? solveInkFitPx(text, inkWidthPx, "width", scale, family) : null;
+  const flooredByWidth = widthFitPx !== null && widthFitPx < heightFitPx * MIN_WIDTH_FIT_SCALE;
+  const fitPx =
+    widthFitPx === null ? heightFitPx : Math.max(Math.min(heightFitPx, widthFitPx), heightFitPx * MIN_WIDTH_FIT_SCALE);
+  return { heightFitPx, widthFitPx, fitPx, flooredByWidth, renderScale: scale };
+}
 
 export function fontSizePctForInk(text, inkHeightPx, inkWidthPx, naturalWidth) {
   if (!naturalWidth || !inkHeightPx) return 0;
-  const perEm = inkMetricsPerEm(text);
-  if (!perEm) return (inkHeightPx / naturalWidth) * 100 * FONT_SIZE_CORRECTION;
-  const heightFitPx = inkHeightPx / perEm.height;
-  let fitPx = heightFitPx;
-  if (inkWidthPx && perEm.width) {
-    const widthFitPx = inkWidthPx / perEm.width;
-    fitPx = Math.max(Math.min(heightFitPx, widthFitPx), heightFitPx * MIN_WIDTH_FIT_SCALE);
-  }
-  return (fitPx / naturalWidth) * 100;
+  const fit = inkFitPx(text, inkHeightPx, inkWidthPx, naturalWidth);
+  if (!fit) return (inkHeightPx / naturalWidth) * 100 * FONT_SIZE_CORRECTION;
+  return (fit.fitPx / naturalWidth) * 100;
 }
 
 // Re-derives a word's font size from its CURRENT text, so a retyped word fills
