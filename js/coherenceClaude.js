@@ -22,8 +22,11 @@
 // storage is scoped to the whole shared github.io origin, not to this app.
 
 import { classifyDocument } from "./coherenceRouter.js";
+import { LOCAL_KEY_ANTHROPIC_API } from "./store.js";
 
-const API_KEY_STORAGE_KEY = "textscanner.anthropicApiKey";
+// Imported rather than declared here, so js/store.js's clearAll() clears the
+// same key this module writes - see the localStorage inventory there.
+const API_KEY_STORAGE_KEY = LOCAL_KEY_ANTHROPIC_API;
 const API_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-opus-5";
 const MAX_TOKENS = 2048;

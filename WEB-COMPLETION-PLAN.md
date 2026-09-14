@@ -510,15 +510,13 @@ named failure. One real bug must not cost the rest of the file.
 
 ---
 
-#### F4 — `"All local data deleted."` is not true
+#### F4 — `"All local data deleted."` was not true — **FIXED**
 
-**No destructive path is broken.** All eleven do exactly what their copy says, and
-"Delete all local data" empties all six IndexedDB stores — documents, pages,
-blobs, folders, history, settings — verified from a populated store.
-
-But `clearAll()` reaches IndexedDB and nothing else, and **the Anthropic API key
-lives in `localStorage`** (`js/coherenceClaude.js:26,117`), as do the theme choice
-and the command palette's frecency counts. Measured, with a canary:
+`clearAll()` reached IndexedDB and nothing else, so after pressing **Delete all
+local data** and being told **"All local data deleted."**, a saved Anthropic API
+key was still sitting in `localStorage`, readable by the next person to open that
+browser profile — and on the shared `github.io` origin, readable by any other site
+on that origin too (§4.1). Measured with a canary before the fix:
 
 ```
 localStorage before: ["textscanner.anthropicApiKey"]
@@ -526,26 +524,28 @@ localStorage after:  ["textscanner.anthropicApiKey"]
 API KEY SURVIVES: YES -> sk-ant-canary-value
 ```
 
-So: after pressing **Delete all local data** and being told **"All local data
-deleted."**, a saved API key is still readable by the next person to open that
-browser profile.
+**The fix is a layering change, not a line.** `js/store.js` now owns the *names*
+of every `localStorage` key the app persists — the API key, the theme choice and
+the command palette's usage counts — because a module cannot honestly promise to
+delete "all local data" from a position where it does not know what "all" is. The
+three owning modules (`coherenceClaude.js`, `theme.js`, `commandPalette.js`) import
+those names from there, so there is one definition and it cannot drift from what
+gets cleared. `clearAll()` clears them before the IndexedDB transaction,
+deliberately: the synchronous part cannot fail in a way worth aborting over, so an
+interrupted wipe leaves documents behind rather than a secret.
 
-The section's hint copy is accurate — *"every document, page, image and
-translation on this device"*, none of which is the key. The **button label**
-(`index.html:675`) and the **closing alert** (`js/app.js:517`) are the two that
-overreach. This is a copy/scope mismatch, not a failure to delete, which is why
-the gate **pins the current behaviour** rather than asserting a fix nobody has
-chosen — the same pattern as `test/non-latin-limitation.js`. If someone makes
-`clearAll()` reach `localStorage`, that check fails on purpose, and the comment
-plus both strings need updating together.
+All three are cleared, not just the key. The theme and the usage counts are not
+secrets, but the alert says **ALL**, and a half-true version of that sentence is
+what this whole finding was about. The cost is re-picking light/dark after an
+action that was double-confirmed as "delete everything".
 
-**Your call**, and it is three-way: clear the key too (and keep the copy), narrow
-the copy to match (and keep the key), or leave both and accept that the alert
-overstates. Worth noting the shared-`github.io` origin (§4.1) already makes that
-key readable by any other site on the origin — so "delete everything" not reaching
-it is the second-order problem, not the first.
+The gate's tripwire is **inverted from what it pinned before**: it now asserts the
+key is GONE, that the other two are gone, and that no `textscanner.*` key survives
+at all. Proved it gates — removing `clearAll()`'s localStorage pass turns all four
+assertions red, naming each surviving key.
 
-**Risk.** Test-only, as predicted. No app code changed, no ids touched.
+No copy change was needed in the end: `index.html`'s hint and `js/app.js`'s alert
+are both true now that the code does what they say.
 
 ---
 

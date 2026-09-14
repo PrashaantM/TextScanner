@@ -1,5 +1,7 @@
 // store.js: the persistence layer. Everything the app remembers between
-// launches lives here, in IndexedDB, on the device.
+// launches lives here, on the device - the bulk of it in IndexedDB, plus the
+// short list of localStorage keys inventoried below, which this module owns the
+// NAMES of precisely so that clearAll() can be honest about clearing them.
 //
 // Why IndexedDB and not localStorage: this app now stores documents made of
 // full-resolution page images. localStorage is a synchronous string store with
@@ -37,6 +39,31 @@ const STORE_BLOBS = "blobs";
 const STORE_FOLDERS = "folders";
 const STORE_SETTINGS = "settings";
 const STORE_HISTORY = "history";
+
+// ---- localStorage inventory ----
+//
+// IndexedDB holds the documents; these three keys are everything else the app
+// persists. They live here rather than in the modules that use them for one
+// reason: clearAll() below promises to delete all local data, and a promise
+// like that cannot be kept from a module that does not know what "all" is.
+// The owning modules import these names from here, so there is one definition
+// and it cannot drift from what gets cleared.
+//
+// The API key is the one that matters. It is a secret, it is readable by anyone
+// with this browser profile, and on the shared github.io origin it is readable
+// by any other site on that origin too (see docs/PRIVACY-DECISIONS.md). Someone
+// who presses "Delete all local data" on a shared machine and is told "All local
+// data deleted." must not be leaving their Anthropic key behind.
+export const LOCAL_KEY_ANTHROPIC_API = "textscanner.anthropicApiKey";
+// The theme choice and the command palette's usage counts are not secrets, but
+// they are still things this device remembers about the person using it, and the
+// alert says ALL. Clearing them costs a re-pick of light/dark on an action that
+// was double-confirmed as "delete everything"; leaving them would make the copy
+// a half-truth, which is the thing this list exists to prevent.
+export const LOCAL_KEY_THEME = "textscanner.theme";
+export const LOCAL_KEY_COMMAND_FRECENCY = "textscanner.command-frecency";
+
+const CLEARABLE_LOCAL_KEYS = [LOCAL_KEY_ANTHROPIC_API, LOCAL_KEY_THEME, LOCAL_KEY_COMMAND_FRECENCY];
 
 export const STORES = {
   DOCUMENTS: STORE_DOCUMENTS,
@@ -351,6 +378,20 @@ export function isAvailable() {
 // must remove image bytes rather than just unlinking documents from a list.
 export async function clearAll() {
   releaseAllObjectUrls();
+
+  // localStorage first, and deliberately so: it is synchronous and cannot fail
+  // in a way worth aborting over, whereas the transaction below can. Clearing
+  // the secret before the bulk data means an interrupted wipe leaves documents
+  // behind rather than a key.
+  for (const key of CLEARABLE_LOCAL_KEYS) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Private browsing or storage disabled - there was nothing stored to
+      // clear, so there is nothing to report.
+    }
+  }
+
   return withTransaction(
     [STORE_DOCUMENTS, STORE_PAGES, STORE_BLOBS, STORE_FOLDERS, STORE_HISTORY],
     "readwrite",

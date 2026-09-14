@@ -14,7 +14,11 @@
 // represented by the ABSENCE of data-theme - so with nothing stored, only the
 // media query applies and the page follows the OS exactly as it always did.
 
-const STORAGE_KEY = "textscanner.theme";
+// From js/store.js's localStorage inventory, so "Delete all local data" really
+// does clear this too.
+import { LOCAL_KEY_THEME } from "./store.js";
+
+const STORAGE_KEY = LOCAL_KEY_THEME;
 const THEMES = ["system", "light", "dark"];
 
 const LABELS = {

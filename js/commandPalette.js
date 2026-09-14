@@ -10,10 +10,14 @@
 // already have it in muscle memory - novelty here would cost more than it's
 // worth.
 
+import { LOCAL_KEY_COMMAND_FRECENCY } from "./store.js";
+
 import { getAllDocuments, deriveTitle } from "./documents.js";
 import { showView, VIEWS } from "./views.js";
 
-const FRECENCY_KEY = "textscanner.command-frecency"; // same localStorage + try/catch pattern as theme.js
+// From js/store.js's localStorage inventory (same try/catch pattern as
+// theme.js), so "Delete all local data" clears these usage counts too.
+const FRECENCY_KEY = LOCAL_KEY_COMMAND_FRECENCY;
 
 function readFrecency() {
   try {

@@ -498,8 +498,15 @@ page.on("dialog", async (d) => {
   if (reply.accept) await d.accept(reply.text); else await d.dismiss();
 });
 
-// A secret in localStorage, to measure what "delete all local data" reaches.
-await ev(() => localStorage.setItem("textscanner.anthropicApiKey", "sk-ant-canary-value"));
+// Seed every key the app persists, so the assertions after the wipe are
+// measuring a real deletion rather than an absence that was already there.
+await ev(() => {
+  localStorage.setItem("textscanner.anthropicApiKey", "sk-ant-canary-value");
+  localStorage.setItem("textscanner.theme", "dark");
+  localStorage.setItem("textscanner.command-frecency", JSON.stringify({ scan: 3 }));
+});
+const localBefore = await ev(() => Object.keys(localStorage).filter((k) => k.startsWith("textscanner.")).sort());
+check("all three localStorage keys are present before the wipe", localBefore.length === 3, JSON.stringify(localBefore));
 
 answerOk();
 await gotoSettings();
@@ -516,34 +523,40 @@ check("the settings store is empty too", wiped.settings === 0, JSON.stringify(wi
 check("it asked twice and then confirmed", dialogs.length === 3 && dialogs[2].type === "alert", JSON.stringify(dialogs.map((d) => d.type)));
 check("it returns you to the library", (await ev(() => document.body.dataset.activeView)) === "library");
 
-// THE LIMITATION, PINNED - not an endorsement.
+// F4, FIXED - this used to pin the opposite.
 //
-// clearAll() empties all six IndexedDB stores and nothing else. The Anthropic
-// API key lives in localStorage (js/coherenceClaude.js:26,117), and so do the
-// theme choice and the command palette's frecency counts. None is touched.
+// clearAll() reached IndexedDB and nothing else, so after pressing "Delete all
+// local data" and being told "All local data deleted." a saved Anthropic API key
+// was still sitting in localStorage, readable by the next person to open this
+// browser profile - and on the shared github.io origin, readable by any other
+// site on that origin too. The section's hint copy was accurate ("every
+// document, page, image and translation"); the button label and the closing
+// alert were the two that overreached.
 //
-// For the key that is worth stating plainly: after pressing "Delete all local
-// data" and being told "All local data deleted.", a saved API key is still
-// readable by the next person to open this browser profile.
+// js/store.js now owns the NAMES of every localStorage key the app persists,
+// precisely so clearAll() can clear them - a module cannot promise to delete
+// "all local data" from a position where it does not know what all is. The
+// owning modules import those names from there, so there is one definition and
+// it cannot drift from what gets cleared.
 //
-// The section's own hint copy is accurate - "every document, page, image and
-// translation on this device", none of which is the key. The BUTTON LABEL and
-// the closing ALERT are the two that overreach. This is a copy/scope question,
-// not a failure to delete, so this test pins the behaviour rather than
-// asserting a fix nobody has decided on - the same pattern as
-// test/non-latin-limitation.js.
-//
-// If someone makes clearAll() reach localStorage, this check FAILS, and that is
-// correct: it means the decision was made and this comment plus the copy in
-// index.html:675 and js/app.js:517 need updating together.
-const survivingKey = await ev(() => localStorage.getItem("textscanner.anthropicApiKey"));
-check('LIMITATION PINNED: the API key in localStorage SURVIVES "Delete all local data"',
-      survivingKey === "sk-ant-canary-value",
-      `key is now ${JSON.stringify(survivingKey)} - if this was deliberately fixed, update this check, index.html:675 and js/app.js:517 together`);
-if (survivingKey) {
-  console.log('       ^ deliberate-for-now, see the comment above this check. The closing alert says');
-  console.log('         "All local data deleted." while a saved Anthropic API key is still readable.');
-}
+// All three are asserted below, not just the key: the theme and the command
+// palette's usage counts are not secrets, but the alert says ALL, and a
+// half-true version of that sentence is what this whole check exists to stop.
+const localAfter = await ev(() => ({
+  apiKey: localStorage.getItem("textscanner.anthropicApiKey"),
+  theme: localStorage.getItem("textscanner.theme"),
+  frecency: localStorage.getItem("textscanner.command-frecency"),
+  anyTextscannerKey: Object.keys(localStorage).filter((k) => k.startsWith("textscanner.")),
+}));
+
+check('the Anthropic API key is GONE after "Delete all local data"',
+      localAfter.apiKey === null,
+      `key is still ${JSON.stringify(localAfter.apiKey)} - clearAll() is not reaching localStorage`);
+check("the remembered theme is gone too", localAfter.theme === null, JSON.stringify(localAfter.theme));
+check("the command palette's usage counts are gone too", localAfter.frecency === null, JSON.stringify(localAfter.frecency));
+check('so "All local data deleted." is now literally true',
+      localAfter.anyTextscannerKey.length === 0,
+      `these survived: ${JSON.stringify(localAfter.anyTextscannerKey)}`);
 
 if (pageErrors.length) failures.push(`${pageErrors.length} uncaught page error(s): ${[...new Set(pageErrors)].join("; ")}`);
 
