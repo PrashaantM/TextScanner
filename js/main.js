@@ -1057,7 +1057,16 @@ if (themeBtn) {
   const setThemeAndLabel = (theme) => {
     themeBtn.textContent = themeLabel(setTheme(theme));
   };
-  themeBtn.addEventListener("pointerdown", () => {
+  themeBtn.addEventListener("pointerdown", (event) => {
+    // Gated to touch/pen, exactly as call site 1 (#nav-add) in js/app.js is.
+    // This used to accept any pointer, so a 420ms mouse press-and-hold opened a
+    // radial menu here while the identical gesture on "+ New" correctly gave the
+    // flat action sheet - one primitive, two different answers to "is this
+    // gesture for a mouse?". A desktop user who happened to hold the button got
+    // a gesture menu they did not ask for and could not discover, and the
+    // inconsistency is the kind that makes an interaction model feel arbitrary.
+    // The plain click below still cycles the theme for everyone.
+    if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
     pressTimer = setTimeout(() => {
       pressTimer = null;
       const rect = themeBtn.getBoundingClientRect();

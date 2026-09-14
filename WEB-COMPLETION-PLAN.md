@@ -725,28 +725,59 @@ app bar.)
 
 ---
 
-#### F3 — The two radial call sites disagree about the mouse, and nothing tests the third
+#### F3 — The two radial call sites disagreed about the mouse — **FIXED**
 
-`js/app.js:374` gates `#nav-add`'s radial on `event.pointerType !== "touch" &&
-!== "pen"` — a mouse click deliberately gets the flat action sheet, and
-`test/interaction-layer.js` asserts exactly that. `js/main.js:1060`'s theme handler
-applies **no such filter**, so a mouse press-and-hold of 420ms opens a radial menu
-(verified above). Two call sites of one primitive, two different answers to "is
-this gesture for touch?"
+`js/app.js:374` gates `#nav-add`'s radial on `pointerType` touch/pen, with a
+stated reason: a mouse's click is not suppressed by `pointerdown`'s
+`preventDefault` the way touch's is, so every mouse press would have opened the
+radial *and* fired the plain click afterwards. `js/main.js`'s theme handler
+applied no such filter, so a 420ms mouse press-and-hold opened a radial there.
+One primitive, two answers to "is this gesture for a mouse?", and a desktop user
+who happened to hold the button got a gesture menu they did not ask for and could
+not discover.
 
-Either answer is defensible. Having both is the problem, and a desktop user who
-happens to hold the mouse button on Theme gets a gesture menu they did not ask for
-and cannot discover.
+Call site 3 now carries the identical guard. The plain click still cycles the
+theme for everyone.
 
-**Should a gate have caught it? Yes — this is the real gate gap of the three.**
-`test/interaction-layer.js` covers call site 1 (`#nav-add`) and call site 2 (library
-cards) and **never touches call site 3** (`grep -c theme test/interaction-layer.js`
-→ 0). It also sets no viewport, so it runs at Playwright's 1280×720 default and has
-never seen the 600px breakpoint. A gate that exercised call site 3 at a phone width
-would have caught F2 and F3 both. That is the fix worth making — not a patch to the
-symptom.
+#### F2 — The theme radial does not exist on any phone — **YOUR DECISION, not auto-fixed**
 
----
+`style.css`'s `@media (max-width: 600px)` sets
+`.app-bar__actions #theme-btn { display: none }`, with an honest comment: the bar
+cannot hold four controls and a title, and Theme is the one that drops.
+
+That is defensible for the *button*. Its consequence for the **gesture** is the
+open question: `06-INTERACTION-MODEL-SPEC.md` names the theme button as call
+site 3 and its rollout order puts it **first**, as "the smallest surface area,
+cheapest to verify the primitive works before depending on it elsewhere". A
+press-drag-release gesture designed for a thumb is now reachable only on screens
+that mostly do not have one.
+
+**The two ways out, and it is genuinely a spec-vs-implementation call:**
+
+1. **Accept it** — the theme radial is a desktop/tablet affordance, the spec's
+   rollout order was about build sequence rather than shipped reach, and phones
+   get theme switching through Settings. Costs nothing; means call site 3 does
+   none of the work it was added for.
+2. **Show `#theme-btn` on phones** — which needs somewhere for it to go, since
+   the comment above is correct that four controls and a title do not fit.
+   Moving it into Settings-as-a-row, or into the "+" sheet, are both real
+   options and both change the nav design.
+
+`test/radial-call-sites.js` **pins the current behaviour rather than demanding
+either**: it asserts `#theme-btn` is hidden below the breakpoint and prints the
+decision alongside. If it ever becomes visible on a phone the gate fails and
+names this section, so the choice gets made deliberately instead of drifting.
+
+#### The gate that closes both — **BUILT**
+
+`test/radial-call-sites.js`, in both CI jobs. Drives all three call sites at
+430px and 1280px — the two sides of the 600px breakpoint `interaction-layer.js`
+had never seen, because it sets no viewport and runs at Playwright's 1280x720
+default. Green on chromium, webkit and firefox.
+
+Proved it gates: reverting the one-line `pointerType` guard in `js/main.js` turns
+it red on exactly the right assertion — *"a 420ms mouse hold opened a radial menu
+- call site 3 is not gating pointerType the way call site 1 does"*.
 
 #### Deferred, with reasons
 

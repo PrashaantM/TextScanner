@@ -102,6 +102,14 @@ jobs:
       # Includes "Delete all local data", the only unrecoverable action in the
       # app, which nothing automated had ever pressed.
       - run: node test/destructive-actions.js
+      # All three radial call sites, at both sides of the 600px breakpoint.
+      # interaction-layer.js covers call sites 1 and 2 and never touches call
+      # site 3 (#theme-btn) - the one the interaction spec's own rollout order
+      # puts first - and sets no viewport, so it had never seen the breakpoint
+      # where style.css hides controls. That combination hid two things: the
+      # theme radial being absent on every phone, and call site 3 accepting a
+      # mouse press-and-hold while call site 1 correctly refused one.
+      - run: node test/radial-call-sites.js
 
   # ---------------------------------------------------------------------------
   # Nightly only, and that is a deliberate choice rather than a lack of nerve.
@@ -164,6 +172,8 @@ jobs:
       - run: node test/interaction-layer.js
         env: { BROWSER: "${{ matrix.browser }}" }
       - run: node test/destructive-actions.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      - run: node test/radial-call-sites.js
         env: { BROWSER: "${{ matrix.browser }}" }
       - run: node test/touch-interactions.js
         env: { BROWSER: "${{ matrix.browser }}" }
