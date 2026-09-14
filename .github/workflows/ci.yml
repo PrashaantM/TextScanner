@@ -110,6 +110,12 @@ jobs:
       # theme radial being absent on every phone, and call site 3 accepting a
       # mouse press-and-hold while call site 1 correctly refused one.
       - run: node test/radial-call-sites.js
+      # Inpaint reconstruction quality, against ground truth the test holds (the
+      # background captured before text was drawn over it). Two metrics, because
+      # mean per-pixel error alone is misleading on stochastic texture: a fill
+      # that puts back convincing wood grain in different places scores worse
+      # than a flat blur while looking incomparably better.
+      - run: node test/inpaint-fidelity.js
 
   # ---------------------------------------------------------------------------
   # Nightly only, and that is a deliberate choice rather than a lack of nerve.
@@ -174,6 +180,8 @@ jobs:
       - run: node test/destructive-actions.js
         env: { BROWSER: "${{ matrix.browser }}" }
       - run: node test/radial-call-sites.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      - run: node test/inpaint-fidelity.js
         env: { BROWSER: "${{ matrix.browser }}" }
       - run: node test/touch-interactions.js
         env: { BROWSER: "${{ matrix.browser }}" }
