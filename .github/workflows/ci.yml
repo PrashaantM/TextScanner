@@ -55,6 +55,12 @@ jobs:
         working-directory: test
       - run: node --test test/unit/*.test.js
       - run: node test/run-benchmark.js --check-regression --baseline test/baseline-2026-08-28.json --tolerance 2.0
+      # complexPic1, scored one text area at a time rather than averaged. The
+      # benchmark above is an average, and an average cannot see a hole: this
+      # poster was losing its pink headline AND its whole middle band while
+      # staying inside the 2-point tolerance, because the lines that WERE read
+      # carried the mean. Each area now has its own measured ceiling.
+      - run: node test/region-coverage.js
       - run: node test/touch-interactions.js
       - run: node test/malformed-input.js
       - run: node test/exif-orientation.js
@@ -205,6 +211,8 @@ jobs:
       - run: node test/not-text-warning.js
         env: { BROWSER: "${{ matrix.browser }}" }
       - run: node test/render-fidelity.js
+        env: { BROWSER: "${{ matrix.browser }}" }
+      - run: node test/region-coverage.js
         env: { BROWSER: "${{ matrix.browser }}" }
       - run: node test/non-latin-limitation.js
         env: { BROWSER: "${{ matrix.browser }}" }

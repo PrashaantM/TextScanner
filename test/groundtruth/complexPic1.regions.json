@@ -1,0 +1,139 @@
+{
+  "image": "complexPic1.jpeg",
+  "naturalWidth": 1024,
+  "naturalHeight": 1536,
+  "why": [
+    "test/groundtruth/complexPic1.txt is the whole-image transcription the benchmark scores.",
+    "It averages, and an average hides a hole: this poster could lose its pink headline and",
+    "its entire middle band and still land inside run-benchmark.js's 2-point tolerance,",
+    "because the lines that WERE read scored well. Both of those really were being lost, and",
+    "nothing in CI noticed.",
+    "",
+    "This file cuts the same transcription into the areas that fail independently, so each one",
+    "is scored on its own. `maxCer` is a CEILING measured on the current build, not a target:",
+    "a region that gets worse crosses it and the gate goes red. A region that gets BETTER is",
+    "reported too, with the new number to paste in - an unrecorded improvement is how a",
+    "ceiling silently stops meaning anything.",
+    "",
+    "`box` is [x0, y0, x1, y1] as fractions of the image, generous enough to hold the text",
+    "plus the swash/panel it sits on. A recognized word belongs to a region when its CENTRE",
+    "falls inside the box, so a box that overshoots its neighbour does not steal its words."
+  ],
+  "regions": [
+    {
+      "id": "headline",
+      "text": "POPCICHAWK",
+      "appearance": "pink and teal display caps on cream, the largest type on the poster",
+      "box": [
+        0.03,
+        0.05,
+        0.97,
+        0.19
+      ],
+      "maxCer": 0.3,
+      "note": "The pink half. Read as CICHAWK (conf 77) by the coverage-rescue sparse pass; nothing at all before it."
+    },
+    {
+      "id": "popsicles",
+      "text": "POPSICLES",
+      "appearance": "pink display caps on a yellow brush swash",
+      "box": [
+        0.1,
+        0.195,
+        0.39,
+        0.27
+      ],
+      "maxCer": 1.0,
+      "note": "Still missed entirely. Its line-mates two centimetres to the right are read at 90-96, which is exactly the failure: the region scored 79.1 on the words it DID find and so was never looked at again."
+    },
+    {
+      "id": "chawk-drawings",
+      "text": "& CHAWK DRAWINGS",
+      "appearance": "black and teal display caps on the same yellow swash",
+      "box": [
+        0.39,
+        0.195,
+        0.95,
+        0.27
+      ],
+      "maxCer": 0.0,
+      "note": "The control for `popsicles`: same line, same swash, same type size, read correctly. Without it a failure here would be indistinguishable from a broken harness."
+    },
+    {
+      "id": "address-line-1",
+      "text": "LOWER RESIDENT LANE",
+      "appearance": "black hand-lettered caps on cream",
+      "box": [
+        0.16,
+        0.275,
+        0.82,
+        0.325
+      ],
+      "maxCer": 0.06
+    },
+    {
+      "id": "address-line-2",
+      "text": "BUILDING D AREA",
+      "appearance": "black hand-lettered caps on cream",
+      "box": [
+        0.27,
+        0.325,
+        0.73,
+        0.368
+      ],
+      "maxCer": 0.0
+    },
+    {
+      "id": "teal-panel",
+      "text": "RELAXING ON A SUNNY DAY",
+      "appearance": "white caps reversed out of a solid teal panel",
+      "box": [
+        0.02,
+        0.37,
+        0.46,
+        0.58
+      ],
+      "maxCer": 0.61,
+      "note": "The upper half of the reported dead band. SUNNY and DAY come back at 96 from the coverage-rescue pass; RELAXING and ON A do not. Nothing at all before it."
+    },
+    {
+      "id": "date-panel",
+      "text": "JULY 31ST",
+      "appearance": "white caps reversed out of a solid pink panel",
+      "box": [
+        0.44,
+        0.68,
+        0.97,
+        0.765
+      ],
+      "maxCer": 1.0,
+      "note": "Still missed entirely."
+    },
+    {
+      "id": "time-panel",
+      "text": "5-7PM",
+      "appearance": "black caps on the same solid pink panel",
+      "box": [
+        0.44,
+        0.765,
+        0.93,
+        0.85
+      ],
+      "maxCer": 0.2,
+      "note": "The lower half of the dead band. Read as 5-7pM (conf 88) by the coverage-rescue pass; nothing at all before it."
+    },
+    {
+      "id": "footer",
+      "text": "GOOD COMPANY. COOL TREATS. CREATIVE VIBES.",
+      "appearance": "black hand-lettered caps on a yellow swash",
+      "box": [
+        0.24,
+        0.87,
+        0.86,
+        0.99
+      ],
+      "maxCer": 0.15,
+      "note": "Sits BELOW the dead band and was always read correctly - which is why 'the lower half is missed' is not the right description of the failure, and why the band is scored as bands rather than as halves. The box runs to x 0.86 so \"TREATS.\" (centre at 83.5%) is scored here rather than falling outside every region; that also takes in the decorative teal heart at 84%, which OCR reads as \"()\". It is counted rather than excluded - a box drawn to dodge it would be fitted to this build's mistakes."
+    }
+  ]
+}
