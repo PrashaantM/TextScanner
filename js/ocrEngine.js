@@ -112,6 +112,44 @@ const MIN_REGION_WORD_COUNT_RATIO = 0.5;
 // used in recognizeImage.
 const MAX_ZERO_WORD_REGION_AREA_FRACTION = 0.08;
 
+// ---- Coverage rescue ----
+//
+// Every gate above this line is a CONFIDENCE gate, and confidence measures how
+// sure the engine is about what it DID read. It says nothing about what it
+// never looked at. On test/images/complexPic1.jpeg that gap swallowed the pink
+// headline and the whole middle band of the poster while the pipeline reported
+// a healthy 79.4 mean:
+//
+//   - the AUTO pass found 19 words at mean 79.4, so the preprocessed candidate
+//     (< 70) and the SPARSE retry (< 40) were both skipped;
+//   - the region holding "POPSICLES" scored 79.1 on the words it DID find, so
+//     it sat above REGION_REPROCESS_THRESHOLD and was never looked at again -
+//     a confident average over three words says nothing about a fourth that
+//     was missed entirely;
+//   - and Tesseract's layout analysis DID flag the middle band, as a single
+//     zero-word block covering 30.9% of the image, which the area cap above
+//     then skipped.
+//
+// A whole-image PSM.SPARSE_TEXT pass reads that content - measured: it recovers
+// "CICHAWK" (conf 77), "SUNNY" (96), "DAY" (96) and "5-7pM" (88). It scores 69
+// overall, BELOW the AUTO pass's 79.4, which is exactly why "keep whichever
+// candidate has the higher mean confidence" could never have used it: a pass
+// that finds more, less certainly, loses to one that finds less, confidently.
+//
+// So this does not choose between them. It keeps the AUTO result whole and adds
+// only the sparse words that landed somewhere AUTO put nothing - coverage, not
+// competition. Both thresholds below are measured on the novel words that merge
+// produces, which split cleanly: the real text scores 77-96 and the junk the
+// sparse pass hallucinates out of the illustrations ("£5", "QD", "NN", "\\")
+// scores 0-43.
+const COVERAGE_RESCUE_MIN_CONFIDENCE = 70;
+// How much of a sparse word's own area has to fall inside an existing word's
+// box for it to count as "already found". Deliberately a fraction of the NEW
+// word's area rather than an IoU: a sparse pass often splits or merges boxes
+// differently, and the question being asked is "is this spot already covered",
+// not "are these two boxes the same shape".
+const COVERAGE_RESCUE_MAX_OVERLAP = 0.3;
+
 function meanOf(numbers) {
   if (!numbers.length) return 0;
   return numbers.reduce((a, b) => a + b, 0) / numbers.length;
@@ -245,6 +283,52 @@ function orderRegionsForReading(regions) {
 // Flattens regions (each already ordered into lines) into the final
 // { lineIndex, text, confidence, bbox } word list, assigning a fresh
 // sequential lineIndex per line as it goes.
+// How much of `inner`'s own area lies inside `outer`.
+function overlapFraction(outer, inner) {
+  const ix = Math.max(0, Math.min(outer.x1, inner.x1) - Math.max(outer.x0, inner.x0));
+  const iy = Math.max(0, Math.min(outer.y1, inner.y1) - Math.max(outer.y0, inner.y0));
+  const intersection = ix * iy;
+  if (!intersection) return 0;
+  const innerArea = (inner.x1 - inner.x0) * (inner.y1 - inner.y0);
+  return innerArea > 0 ? intersection / innerArea : 0;
+}
+
+// Returns the regions of `candidate` reduced to only those words that are
+// confident enough to trust and land somewhere `existing` found nothing.
+//
+// Line and region grouping is taken from the candidate pass rather than rebuilt,
+// so "SUNNY DAY" stays one line and reaches flattenRegions as one, instead of
+// becoming two orphan single-word lines in the extracted text.
+function novelRegions(existingRegions, candidateRegions) {
+  const existingWordBoxes = existingRegions.flatMap((r) => r.words.map((w) => w.bbox));
+  const isNovel = (word) =>
+    word.confidence >= COVERAGE_RESCUE_MIN_CONFIDENCE &&
+    !existingWordBoxes.some((box) => overlapFraction(box, word.bbox) > COVERAGE_RESCUE_MAX_OVERLAP);
+
+  const out = [];
+  candidateRegions.forEach((region) => {
+    const lines = [];
+    region.lines.forEach((line) => {
+      const words = line.words.filter(isNovel);
+      if (words.length) lines.push({ bbox: line.bbox, words });
+    });
+    if (!lines.length) return;
+    const words = lines.flatMap((l) => l.words);
+    out.push({
+      bbox: {
+        x0: Math.min(...lines.map((l) => l.bbox.x0)),
+        y0: Math.min(...lines.map((l) => l.bbox.y0)),
+        x1: Math.max(...lines.map((l) => l.bbox.x1)),
+        y1: Math.max(...lines.map((l) => l.bbox.y1)),
+      },
+      lines,
+      words,
+      meanConfidence: meanOf(words.map((w) => w.confidence)),
+    });
+  });
+  return out;
+}
+
 function flattenRegions(regions) {
   const words = [];
   let lineIndex = -1;
@@ -466,6 +550,39 @@ export async function recognizeImage(previewImg, naturalWidth, naturalHeight, on
     if (best.words.length === 0 || best.meanConfidence < RETRY_MEAN_CONFIDENCE_THRESHOLD) {
       const retry = await runPass(best.source, best.width, best.height, PSM.SPARSE_TEXT, best.preprocessed);
       if (retry.words.length && retry.meanConfidence > best.meanConfidence) best = retry;
+    }
+
+    // Coverage rescue. Triggered by Tesseract's OWN statement that it found
+    // structure it could not read - a region whose layout analysis produced a
+    // block but whose word recognition produced nothing - rather than by a
+    // confidence number, because confidence is precisely the signal that was
+    // blind to this. See COVERAGE_RESCUE_MIN_CONFIDENCE for the measurements.
+    //
+    // The area cap that governs region REPROCESSING deliberately does not apply
+    // here. That cap exists because re-recognizing one big merged block as a
+    // single block hallucinates garbage out of whatever illustrations got merged
+    // in with the text (measured on this same image: 13 junk tokens for 3 real
+    // ones). A whole-image sparse pass has the opposite shape - it is designed
+    // for scattered text on busy ground, it is not told "this rectangle is one
+    // block", and its output is filtered per word before anything is kept.
+    // Narrower than "any zero-word region", and deliberately so. A SMALL
+    // zero-word region is already handled: the region pass below crops and
+    // re-recognizes it. The ones with no rescue at all are the big ones the area
+    // cap skips, so that is exactly where the extra whole-image pass earns its
+    // cost - which is real, roughly a second pass over the image.
+    const imageAreaForRescue = naturalWidth * naturalHeight;
+    const hasUnreachableStructure = best.regions.some(
+      (r) =>
+        r.words.length === 0 &&
+        (r.bbox.x1 - r.bbox.x0) * (r.bbox.y1 - r.bbox.y0) >= imageAreaForRescue * MAX_ZERO_WORD_REGION_AREA_FRACTION
+    );
+    if (hasUnreachableStructure) {
+      const sparse = await runPass(best.source, best.width, best.height, PSM.SPARSE_TEXT, best.preprocessed);
+      const rescued = novelRegions(best.regions, sparse.regions);
+      // Appended, never substituted: everything the AUTO pass already found
+      // stays exactly as it found it, so this can add coverage but cannot take
+      // any away. orderRegionsForReading puts the additions in reading order.
+      if (rescued.length) best.regions = best.regions.concat(rescued);
     }
 
     if (best.regions.length && best.meanConfidence < SKIP_REGION_PASS_OVERALL_THRESHOLD) {
