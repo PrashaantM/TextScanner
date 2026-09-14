@@ -136,6 +136,17 @@ const server = createServer(async (req, res) => {
 // whose ink CHANGES, because a non-monotonic face (DejaVu Sans: ink 30, 30, 29,
 // 29 as size increases) can change downward. That size fits, but moving to it
 // would make the word smaller. Ink, not nominal size, is what the reader sees.
+//
+// P2 can only be VERIFIED within this span - if nothing above renders more
+// ink within it, that is not proof there is no headroom further out, only
+// that none was found. wordVerdict (test/sizeVerdict.js) treats that case as
+// its own failure rather than silence, same discipline as
+// test/region-coverage.js's ceilings: an unmeasured claim does not get to
+// pass as a met one. It has not fired on any real word yet - checked, on
+// every face this file resolves, including the forced sweep below - and the
+// point of pinning it now is exactly that it hasn't: a short, condensed-face
+// word on the WIDTH path can have per-em under 0.5, wide enough to plausibly
+// exceed this span on a face nobody has tried yet.
 const PROPERTY_SPAN_PX = 2;
 
 // P1 and P2 are exact comparisons - no tolerance, because there is no model to
@@ -148,6 +159,12 @@ const READBACK_SLACK_PX = 0.01;
 // Measures every word's rendered ink against the source box it stands in, in
 // source-image pixels. Ink, not the span's border box: the box carries
 // line-height and padding, so comparing it to a glyph height means nothing.
+//
+// The pass/fail decision itself is NOT made here: it is delegated to
+// wordVerdict, from test/sizeVerdict.js, which is pulled out to a pure
+// function precisely so it has an existence apart from this browser run - see
+// that file's header for why, and test/unit/size-verdict.test.js for where it
+// is actually exercised offline.
 const measureAll = (page) =>
   page.evaluate(async () => {
     // inkFitPx answers the one question this gate cannot answer from pixels:
@@ -170,6 +187,7 @@ const measureAll = (page) =>
     // are reachable" - not as an algorithm: everything below re-measures from
     // pixels rather than asking the solver what it concluded.
     const { INK_GRID_STEP_PX: GRID } = await import("/js/inkFit.js");
+    const { wordVerdict } = await import("/test/sizeVerdict.js");
     const { PROPERTY_SPAN, SLACK } = window.__gateConstants;
     const s = window.__state;
     const view = document.getElementById("image-format-view");
@@ -209,59 +227,20 @@ const measureAll = (page) =>
       const fit = inkFitPx(text, srcH, srcW, s.lastNaturalWidth);
       const binding = !fit ? null : fit.flooredByWidth ? "floor" : fit.widthFitPx !== null && fit.widthFitPx < fit.heightFitPx ? "width" : "height";
 
-      // ---- the property, measured in CSS pixels ----
       // CSS pixels, not image pixels, because CSS pixels are the unit the
       // browser grid-fits ink in. Converting to image pixels first would divide
-      // the staircase by a non-integer and blur the treads this has to see.
+      // the staircase by a non-integer and blur the treads wordVerdict has to
+      // see.
       const renderedPx = parseFloat(cs.fontSize);
       const inkAtSize = (px, dimension) => {
         mctx.font = `${cs.fontStyle} ${cs.fontWeight} ${px}px ${cs.fontFamily}`;
         const q = mctx.measureText(text);
         return dimension === "height" ? q.actualBoundingBoxAscent + q.actualBoundingBoxDescent : q.width;
       };
-      // Walks up the same grid the solver chooses from, looking for the next
-      // size that renders MORE ink - see the note on P2 above for why "more"
-      // rather than "different". Returns null when the span holds no larger
-      // ink at all, which means the word is already maximal as far as this
-      // looked, and P2 is satisfied with nothing to report.
-      const nextLargerInk = (fromPx, dimension) => {
-        const here = inkAtSize(fromPx, dimension);
-        const stop = fromPx + PROPERTY_SPAN;
-        for (let px = Math.ceil((fromPx + 1e-9) / GRID) * GRID; px <= stop + 1e-9; px += GRID) {
-          const v = inkAtSize(px, dimension);
-          if (v > here + 1e-9) return { px, ink: v };
-        }
-        return null;
-      };
-      // P1 and P2 for one size against one target, both in CSS pixels.
-      const propertyAt = (rawPx, dimension, targetCssPx) => {
-        // Snapped to the grid before probing. The size is read back out of
-        // getComputedStyle, which round-trips through a float, so it can sit a
-        // few bits off the grid point the solver actually chose; probing the
-        // off-grid value would compare a size the solver never considered.
-        // SLACK bounds how far that readback is allowed to have drifted, and it
-        // is the ONLY thing it is used for. It is deliberately NOT applied to
-        // the ink comparisons below: slackening those would make this gate
-        // demand something stricter than the solver promises - it would call a
-        // size 'still fitting' that the solver had correctly rejected, and
-        // report headroom that does not exist.
-        const px = Math.round(rawPx / GRID) * GRID;
-        const here = inkAtSize(px, dimension);
-        const up = nextLargerInk(px, dimension);
-        return {
-          px,
-          readbackDriftPx: Math.abs(px - rawPx),
-          ink: here,
-          target: targetCssPx,
-          spills: here > targetCssPx,
-          nextPx: up ? up.px : null,
-          nextInk: up ? up.ink : null,
-          // Headroom means: a larger ink exists just above, and it would STILL
-          // have fitted. That is the word being smaller than it needed to be.
-          headroom: !!up && up.ink <= targetCssPx,
-          noLargerInkInSpan: !up,
-        };
-      };
+      // How far a size drifts from the grid once rounded - the same round-trip
+      // wordVerdict performs internally, computed here only so it can be
+      // reported alongside `renderedPx` in the failure message.
+      const driftPx = (px) => Math.abs(Math.round(px / GRID) * GRID - px);
 
       const row = {
         id: o.id,
@@ -272,10 +251,30 @@ const measureAll = (page) =>
         binding,
         floorScale: MIN_WIDTH_FIT_SCALE,
         fontSizeLocked: !!o.fontSizeLocked,
+        violations: [],
       };
+      if (o.fontSizeLocked) {
+        // A word the user has resized by hand is carrying the size THEY chose,
+        // not one this code derived, so P1/P2 say nothing about it. See
+        // test/replacement-size.js's own hand-resize check further down.
+        rows.push(row);
+        continue;
+      }
       if (binding === "height" || binding === "width") {
         const target = (binding === "height" ? srcH : srcW) * scale;
-        row.property = propertyAt(renderedPx, binding, target);
+        row.violations = wordVerdict({
+          text,
+          binding,
+          chosenPx: renderedPx,
+          targetPx: target,
+          inkAt: (px) => inkAtSize(px, binding),
+          gridStep: GRID,
+          spanPx: PROPERTY_SPAN,
+          renderedPx,
+          readbackDriftPx: driftPx(renderedPx),
+          readbackSlackPx: SLACK,
+          requireProbedTread: true,
+        });
       } else if (binding === "floor") {
         // A floored word is exempt from spilling in WIDTH - that is the whole
         // point of the floor. What it is not exempt from is being anchored to a
@@ -283,14 +282,35 @@ const measureAll = (page) =>
         // height-matched size has to satisfy the property against the source
         // HEIGHT, and the size actually rendered has to be the one the floor
         // rule selects from it. Both are checked, and neither is a residual.
-        row.property = propertyAt(fit.heightFitPx * scale, "height", srcH * scale);
+        const heightFitCssPx = fit.heightFitPx * scale;
         row.floorExpectedPx = fit.heightFitPx * MIN_WIDTH_FIT_SCALE * scale;
+        row.violations = wordVerdict({
+          text,
+          binding,
+          chosenPx: heightFitCssPx,
+          targetPx: srcH * scale,
+          inkAt: (px) => inkAtSize(px, "height"),
+          gridStep: GRID,
+          spanPx: PROPERTY_SPAN,
+          renderedPx,
+          floorExpectedPx: row.floorExpectedPx,
+          readbackDriftPx: driftPx(heightFitCssPx),
+          readbackSlackPx: SLACK,
+          requireProbedTread: true,
+        });
+      } else {
+        row.violations = wordVerdict({ text, binding: null });
       }
       rows.push(row);
     }
     return rows;
   });
 
+// The gating decision is entirely wordVerdict's, computed in-browser by
+// measureAll and carried on r.violations - see test/sizeVerdict.js. What is
+// left here is aggregation: push every violation, and print the informational
+// numbers (median fill, worst spill, the residual) that were never the gate,
+// only ever a description of it.
 function check(rows, label, failures) {
   if (!rows.length) {
     failures.push(`${label}: measured no words at all - the harness found nothing to assert on, which is a failure, not a pass`);
@@ -300,7 +320,6 @@ function check(rows, label, failures) {
   let worstSlack = 1;
   let worstResidual = 0;
   let flooredCount = 0;
-  let unprobedCount = 0;
   for (const r of rows) {
     const tight = Math.max(r.hFill, r.wFill);
     worstSlack = Math.min(worstSlack, tight);
@@ -309,58 +328,11 @@ function check(rows, label, failures) {
     // that matters for those is further down: that a retype did not quietly
     // take the override back.
     if (r.fontSizeLocked) continue;
-    if (!r.binding || !r.property) {
-      failures.push(`${label}/"${r.text}": js/editorObjects.js could not size this word at all - inkFitPx returned nothing`);
-      continue;
-    }
+    for (const v of r.violations) failures.push(`${label}/${v}`);
     const flooredOut = r.binding === "floor";
     if (flooredOut) flooredCount++;
-    else worstSpill = Math.max(worstSpill, tight);
-
-    // ---- P1: it does not spill ----
-    const p = r.property;
-    const dim = flooredOut ? "height" : r.binding;
-    const what = flooredOut ? "the height fit its floor is half of" : `the size it was fitted to (${r.binding})`;
-    if (p.spills) {
-      failures.push(
-        `${label}/"${r.text}": P1 violated - at ${p.px.toFixed(3)}px, ${what} renders ${p.ink.toFixed(2)}px of ` +
-          `${dim} ink against a source box of ${p.target.toFixed(2)}px. A replacement must not spill out of the ` +
-          `space it replaces, at any size, on any face.`
-      );
-    }
-    // ---- P2: and there is no headroom left ----
-    if (p.headroom) {
-      failures.push(
-        `${label}/"${r.text}": P2 violated - at ${p.px.toFixed(3)}px it renders ${p.ink.toFixed(2)}px of ${dim} ` +
-          `ink, but ${p.nextPx.toFixed(3)}px renders ${p.nextInk.toFixed(2)}px, which ALSO fits the ` +
-          `${p.target.toFixed(2)}px box. The word is smaller than it could be.`
-      );
-    }
-    if (p.noLargerInkInSpan) unprobedCount++;
-    if (p.readbackDriftPx > READBACK_SLACK_PX) {
-      failures.push(
-        `${label}/"${r.text}": the size the browser is using (${r.renderedPx.toFixed(4)}px) is ` +
-          `${p.readbackDriftPx.toFixed(4)}px off the grid the solver chooses from - the two have drifted apart, ` +
-          `so every measurement below is of a size the app never picked`
-      );
-    }
-
-    // ---- the floor selects the size, and that is checked as a selection ----
-    if (flooredOut) {
-      // Not "its ink lands within x of a continuously-derived guarantee" - that
-      // was the same modelling mistake in a different place. The floor is a
-      // RULE: half the height-matched size. So check the rule was applied, by
-      // comparing the size the browser is actually using against the size the
-      // rule selects.
-      const drift = Math.abs(r.renderedPx - r.floorExpectedPx);
-      if (drift > READBACK_SLACK_PX) {
-        failures.push(
-          `${label}/"${r.text}": sized by the width floor, but the browser is rendering it at ` +
-            `${r.renderedPx.toFixed(4)}px where the floor rule selects ${r.floorExpectedPx.toFixed(4)}px ` +
-            `(half the height-matched size) - off by ${drift.toFixed(4)}px`
-        );
-      }
-    }
+    else if (r.binding) worstSpill = Math.max(worstSpill, tight);
+    if (!r.binding) continue;
 
     // Residual is INFORMATION, not a gate. How close a face lets the ink get to
     // the box is a property of the face's tread height, not of this code: on a
@@ -373,8 +345,7 @@ function check(rows, label, failures) {
     `  ${label}: ${rows.length} words | median fill h=${med(rows.map((r) => r.hFill)).toFixed(3)} ` +
       `w=${med(rows.map((r) => r.wFill)).toFixed(3)} | worst spill ${worstSpill.toFixed(3)} | loosest fit ${worstSlack.toFixed(3)}` +
       ` | residual (INFO, not gated) <=${(worstResidual * 100).toFixed(2)}%` +
-      (flooredCount ? ` | ${flooredCount} sized by the overflow floor` : "") +
-      (unprobedCount ? ` | ${unprobedCount} on a tread wider than ${PROPERTY_SPAN_PX}px` : "")
+      (flooredCount ? ` | ${flooredCount} sized by the overflow floor` : "")
   );
 }
 
