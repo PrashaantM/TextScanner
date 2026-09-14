@@ -209,6 +209,10 @@ export function describeWordObject(obj) {
   if (obj.el.classList.contains("is-filtered-out")) parts.push("hidden by the current filter");
   if (obj.modified) parts.push("edited");
   if (obj.confidence != null && obj.confidence < LOW_CONFIDENCE_THRESHOLD) parts.push("low confidence, worth checking");
+  // The dashed outline says this in the visual channel; this is the same thing
+  // said in the one a screen reader can hear, for the same reason the
+  // low-confidence underline is mirrored here.
+  if (obj.probablyNotText) parts.push("may not be text, deleting this paints over the photo");
   return parts.join(", ");
 }
 
@@ -277,9 +281,33 @@ export function snapshotState() {
     w: obj.w,
     h: obj.h,
     fontSizePct: obj.fontSizePct,
+    fontSizeLocked: !!obj.fontSizeLocked,
     rotationDeg: obj.rotationDeg,
+    removed: !!obj.removed,
     text: obj.type === "word" ? obj.el.textContent : undefined,
   }));
+}
+
+// ---- Retiring an emptied OCR word ----
+//
+// Deleting an OCR word only CLEARS its text, because the inpainted patch behind
+// it is what hides the original pixels and that patch belongs to this object -
+// take the object away and the photo's own text comes back, in the view and in
+// the exported PNG. So the emptied span stayed, and stayed selectable: a
+// zero-height strip that still caught taps, still drew selection chrome, still
+// enabled the Delete button, and did nothing when it was pressed. That is the
+// "empty components remain and can't be deleted" report.
+//
+// Retiring is the delete the user is actually asking for: the span stops
+// existing as far as pointer, focus, marquee and keyboard are concerned, while
+// the patch and the object stay so the deletion itself holds. `display: none`
+// is doing the work rather than a DOM removal, so undo is one class away and
+// obj.el never has to be re-attached.
+export function setWordRemoved(obj, removed) {
+  if (obj.type !== "word") return;
+  obj.removed = !!removed;
+  obj.el.classList.toggle("is-removed", obj.removed);
+  if (obj.removed) state.selectedObjectIds.delete(obj.id);
 }
 
 export function restoreSnapshot(snapshot) {
@@ -308,10 +336,15 @@ export function restoreSnapshot(snapshot) {
     obj.w = s.w;
     obj.h = s.h;
     if (s.fontSizePct != null) obj.fontSizePct = s.fontSizePct;
+    if (s.fontSizeLocked != null) obj.fontSizeLocked = s.fontSizeLocked;
     if (s.rotationDeg != null) obj.rotationDeg = s.rotationDeg;
     if (obj.type === "word" && s.text != null && obj.el.textContent !== s.text) {
       obj.el.textContent = s.text;
     }
+    // Retirement is undoable like any other edit - without this, Undo after
+    // "delete the empty leftover" would restore the text into a span still
+    // hidden by .is-removed.
+    if (obj.type === "word") setWordRemoved(obj, s.removed);
     applyObjectStyle(obj);
   });
 
@@ -394,6 +427,243 @@ document.addEventListener("keydown", (e) => {
 
 // ---- Rendering objects (words + background image) ----
 
+// ---- "This region is probably not text" ----
+//
+// OCR does not know what a logo is. A map-pin icon, a decorative rule, a
+// separator dash - it reads them as words, they become editable word objects
+// like any other, and deleting one runs the inpainter over that part of the
+// photo. Someone tidying up a stray character can paint over a company mark
+// without ever being told that is what they were about to do.
+//
+// CONFIDENCE CANNOT DECIDE THIS, and that is measured, not assumed. On
+// complexPic1 the map-pin icon comes back at confidence 89, while real text
+// "&" scores 51 and a misread "GOOD" scores 44. Any confidence threshold that
+// catches the pin throws away more real words than it saves, and one that
+// spares the real words never sees the pin. The signal is the wrong shape.
+//
+// Geometry does decide it. A glyph that is really an icon is WIDE for how few
+// characters OCR got out of it, and BIG relative to the text around it. Both
+// halves are needed, and both are relative to the image rather than absolute,
+// because "big" on a poster and "big" on a receipt are different numbers:
+//
+//   - at most 2 characters, and
+//   - more than 1.8x the image's median width-per-character, and
+//   - a glyph box more than 1.4x the image's median glyph height.
+//
+// Measured over five corpus images (regions flagged / total):
+//
+//   complexPic1   1/18   (5.6%)  - exactly the map pin, at confidence 89
+//   complexPic5   0/115  (0%)
+//   complexPic8   1/108  (0.9%)
+//   complexPic3  27/556  (4.9%)  - separator rules; 130 without the height term
+//   complexPic2  12/75   (16%)   - separators, a (c) mark
+//
+// WHICH IS WHY THIS ONLY WARNS. 16% is far too high to suppress on: a silent
+// filter would quietly drop real words out of Copy, Download and text-to-speech
+// to fix a rarer problem than the one it caused. So every flagged region stays a
+// fully editable word, appears in the extracted text, and reads aloud. The flag
+// buys exactly two things: a visible affordance (.is-probably-not-text, next to
+// the existing low-confidence underline) and a confirm in front of the one
+// action that destroys pixels. See test/not-text-warning.js.
+//
+// Scored once, from what the engine reported, and never rescored: this is a
+// property of the REGION the photo contained, not of whatever the user has since
+// typed into it. A flag that flickered as someone typed would be worse than no
+// flag at all.
+
+const NOT_TEXT_MAX_CHARS = 2;
+const NOT_TEXT_MIN_WIDTH_PER_CHAR_RATIO = 1.8;
+const NOT_TEXT_MIN_HEIGHT_RATIO = 1.4;
+
+function median(values) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// Flags the regions of one rendered image. Called once, after every word object
+// exists, because both thresholds are medians over the whole image.
+export function scoreRegionsForNotText(objects) {
+  const words = objects.filter(
+    (obj) => obj.type === "word" && obj.origin === "ocr" && obj.notTextMetrics
+  );
+  const widthsPerChar = median(words.map((obj) => obj.notTextMetrics.widthPerChar));
+  const heights = median(words.map((obj) => obj.notTextMetrics.height));
+  if (!widthsPerChar || !heights) return;
+
+  words.forEach((obj) => {
+    const m = obj.notTextMetrics;
+    obj.probablyNotText =
+      m.chars > 0 &&
+      m.chars <= NOT_TEXT_MAX_CHARS &&
+      m.widthPerChar > widthsPerChar * NOT_TEXT_MIN_WIDTH_PER_CHAR_RATIO &&
+      m.height > heights * NOT_TEXT_MIN_HEIGHT_RATIO;
+    obj.el.classList.toggle("is-probably-not-text", obj.probablyNotText);
+    if (obj.probablyNotText) {
+      // Sits alongside the low-confidence title rather than replacing it; a
+      // region can be both, and the two say different things.
+      const existing = obj.el.title ? obj.el.title + "\n\n" : "";
+      obj.el.title = `${existing}This may not be text - it could be a logo, an icon or a decorative mark that was read as a word. Deleting it paints over that part of the photo.`;
+    }
+  });
+}
+
+// The one sentence the confirm shows. Kept here, next to the rule it describes,
+// so the wording and the thing being warned about cannot drift apart.
+export function describeNotTextWarning(objects) {
+  const flagged = objects.filter((obj) => obj.probablyNotText && obj.el.textContent !== "");
+  if (!flagged.length) return null;
+  const names = flagged.map((obj) => `\u201c${obj.originalText || obj.el.textContent}\u201d`);
+  const subject =
+    flagged.length === 1
+      ? `${names[0]} may not be text`
+      : `${names.slice(0, 3).join(", ")}${flagged.length > 3 ? ` and ${flagged.length - 3} more` : ""} may not be text`;
+  return (
+    `${subject} - ${flagged.length === 1 ? "it could be" : "they could be"} a logo, an icon or a decorative mark that was read as ` +
+    `${flagged.length === 1 ? "a word" : "words"}.\n\n` +
+    `Deleting ${flagged.length === 1 ? "it" : "them"} paints reconstructed background over that part of the photo. ` +
+    `Undo will bring ${flagged.length === 1 ? "it" : "them"} back.\n\n` +
+    `Delete anyway?`
+  );
+}
+
+// ---- Sizing a replacement word to the ink it replaces ----
+//
+// A replacement word should occupy the same height on the page as the text it
+// stands in for. It did not: measured over complexPic1, every replacement
+// rendered at 0.58x the height of the source word, tightly clustered (0.567 to
+// 0.603 across 18 words), and the same 0.58 shows up on complexPic5. That is
+// not noise, it is arithmetic:
+//
+//   font-size := bboxHeight * FONT_SIZE_CORRECTION   (0.8)
+//   rendered cap height := font-size * capHeightPerEm  (~0.72 for this stack)
+//   => rendered ink := 0.8 * 0.72 * bboxHeight = 0.576 * bboxHeight
+//
+// FONT_SIZE_CORRECTION exists because a bbox height used RAW as a font-size
+// renders too big - true, and its comment says so. But the fix was a single
+// constant applied to every word, and the right factor is not a constant: it
+// depends on which glyphs the word actually contains. An all-caps word's bbox
+// is its cap height; "energy" spans ascender to descender; "meow" is only
+// x-height. One number cannot serve all three, so it is wrong for all three.
+//
+// So measure instead of guessing. The browser will tell us exactly how tall a
+// given string renders in a given font, and font metrics scale linearly with
+// font-size, so one measurement at a reference size answers every size. The
+// result needs no magic number, adapts to whatever the font stack resolves to
+// on the device, and - because it is driven by the CURRENT text - re-derives
+// when the user retypes a word, which is the half the constant could never do.
+//
+// Falls back to FONT_SIZE_CORRECTION when the measurement is unavailable
+// (no canvas, or a browser without actualBoundingBox* on TextMetrics), so the
+// old behaviour is the floor rather than a crash.
+
+const INK_REF_FONT_PX = 100;
+
+// Keyed by the exact string. Bounded by the word count of one image, and
+// cleared with the view.
+const inkPerEmCache = new Map();
+let inkMeasureCtx;
+let inkFontFamily = null;
+
+function inkMeasureContext() {
+  if (inkMeasureCtx === undefined) {
+    try {
+      inkMeasureCtx = document.createElement("canvas").getContext("2d") || null;
+    } catch {
+      inkMeasureCtx = null;
+    }
+  }
+  return inkMeasureCtx;
+}
+
+// Resolved from the live editor surface, which the word spans inherit from, so
+// the measurement is of the font the browser will actually paint rather than a
+// stack copied into a second place that can drift out of step with the CSS.
+function wordFontFamily() {
+  if (inkFontFamily === null) {
+    inkFontFamily = getComputedStyle(imageFormatView).fontFamily || "sans-serif";
+  }
+  return inkFontFamily;
+}
+
+// How tall and wide `text` renders, per 1px of font-size. Nulls when it cannot
+// be measured.
+export function inkMetricsPerEm(text) {
+  if (inkPerEmCache.has(text)) return inkPerEmCache.get(text);
+  let metrics = null;
+  const ctx = inkMeasureContext();
+  if (ctx) {
+    ctx.font = `${INK_REF_FONT_PX}px ${wordFontFamily()}`;
+    const m = ctx.measureText(text);
+    const ascent = m.actualBoundingBoxAscent;
+    const descent = m.actualBoundingBoxDescent;
+    if (Number.isFinite(ascent) && Number.isFinite(descent) && ascent + descent > 0 && m.width > 0) {
+      metrics = { height: (ascent + descent) / INK_REF_FONT_PX, width: m.width / INK_REF_FONT_PX };
+    }
+  }
+  inkPerEmCache.set(text, metrics);
+  return metrics;
+}
+
+// The largest font size, as a percentage of the image's natural WIDTH (this
+// module's unit convention for fontSizePct), at which `text` still fits the
+// source word's ink box.
+//
+// Height alone is not the target, and the reason is worth stating because it
+// was tried first and measured: sizing purely to match ink height puts the
+// replacement at exactly the right height (1.015x measured, against 0.581x
+// before) and simultaneously makes it 1.5x to 1.8x too WIDE on a poster set in
+// a condensed display face, so neighbouring words collide and the last word on
+// a line runs off the image. That is worse than the bug.
+//
+// The reason a replacement can't have both is that it is set in the app's font,
+// not the photo's - which is the font matcher that does not exist yet, and is
+// deliberately out of scope. Until it does, the honest target is the one that
+// holds regardless of which face the photo used: occupy the space the original
+// word occupied. So take the smaller of the two fits.
+//
+// The floor keeps that from turning into its own absurdity. A replacement much
+// longer than the original would otherwise shrink without limit to stay inside
+// a short word's box; below half the height-matched size it stops shrinking and
+// is allowed to overflow instead, because unreadable-but-contained is not a
+// better answer than readable-but-wide.
+const MIN_WIDTH_FIT_SCALE = 0.5;
+
+export function fontSizePctForInk(text, inkHeightPx, inkWidthPx, naturalWidth) {
+  if (!naturalWidth || !inkHeightPx) return 0;
+  const perEm = inkMetricsPerEm(text);
+  if (!perEm) return (inkHeightPx / naturalWidth) * 100 * FONT_SIZE_CORRECTION;
+  const heightFitPx = inkHeightPx / perEm.height;
+  let fitPx = heightFitPx;
+  if (inkWidthPx && perEm.width) {
+    const widthFitPx = inkWidthPx / perEm.width;
+    fitPx = Math.max(Math.min(heightFitPx, widthFitPx), heightFitPx * MIN_WIDTH_FIT_SCALE);
+  }
+  return (fitPx / naturalWidth) * 100;
+}
+
+// Re-derives a word's font size from its CURRENT text, so a retyped word fills
+// the space the word it replaced filled, instead of keeping a size derived from
+// the glyph mix of whatever was recognized at scan time. Returns true if the
+// size actually changed.
+//
+// Declines in three cases, each deliberate: a user-added word has no source ink
+// to match; a word the user has resized by hand must keep the size they chose;
+// and an empty word has nothing to measure, so it keeps its last size ready for
+// the next character typed into it.
+export function refitWordFontSize(obj) {
+  if (!obj || obj.type !== "word") return false;
+  if (!obj.inkTargetPx || obj.fontSizeLocked) return false;
+  const text = obj.el.textContent;
+  if (!text.trim()) return false;
+  const next = fontSizePctForInk(text, obj.inkTargetPx, obj.inkTargetWpx, state.lastNaturalWidth);
+  if (!next || Math.abs(next - obj.fontSizePct) < 1e-9) return false;
+  obj.fontSizePct = next;
+  applyObjectStyle(obj);
+  return true;
+}
+
 export function applyObjectStyle(obj) {
   obj.el.style.left = `${obj.x}%`;
   obj.el.style.top = `${obj.y}%`;
@@ -435,6 +705,7 @@ export function clearImageFormatView() {
   imageFormatView.style.aspectRatio = "";
   resetEditorObjects();
   state.imageFormatLines = [];
+  inkPerEmCache.clear();
   state.objectIdCounter = 0;
   state.lastNaturalWidth = 0;
   state.lastNaturalHeight = 0;
@@ -451,7 +722,7 @@ export function clearImageFormatView() {
 // tool / Phase 2's undo-recreate path, so every word object is constructed the same
 // way regardless of where it came from.
 
-export function createWordObject({ text, x, y, w, h, fontSizePct, rotationDeg, origin, confidence, bbox }) {
+export function createWordObject({ text, x, y, w, h, fontSizePct, rotationDeg, origin, confidence, bbox, inkTargetPx, inkTargetWpx, notTextMetrics }) {
   const span = document.createElement("span");
   span.className = "image-format-word";
   span.contentEditable = String(!state.fullEditorMode);
@@ -501,6 +772,20 @@ export function createWordObject({ text, x, y, w, h, fontSizePct, rotationDeg, o
     originalH: h,
     originalText: text,
     originalBbox: bbox || null,
+    // The ink height, in source-image pixels, that this word's replacement text
+    // must render at - see refitWordFontSize. Null for a user-added word, which
+    // replaces nothing and so has no source ink to match.
+    inkTargetPx: inkTargetPx || null,
+    inkTargetWpx: inkTargetWpx || null,
+    // Set once the user resizes the word by hand, after which retyping must not
+    // silently override the size they chose.
+    fontSizeLocked: false,
+    removed: false,
+    // The raw geometry scoreRegionsForNotText needs, in source-image pixels, and
+    // the verdict it writes. Held as reported by the engine, so the flag is a
+    // property of the region in the photo rather than of the current text.
+    notTextMetrics: notTextMetrics || null,
+    probablyNotText: false,
     confidence: typeof confidence === "number" ? confidence : null,
     patchColor: null,
     // Filled in by renderImageFormatView from the source pixels (see
@@ -936,7 +1221,9 @@ export function renderImageFormatView(previewImg, ocrWords, naturalWidth, natura
     const y = ((frame ? frame.y : y0) / naturalHeight) * 100;
     const w = (width / naturalWidth) * 100;
     const h = (height / naturalHeight) * 100;
-    const fontSizePct = (height / naturalWidth) * 100 * FONT_SIZE_CORRECTION;
+    // The ink height this word has to match, in source-image pixels, kept on
+    // the object so a retype can re-derive the size against the same target.
+    const fontSizePct = fontSizePctForInk(text, height, width, naturalWidth);
 
     const obj = createWordObject({
       text,
@@ -949,6 +1236,9 @@ export function renderImageFormatView(previewImg, ocrWords, naturalWidth, natura
       origin: "ocr",
       confidence: word.confidence,
       bbox: { x0, y0, x1, y1 },
+      inkTargetPx: height,
+      inkTargetWpx: width,
+      notTextMetrics: { chars: text.length, widthPerChar: width / text.length, height },
     });
     obj.patchColor = sampleNearbyColor(pixels, naturalWidth, naturalHeight, x0, y0, x1, y1);
     if (obj.patchColor) obj.patchEl.style.background = obj.patchColor;
@@ -975,5 +1265,8 @@ export function renderImageFormatView(previewImg, ocrWords, naturalWidth, natura
   });
 
   if (lineSpans.length) state.imageFormatLines.push(lineSpans);
+  // After the loop, not inside it: both thresholds are medians over the whole
+  // image, so no word can be scored until every word exists.
+  scoreRegionsForNotText(state.editorObjects);
   refreshModifiedStates(); // sets initial is-filtered-out at the default filter level
 }

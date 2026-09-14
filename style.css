@@ -1348,6 +1348,32 @@ kbd {
   text-underline-offset: 2px;
 }
 
+/* A region js/editorObjects.js scored as probably not text at all - a logo, an
+   icon, a decorative rule that OCR read as a word (see scoreRegionsForNotText).
+   It is still a completely ordinary editable word: it is not filtered, not
+   hidden, and still contributes to Copy/Download/text-to-speech. This says only
+   "look before you delete this one", because deleting it inpaints over that part
+   of the photo.
+
+   A dashed OUTLINE rather than a colour or a text-decoration, for three reasons.
+   It reads as "a region", which is what is being flagged, where the
+   low-confidence dotted underline correctly reads as "a word to re-read". It
+   survives greyscale and forced-colours, like the .is-modified caret and unlike
+   a hue. And it does not use `color`, so it stays visible in Full image mode
+   where an untouched word is deliberately transparent - which is exactly where
+   the user is looking at the photo and needs to see it. */
+.image-format-word.is-probably-not-text {
+  outline: 1.5px dashed color-mix(in srgb, var(--error) 55%, var(--text-muted));
+  outline-offset: 1px;
+}
+
+/* Selection and focus own the frame while they are active, so the flag steps
+   out of the way rather than drawing a second box around the first. */
+.image-format-word.is-probably-not-text:focus,
+.image-format-word.is-probably-not-text.is-selected {
+  outline: none;
+}
+
 /* A word the active filter level (js/filter.js) excludes from Text/Copy/Download -
    dimmed rather than hidden, since filtering is non-destructive and the user can
    always switch back to Raw to see it at full strength. */
@@ -1360,6 +1386,18 @@ kbd {
      js/editorObjects.js is the third. */
   text-decoration: line-through;
   text-decoration-thickness: 1px;
+}
+
+/* An emptied OCR word the user has deleted a second time (js/editorObjects.js's
+   setWordRemoved). The object and its inpainted patch have to survive - the patch
+   is what hides the photo's own text, in the view and in the exported PNG - but
+   the span must stop being a thing you can hit, focus, marquee or select. An
+   emptied span is not zero-sized: it keeps min-width from its bbox, so it stayed
+   a full-width, 2px-tall strip that swallowed taps and drew selection chrome
+   around nothing. `display: none` takes it out of hit-testing and the tab order
+   in one move, and Undo restores it by dropping this class. */
+.image-format-word.is-removed {
+  display: none;
 }
 
 /* A word that has been edited, moved or resized. Was colour-plus-tint only. The

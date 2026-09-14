@@ -691,10 +691,29 @@ That is a legitimate strategy, which is why this is a finding and not a bug.
 actually leads, or amend the check to describe what shipped. What should not
 happen is leaving a check that anyone walking the list will mark failed.
 
-**Should a gate have caught it?** No, and it should not try. `test/document-creation.js`
-asserts the buttons exist and drive the right filter/mode, which is the testable
-part. "Prominent" is a visual judgement; pinning font sizes in CI would gate
-styling, not behaviour.
+**Should a gate have caught it?** No, and it should not try. "Prominent" is a
+visual judgement; pinning font sizes in CI would gate styling, not behaviour.
+
+> **Correction, 2026-09-13.** The sentence that used to sit here — "`test/
+> document-creation.js` asserts the buttons exist and drive the right filter/
+> mode, which is the testable part" — was **false when written**. That file
+> never touched either guided button, and neither did anything else in CI: a
+> grep for `view-on-photo` across `test/` returned only `dom-contract.js`, which
+> counts the id and never presses it.
+>
+> It cost something. **"View on photo →" called `modeImageBtn.click()`** — Image
+> format, the view that lays the words out on a *blank canvas*, with no photo
+> and (because `setMode` only shows `#editor-toolbar` in `full`) no "Move
+> components" button. The app's own guided route to the photo editor landed in
+> the one view where nothing on the image can be moved, and it reached a device
+> that way. `test/move-inpaint.js` stayed green throughout because it, like
+> every other browser gate, clicks `#mode-full-btn` directly.
+>
+> Fixed, and now actually gated by **`test/guided-path.js`**, which presses the
+> guided button and asserts the observable result — the photo is showing and
+> "Move components" is reachable — at both sides of the 600px breakpoint. The
+> lesson is narrower than "write more tests": a claim that a gate covers
+> something is worth exactly as much as a grep, and this one was never grepped.
 
 ---
 

@@ -22,6 +22,7 @@ import {
   snapshotState,
   pushUndo,
   refreshModifiedStates,
+  refitWordFontSize,
 } from "./editorObjects.js";
 
 let filterTextHook = null;
@@ -140,6 +141,10 @@ export function applyTranslatedLines(translated) {
     const lineRight = Math.max(...objs.map((o) => o.x + o.w));
     objs[0].w = Math.max(objs[0].w, lineRight - objs[0].x);
     for (let k = 1; k < objs.length; k++) objs[k].el.textContent = "";
+    // A translated line is new text in the same spot, so it needs the same
+    // re-measure a retype does - otherwise the line renders at the height the
+    // FIRST original word's glyphs happened to call for.
+    refitWordFontSize(objs[0]);
     applyObjectStyle(objs[0]);
     changedLines++;
   });

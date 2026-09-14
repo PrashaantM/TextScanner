@@ -27,6 +27,21 @@
 // inpainting blends surrounding content, not a copy of the raw source); a
 // gap that leaves raw pixels showing does not.
 //
+// WHAT THIS GATE DOES NOT COVER, and did not until 2026-09-13. Two things, both
+// found when "components can't be moved" was reported from a device while this
+// file was green at a 30.65 RGB delta:
+//
+//   1. It never checked that the word MOVED ON SCREEN. It asserted the model
+//      (obj.x !== obj.originalX) and the pixels at the vacated spot - and a word
+//      whose model moved while its element stayed put satisfies both, because
+//      revealing the patch is what changes those pixels either way. The rendered
+//      position is now compared before and after, below.
+//   2. It reaches the editor by clicking #mode-full-btn, which is not how the
+//      interface tells anyone to get here - and the app's own guided button was
+//      sending users somewhere with no Move-components control at all. That is
+//      not this file's job to cover; test/guided-path.js now does it, and this
+//      note exists so the next reader knows which door this one uses.
+//
 // Usage: node test/move-inpaint.js   (exits non-zero if anything regressed)
 
 import { launchBrowser } from "./browser.js";
@@ -90,11 +105,31 @@ if (!target) {
 
 const rawBgShot = await page.locator("#image-format-bg").screenshot({ clip: target.rect });
 
+const DRAG_DX = 150;
+const DRAG_DY = 120;
 await page.mouse.move(target.x, target.y);
 await page.mouse.down();
-await page.mouse.move(target.x + 150, target.y + 120, { steps: 15 });
+await page.mouse.move(target.x + DRAG_DX, target.y + DRAG_DY, { steps: 15 });
 await page.mouse.up();
 await page.waitForTimeout(300);
+
+// The assertion this file used to be missing entirely: the word has to end up
+// somewhere else on screen, not just somewhere else in the object model. The
+// tolerance covers the percent-of-container rounding the drag commits through.
+const rendered = await page.evaluate(() => {
+  const o = window.__state.editorObjects.find((x) => x.id === window.__target);
+  const r = o.el.getBoundingClientRect();
+  return { left: r.left, top: r.top };
+});
+const renderedDx = rendered.left - target.rect.x;
+const renderedDy = rendered.top - target.rect.y;
+console.log(`rendered movement: (${renderedDx.toFixed(1)}, ${renderedDy.toFixed(1)})px for a (${DRAG_DX}, ${DRAG_DY})px drag`);
+if (Math.abs(renderedDx - DRAG_DX) > 6 || Math.abs(renderedDy - DRAG_DY) > 6) {
+  failures.push(
+    `the word moved in the model but not on screen: dragged (${DRAG_DX},${DRAG_DY})px, rendered position changed by ` +
+      `(${renderedDx.toFixed(1)},${renderedDy.toFixed(1)})px`
+  );
+}
 
 const patchState = await page.evaluate(() => {
   const o = window.__state.editorObjects.find((x) => x.id === window.__target);

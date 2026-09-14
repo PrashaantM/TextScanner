@@ -25,6 +25,7 @@ import {
   filterButtons,
   filterCoherenceBtn,
   modeImageBtn,
+  modeFullBtn,
   cleanUpTextBtn,
   viewOnPhotoBtn,
   coherenceGateHint,
@@ -77,6 +78,8 @@ import {
   refreshModifiedStates,
   clearSelection,
   removeUserWordObject,
+  setWordRemoved,
+  describeNotTextWarning,
   createWordObject,
   configureUndoHooks,
   setActiveButton,
@@ -539,8 +542,16 @@ cleanUpTextBtn?.addEventListener("click", () => {
   resetCoherenceGate();
   filterCoherenceBtn.click();
 });
+// "View on photo" means Full image, not Image format. It used to click
+// modeImageBtn, which is the view that lays the words out on a BLANK canvas -
+// so the one button whose label promises the photo was the one view without it.
+// That mismatch also took "Move components" away: setMode only shows
+// #editor-toolbar in "full", so the guided path landed users in a mode with no
+// way to move anything, which is exactly the "components can't be moved" report.
+// Every gate reached the editor by clicking #mode-full-btn directly and so never
+// touched this button - see test/guided-path.js.
 viewOnPhotoBtn?.addEventListener("click", () => {
-  modeImageBtn.click();
+  modeFullBtn.click();
 });
 
 // Phase 2: which tier the user has asked for. Defaults to on-device, so anyone
@@ -763,6 +774,9 @@ configureUndoHooks({
       w: s.w,
       h: s.h,
       fontSizePct: s.fontSizePct,
+      // Was dropped on the floor: the snapshot carries rotationDeg, and a word
+      // recreated by Undo came back level no matter how the photo was tilted.
+      rotationDeg: s.rotationDeg,
       origin: s.origin,
       confidence: null,
       bbox: null,
@@ -809,6 +823,24 @@ async function precomputePatches(objects) {
 
 setDeleteHandler(async (selectedObjects) => {
   if (!selectedObjects.length) return;
+
+  // A region OCR probably misread as a word - a logo, an icon, a decorative
+  // rule - gets one question before its pixels are painted over. See
+  // scoreRegionsForNotText in js/editorObjects.js for the rule and the measured
+  // flag rates, and why this warns rather than filtering those regions out.
+  //
+  // Only in front of the delete that actually destroys something. Retiring an
+  // ALREADY-emptied leftover is excluded by describeNotTextWarning's own
+  // textContent check: those pixels are gone already, the patch is already
+  // drawn, and asking again would be a prompt that protects nothing - the fast
+  // way to teach someone to dismiss these without reading them.
+  const warning = describeNotTextWarning(selectedObjects);
+  // Dismiss must not delete. Same discipline as every other confirm in the app
+  // (test/destructive-actions.js): OK acts, Cancel does nothing at all - not a
+  // partial delete of the unflagged half of the selection, which would be a
+  // destructive action taken by a button labelled Cancel.
+  if (warning && !window.confirm(warning)) return;
+
   const preSnapshot = snapshotState();
   let changed = false;
   const cleared = [];
@@ -818,7 +850,19 @@ setDeleteHandler(async (selectedObjects) => {
       removeUserWordObject(obj);
       changed = true;
     } else if (obj.origin === "ocr") {
-      if (obj.el.textContent === "") return;
+      if (obj.el.textContent === "") {
+        // Already emptied by an earlier Delete (or by backspacing it away).
+        // Pressing Delete on the leftover used to `return` here, so nothing
+        // happened at all - no removal, no cleared selection, not even a
+        // refusal - while the Delete button sat enabled promising otherwise.
+        // Second Delete retires it: see setWordRemoved for why the object and
+        // its patch have to survive even though the span must not.
+        if (!obj.removed) {
+          setWordRemoved(obj, true);
+          changed = true;
+        }
+        return;
+      }
       obj.el.textContent = "";
       cleared.push(obj);
       changed = true;

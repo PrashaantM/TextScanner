@@ -30,10 +30,39 @@ const PORT = 8124;
 // is not a tuned tolerance - it is a tripwire wide enough that floating-point
 // noise can never trip it and narrow enough that any real coordinate error will.
 const MAX_PLACEMENT_ERROR_PCT = 0.05;
-// Same idea for font size: the rendered size divided by the size the word's true
-// glyph height calls for. This is the number that was 2.12x at 15 degrees and
-// 3.18x at 40 before the frame fix (see test/unit/mlkit-geometry.test.js).
-const MAX_FONT_SIZE_RATIO_ERROR = 0.01;
+// Font size is asserted as a PROPERTY of what got rendered, not as a formula.
+//
+// It used to be a formula, and that is precisely why it never caught the size
+// bug it was supposed to own: the assertion read
+//
+//     expectedFontPct = (t.h / naturalWidth) * 100 * 0.8
+//
+// which is renderImageFormatView's own line of code copied into the test. A
+// gate written that way can only ever confirm that the implementation is still
+// itself. It passed at 1.00x for months while every replacement word rendered
+// at 0.58x the height of the text it replaced - measured from real pixels on
+// complexPic1, complexPic5 and complexPic2, all three within 0.581-0.593.
+//
+// What a reader actually wants is stated below instead: a replacement fills the
+// box of the word it replaces, and does not spill out of it. Both halves matter.
+// "Does not spill" alone is satisfied by rendering nothing; "fills" alone is
+// what produces words that collide with their neighbours and run off the image.
+// Neither half mentions a font size, so neither can be satisfied by copying one.
+// The band is 6% rather than something tighter, and the reason is measurable
+// rather than defensive. The renderer measures the string once at a 100px
+// reference and scales the result, because font metrics are linear in size -
+// almost. Hinting and grid-fitting mean a face's advance width per em at 23px
+// is not exactly its advance width per em at 100px; the gap runs to ~1.5% on
+// this stack, and the exact figure depends on the rendered size, which depends
+// on the viewport, which is not fixed. Anything tighter would be a flaky gate
+// measuring the font rasteriser. It is still nowhere near wide enough to admit
+// the bug this replaced: that one sat at 0.58.
+const MAX_INK_OVERFLOW = 0.06;
+// The fit has to be TIGHT in whichever dimension binds first - that is the half
+// the old assertion had no way to express, and the half the 0.8 constant failed:
+// it left the ink at 0.58 of the box's height AND 0.82 of its width, short in
+// both, with nothing to say so.
+const MIN_TIGHT_FIT = 0.94;
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".jpeg": "image/jpeg", ".jpg": "image/jpeg", ".png": "image/png" };
 
@@ -235,6 +264,15 @@ async function replayMlkitFixtures(page) {
           // what the browser actually painted, which is the half that proves the
           // CSS rotation landed rather than being computed and dropped.
           const r = obj.el.getBoundingClientRect();
+          // The INK the browser will actually paint for this span, in source-image
+          // pixels - not the span's box, which carries line-height and padding and
+          // so cannot be compared against a glyph height. Measured through the
+          // span's own computed font so it reflects what is on screen rather than
+          // a font stack named a second time here.
+          const cs = getComputedStyle(obj.el);
+          const mctx = document.createElement("canvas").getContext("2d");
+          mctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+          const tm = mctx.measureText(obj.el.textContent);
           return {
             text: obj.el.textContent,
             xPct: obj.x,
@@ -243,6 +281,8 @@ async function replayMlkitFixtures(page) {
             rotationDeg: obj.rotationDeg || 0,
             renderedEnvelopeW: r.width / scale,
             renderedEnvelopeH: r.height / scale,
+            renderedInkW: tm.width / scale,
+            renderedInkH: (tm.actualBoundingBoxAscent + tm.actualBoundingBoxDescent) / scale,
             transform: getComputedStyle(obj.el).transform,
           };
         });
@@ -264,13 +304,13 @@ async function replayMlkitFixtures(page) {
       // positions in.
       const expectedXPct = (t.x / fixture.naturalWidth) * 100;
       const expectedYPct = (t.y / fixture.naturalHeight) * 100;
-      // FONT_SIZE_CORRECTION (0.8) is applied to the word's TRUE glyph height.
-      const expectedFontPct = (t.h / fixture.naturalWidth) * 100 * 0.8;
+      // How much of the word's true ink box the rendered ink actually fills.
+      const hFill = m.renderedInkH / t.h;
+      const wFill = m.renderedInkW / t.w;
 
       const placementError = Math.max(Math.abs(m.xPct - expectedXPct), Math.abs(m.yPct - expectedYPct));
-      const fontRatioError = Math.abs(m.fontSizePct / expectedFontPct - 1);
       worstPlacement = Math.max(worstPlacement, placementError);
-      worstFont = Math.max(worstFont, fontRatioError);
+      worstFont = Math.max(worstFont, Math.abs(Math.max(hFill, wFill) - 1));
 
       if (placementError > MAX_PLACEMENT_ERROR_PCT) {
         failures.push(
@@ -278,10 +318,21 @@ async function replayMlkitFixtures(page) {
             `${expectedXPct.toFixed(3)},${expectedYPct.toFixed(3)}% (error ${placementError.toFixed(4)}%)`
         );
       }
-      if (fontRatioError > MAX_FONT_SIZE_RATIO_ERROR) {
+      // Does not spill out of the box. The envelope-inflation bug showed up here
+      // as 2.12x at 15 degrees and 3.18x at 40 (test/unit/mlkit-geometry.test.js).
+      if (hFill > 1 + MAX_INK_OVERFLOW || wFill > 1 + MAX_INK_OVERFLOW) {
         failures.push(
-          `${name}/"${m.text}": font size ${(m.fontSizePct / expectedFontPct).toFixed(3)}x the size its true ` +
-            `glyph height calls for - this is the envelope-inflation bug`
+          `${name}/"${m.text}": rendered ink is ${hFill.toFixed(3)}x the true glyph height and ` +
+            `${wFill.toFixed(3)}x its width - a replacement must not spill out of the box it replaces`
+        );
+      }
+      // ...and fills it. Whichever dimension runs out first has to run out
+      // properly: a word that fits with room to spare in BOTH is simply too
+      // small, which is what the 0.8 constant produced for every word in the app.
+      if (Math.max(hFill, wFill) < MIN_TIGHT_FIT) {
+        failures.push(
+          `${name}/"${m.text}": rendered ink fills only ${hFill.toFixed(3)} of the box's height and ` +
+            `${wFill.toFixed(3)} of its width - short in both, so the word is smaller than the text it replaces`
         );
       }
 

@@ -15,8 +15,17 @@ export const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15 MB
 // it happens rather than quietly changing their image.
 export const MAX_IMAGE_PIXELS = 12 * 1000 * 1000;
 export const MAX_UNDO_STEPS = 100;
-// Tesseract's word bbox height (used directly as a CSS font-size) renders visibly
-// larger than the source text, since a font's em-box is taller than its ink height.
+// Fallback only, since 2026-09-13. A word's font size is now MEASURED - the size
+// at which its own glyphs fill the box of the word it replaces - because one
+// constant cannot serve "MEOW" (cap height), "energy" (ascender to descender)
+// and "meow" (x-height only), and being wrong for all three rendered every
+// replacement at 0.58x the height of the source text. See fontSizePctForInk in
+// js/editorObjects.js, which falls back to this when the measurement is
+// unavailable, and test/replacement-size.js for the numbers.
+//
+// Its original rationale, still true as far as it went: a bbox height used
+// directly as a CSS font-size renders visibly larger than the source text,
+// because a font's em-box is taller than its ink.
 export const FONT_SIZE_CORRECTION = 0.8;
 // Below this per-word OCR confidence (0-100), a word is flagged in the UI as
 // worth double-checking rather than trusted outright. See ocrEngine.js.

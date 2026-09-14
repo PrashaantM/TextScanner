@@ -29,7 +29,7 @@ import {
   newTextBtn,
   selectMultiBtn,
 } from "./dom.js";
-import { state, FONT_SIZE_CORRECTION } from "./state.js";
+import { state } from "./state.js";
 import {
   clamp,
   show,
@@ -55,6 +55,7 @@ import {
   updateDeleteButton,
   refreshModifiedStates,
   refreshModifiedStatesFor,
+  refitWordFontSize,
   registerModeReset,
 } from "./editorObjects.js";
 import { hapticLight } from "./haptics.js";
@@ -215,22 +216,25 @@ export function setAddTextMode(on) {
 }
 
 function computeDefaultGeometry() {
-  const ocrFontSizes = state.editorObjects
-    .filter((o) => o.type === "word" && o.origin === "ocr")
-    .map((o) => o.fontSizePct)
-    .sort((a, b) => a - b);
+  const ocrWords = state.editorObjects.filter((o) => o.type === "word" && o.origin === "ocr");
+  const median = (values, fallback) => {
+    if (!values.length) return fallback;
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
 
-  let fontSizePct = DEFAULT_FONT_SIZE_PCT;
-  if (ocrFontSizes.length) {
-    const mid = Math.floor(ocrFontSizes.length / 2);
-    fontSizePct = ocrFontSizes.length % 2 ? ocrFontSizes[mid] : (ocrFontSizes[mid - 1] + ocrFontSizes[mid]) / 2;
-  }
-
+  const fontSizePct = median(ocrWords.map((o) => o.fontSizePct), DEFAULT_FONT_SIZE_PCT);
   const w = DEFAULT_TEXT_WIDTH_PCT;
-  const h =
-    state.lastNaturalWidth && state.lastNaturalHeight
-      ? (fontSizePct * state.lastNaturalWidth) / state.lastNaturalHeight / FONT_SIZE_CORRECTION
-      : DEFAULT_TEXT_HEIGHT_PCT;
+  // The box height is taken from the OCR words directly rather than
+  // reconstructed from fontSizePct. It used to be
+  // `fontSizePct * naturalWidth / naturalHeight / FONT_SIZE_CORRECTION`, which
+  // worked only because fontSizePct was that constant times the bbox height, so
+  // dividing it back out recovered the height. It no longer is: the size comes
+  // from measuring the string (see fontSizePctForInk), and there is no constant
+  // left to invert. The words already carry the height this is trying to
+  // estimate, so ask them.
+  const h = median(ocrWords.map((o) => o.h), DEFAULT_TEXT_HEIGHT_PCT);
   return { fontSizePct, w, h };
 }
 
@@ -294,7 +298,14 @@ imageFormatView.addEventListener("input", (e) => {
   const span = e.target.closest(".image-format-word");
   if (!span) return;
   const obj = getObjectByElement(span);
-  if (obj) refreshModifiedStates();
+  if (!obj) return;
+  // Retyping changes which glyphs are on the page, and how tall a string
+  // renders depends on exactly that - an all-caps word is cap height, "energy"
+  // spans ascender to descender. The size was fixed at scan time from the
+  // recognized text and never revisited, so the replacement came out at a
+  // height that belonged to the word it replaced. See refitWordFontSize.
+  refitWordFontSize(obj);
+  refreshModifiedStates();
 });
 
 // Direct contenteditable text edits (typing into a word, outside full editor mode)
@@ -415,7 +426,12 @@ function resizeSelection(factor) {
   objects.forEach((obj) => {
     obj.w = clamp(obj.w * factor, MIN_OBJECT_SIZE_PCT, MAX_OBJECT_SIZE_PCT);
     obj.h = clamp(obj.h * factor, MIN_OBJECT_SIZE_PCT, MAX_OBJECT_SIZE_PCT);
-    if (obj.type === "word") obj.fontSizePct = Math.max(obj.fontSizePct * factor, MIN_FONT_SIZE_PCT);
+    if (obj.type === "word") {
+      obj.fontSizePct = Math.max(obj.fontSizePct * factor, MIN_FONT_SIZE_PCT);
+      // Same reason as the pointer resize: a size the user picked, by keyboard
+      // this time, outranks the measured refit on the next retype.
+      obj.fontSizeLocked = true;
+    }
     applyObjectStyle(obj);
   });
   updateResizeHandle();
@@ -694,6 +710,8 @@ function beginResize(e) {
       obj.h = clamp(startH * lastScale, MIN_OBJECT_SIZE_PCT, MAX_OBJECT_SIZE_PCT);
       if (obj.type === "word") {
         obj.fontSizePct = Math.max(startFontSizePct * lastScale, MIN_FONT_SIZE_PCT);
+        // The user has chosen a size; retyping must not quietly take it back.
+        obj.fontSizeLocked = true;
       }
       applyObjectStyle(obj);
       updateResizeHandle();
@@ -726,6 +744,10 @@ function beginMarquee(e, additive) {
 
     state.editorObjects.forEach((obj) => {
       if (obj.type === "image" && !state.fullEditorMode) return;
+      // A retired word is display:none, so its rect is 0,0,0,0 - which a marquee
+      // dragged from the very top-left of the surface would still "intersect".
+      // Skipping it explicitly is cheaper than reasoning about that every time.
+      if (obj.removed) return;
       const r = obj.el.getBoundingClientRect();
       const intersects = !(r.right < x1 || r.left > x2 || r.bottom < y1 || r.top > y2);
       if (intersects) {

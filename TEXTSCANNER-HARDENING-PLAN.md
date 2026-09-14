@@ -84,7 +84,13 @@ capture section below), in which case push to `main` and use the live
    up this text"** / **"View on photo →"** prominently, with the original
    Raw/Filtered/Text/Image controls still present underneath, just smaller.
    Click each guided button and confirm it drives the right underlying
-   filter/mode.
+   filter/mode — **naming the destination, because "the right mode" is what
+   made this check pass over a real bug**: "Clean up this text" must select
+   the **Coherence Filter** level, and "View on photo →" must land on **Full
+   image** (the photo visible, with the "Move components" button present), NOT
+   Image format. It called `modeImageBtn.click()` until 2026-09-13, so the
+   guided path reached a view with no photo and no way to move anything.
+   Gated since by `test/guided-path.js`.
 6. Scan an image containing a **receipt-like layout** (dollar amounts, a
    "total" line, several short lines) or a **business-card-like layout** (an
    email address plus a phone number) and run Coherence Filter — confirm the
