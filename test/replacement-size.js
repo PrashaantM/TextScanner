@@ -72,21 +72,36 @@ const server = createServer(async (req, res) => {
   }
 }).listen(PORT);
 
-// Fill and spill, as fractions of the source word's own ink box.
+// MAX_SPILL (1.1) and MIN_TIGHT_FIT (0.94) used to sit here as a band around
+// 1.0. Both are gone, and it is worth saying why out loud rather than quietly
+// dropping two numbers, because "the assertion went red, so weaken it" is
+// exactly the failure mode this whole file exists to prevent.
 //
-// This is the OUTER statement of the property, in the terms the header
-// describes it: a replacement fills the box and does not spill out of it. The
-// band around 1.0 is 6% and stays 6% - deliberately, now that the precision
-// check below carries the real weight. It is the assertion that holds whatever
-// face the stack resolves to, so widening or narrowing it should track what the
-// property means, not what this month's font happens to measure.
+// Both were residual assertions wearing different names, on the same axis P1
+// and P2 already cover, and by the time CI went red under Liberation Sans that
+// was provable rather than argued: every one of the 53 CI failures was
+// MIN_TIGHT_FIT, and not one was P1 or P2. On a staircase a 6% band is
+// unachievable for small text - "you" in the CI log fills 0.810 of its box's
+// height, which is one 1px tread short on a ~4px-tall word, 19% below the
+// band - and MIN_TIGHT_FIT had no way to tell that apart from an actual sizing
+// bug, because it does not know where the treads are. P1 and P2 do: P1 is
+// strictly stricter than MAX_SPILL (P1 has no tolerance at all, MAX_SPILL
+// allowed 10% over), and P1+P2 together pin the chosen size to the largest one
+// that fits - a band only ever bounded it.
 //
-// (The reason it USED to be 6% no longer applies and should not be cited: the
-// size was derived from one measurement at a 100px reference and scaled, and
-// the scaling was wrong by up to 18%. That is fixed - see js/editorObjects.js.)
-const MAX_SPILL = 1.1;
-const MIN_TIGHT_FIT = 0.94;
-
+// Before deleting, the burden was discharged rather than argued: js/editorObjects.js
+// was reverted, in a scratch copy, to the literal historic defect this file
+// was first written to catch - fontSizePct := bboxHeight * FONT_SIZE_CORRECTION,
+// unconditionally, the same 0.58x-height bug from the top of this file's
+// header. Run against that defect with MIN_TIGHT_FIT and MAX_SPILL DISABLED,
+// P1 and P2 alone produced 846 failures - every word, every phase, both
+// P1-violated (the old formula ignores width entirely, so on complexPic1's
+// condensed face it overshoots width by the same 1.5x-1.8x the header
+// describes) and P2-violated (the chosen size is far below the largest that
+// fits, so the very next grid step up still fits and is larger). Restoring
+// the real solver and re-running clears every one of them. See the commit
+// message for the invocation and the full counts.
+//
 // ---- The property, and why it is not a residual any more ----
 //
 // This used to assert that the binding dimension landed within 0.5% of the
@@ -301,20 +316,6 @@ function check(rows, label, failures) {
     const flooredOut = r.binding === "floor";
     if (flooredOut) flooredCount++;
     else worstSpill = Math.max(worstSpill, tight);
-
-    // ---- the outer statement of the property, in the header's own terms ----
-    if (!flooredOut && (r.hFill > MAX_SPILL || r.wFill > MAX_SPILL)) {
-      failures.push(
-        `${label}/"${r.text}": rendered ink is ${r.hFill.toFixed(3)}x the source word's height and ` +
-          `${r.wFill.toFixed(3)}x its width - a replacement must not spill out of the space it replaces`
-      );
-    }
-    if (tight < MIN_TIGHT_FIT) {
-      failures.push(
-        `${label}/"${r.text}": rendered ink fills only ${r.hFill.toFixed(3)} of the source word's height ` +
-          `and ${r.wFill.toFixed(3)} of its width - short in both, so the replacement is smaller than the text it replaces`
-      );
-    }
 
     // ---- P1: it does not spill ----
     const p = r.property;
