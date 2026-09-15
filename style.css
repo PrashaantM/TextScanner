@@ -21,16 +21,25 @@
 */
 :root {
   color-scheme: light;
-  --bg: #f7f7f9;
+  /* UI-REDESIGN-PLAN.md §3.1: sci-fi token system, dark-first. Light stays
+     genuinely usable outdoors (this app is often used to photograph a
+     document in daylight), so it's a real on-brand palette here, not a
+     generic light-mode grey reversion. */
+  --bg: #f4f6f9;
   --surface: #ffffff;
-  --border: #d9d9e0;
-  --text: #1a1a1f;
+  --border: #d3dae3;
+  --text: #10151d;
   --text-muted: #5c5c66;
-  --accent: #3457d5;
-  --accent-hover: #2a45ac;
+  --accent: #0091b3;
+  /* Not in §3.1's table (it only gives the dark accent-hover) - darkened
+     from --accent by roughly the same proportion the old light accent's own
+     hover already used, since leaving the previous blue hover here would
+     flash an unrelated color against the new teal accent on every hover. */
+  --accent-hover: #00748f;
   --accent-contrast: #ffffff;
-  --success: #1b8a5a;
-  --error: #c23434;
+  --success: #128a56;
+  --error: #d02847;
+  --warning: #b5720a;
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 18px;
@@ -39,8 +48,17 @@
      plane and the hierarchy disappears. */
   --surface-2: #f1f1f5;
   --surface-3: #e8e8ee;
-  --danger: #c23434;
+  --danger: #d02847;
   --danger-contrast: #ffffff;
+  /* Glass and glow (§3.1): additive, connects to the liquid-glass roadmap
+     item (§3.5). --glass-blur/--glass-saturate aren't color, so one
+     declaration covers both themes; --surface-glass/--glass-edge/
+     --glow-accent are restated per theme below since they ARE color. */
+  --glass-blur: 20px;
+  --glass-saturate: 160%;
+  --surface-glass: rgba(255, 255, 255, 0.6);
+  --glass-edge: rgba(255, 255, 255, 0.5);
+  --glow-accent: 0 0 0 3px rgba(0, 145, 179, 0.25), 0 0 16px rgba(0, 145, 179, 0.35);
   /* Shadows are defined as tokens because they have to invert for dark mode -
      a dark UI needs a lighter, tighter shadow or elements look like holes. */
   --shadow-sm: 0 1px 2px rgba(16, 16, 24, 0.06), 0 1px 3px rgba(16, 16, 24, 0.04);
@@ -57,6 +75,36 @@
      Naming it here is what makes the coupling visible from both sides. */
   --motion-bloom: 140ms;
   --ease-bloom: cubic-bezier(0.2, 0.8, 0.3, 1.2);
+
+  /* Type scale (§3.2): additive, none of this existed before. --text-2xl
+     matches the drop-zone icon's existing 2.25rem exactly, so it isn't
+     invented from nothing. */
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.625rem;
+  --text-2xl: 2.25rem;
+  /* System fonts only - no vendoring, no CSP change - for the handful of
+     technical readouts the sci-fi register fits better than prose: word
+     confidence, the Coherence Filter tier name, PII masked text,
+     diagnostics output. Not a base-font change; body text stays on the
+     existing system sans stack. */
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Spacing (§3.3): additive, 4px base unit, 8 steps. Rolled out
+     incrementally on touched/new components only - see that section's own
+     note on why this isn't a mass re-spacing pass. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
 }
 
 /* Every transition below references these tokens rather than a hardcoded
@@ -79,22 +127,28 @@
 /* Dark palette, defined once and applied from two places: the OS preference
    (unless the user has explicitly chosen light), and an explicit dark choice. */
 @media (prefers-color-scheme: dark) {
+  /* UI-REDESIGN-PLAN.md §3.1: sci-fi dark palette, the primary register - a
+     HUD/viewfinder feel fits a scanner app literally, not just aesthetically. */
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #14141a;
-    --surface: #1e1e26;
-    --border: #33333e;
-    --text: #f2f2f5;
-    --text-muted: #a3a3af;
-    --accent: #7f9cff;
-    --accent-hover: #a2b8ff;
-    --accent-contrast: #101018;
-    --success: #4fd08c;
-    --error: #ff6b6b;
-    --surface-2: #262630;
-    --surface-3: #30303c;
-    --danger: #ff6b6b;
-    --danger-contrast: #14141a;
+    --bg: #0a0e14;
+    --surface: #10161f;
+    --border: #26303f;
+    --text: #eef3f8;
+    --text-muted: #8291a8;
+    --accent: #34e2ff;
+    --accent-hover: #6eecff;
+    --accent-contrast: #06222b;
+    --success: #35e0a1;
+    --error: #ff4d6a;
+    --warning: #ffb020;
+    --surface-2: #161d29;
+    --surface-3: #1c2532;
+    --danger: #ff4d6a;
+    --danger-contrast: #0a0e14;
+    --surface-glass: rgba(16, 22, 31, 0.6);
+    --glass-edge: rgba(255, 255, 255, 0.08);
+    --glow-accent: 0 0 0 3px rgba(52, 226, 255, 0.25), 0 0 16px rgba(52, 226, 255, 0.35);
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.3);
     --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.55);
@@ -103,20 +157,24 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #14141a;
-  --surface: #1e1e26;
-  --border: #33333e;
-  --text: #f2f2f5;
-  --text-muted: #a3a3af;
-  --accent: #7f9cff;
-  --accent-hover: #a2b8ff;
-  --accent-contrast: #101018;
-  --success: #4fd08c;
-  --error: #ff6b6b;
-  --surface-2: #262630;
-  --surface-3: #30303c;
-  --danger: #ff6b6b;
-  --danger-contrast: #14141a;
+  --bg: #0a0e14;
+  --surface: #10161f;
+  --border: #26303f;
+  --text: #eef3f8;
+  --text-muted: #8291a8;
+  --accent: #34e2ff;
+  --accent-hover: #6eecff;
+  --accent-contrast: #06222b;
+  --success: #35e0a1;
+  --error: #ff4d6a;
+  --warning: #ffb020;
+  --surface-2: #161d29;
+  --surface-3: #1c2532;
+  --danger: #ff4d6a;
+  --danger-contrast: #0a0e14;
+  --surface-glass: rgba(16, 22, 31, 0.6);
+  --glass-edge: rgba(255, 255, 255, 0.08);
+  --glow-accent: 0 0 0 3px rgba(52, 226, 255, 0.25), 0 0 16px rgba(52, 226, 255, 0.35);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.55);
@@ -126,20 +184,24 @@
    restating the light palette rather than relying on :root alone. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f7f7f9;
+  --bg: #f4f6f9;
   --surface: #ffffff;
-  --border: #d9d9e0;
-  --text: #1a1a1f;
+  --border: #d3dae3;
+  --text: #10151d;
   --text-muted: #5c5c66;
-  --accent: #3457d5;
-  --accent-hover: #2a45ac;
+  --accent: #0091b3;
+  --accent-hover: #00748f;
   --accent-contrast: #ffffff;
-  --success: #1b8a5a;
-  --error: #c23434;
+  --success: #128a56;
+  --error: #d02847;
+  --warning: #b5720a;
   --surface-2: #f1f1f5;
   --surface-3: #e8e8ee;
-  --danger: #c23434;
+  --danger: #d02847;
   --danger-contrast: #ffffff;
+  --surface-glass: rgba(255, 255, 255, 0.6);
+  --glass-edge: rgba(255, 255, 255, 0.5);
+  --glow-accent: 0 0 0 3px rgba(0, 145, 179, 0.25), 0 0 16px rgba(0, 145, 179, 0.35);
   --shadow-sm: 0 1px 2px rgba(16, 16, 24, 0.06), 0 1px 3px rgba(16, 16, 24, 0.04);
   --shadow-md: 0 2px 6px rgba(16, 16, 24, 0.07), 0 8px 24px rgba(16, 16, 24, 0.06);
   --shadow-lg: 0 12px 40px rgba(16, 16, 24, 0.16);
