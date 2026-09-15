@@ -1756,9 +1756,21 @@ kbd {
 
 /* ---- Sidebar ---- */
 
+/* UI-REDESIGN-PLAN.md §4: visual pass only - same sticky, fixed-width
+   sidebar, same sidebar contents/gestures, just glass-treated under the
+   token system. No resize/collapse affordance added; that's explicitly out
+   of scope for this pass. -webkit-backdrop-filter is required for this to
+   render at all in Safari/WKWebView, which is where this app actually ships
+   on iOS. */
 .library-sidebar {
   position: sticky;
   top: 5.5rem;
+  padding: var(--space-4);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  background: var(--surface-glass);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 }
 
 .library-nav__list {
@@ -1797,10 +1809,13 @@ kbd {
   background: var(--surface-2);
 }
 
+/* UI-REDESIGN-PLAN.md §4: glow-accented active state, on top of the existing
+   tint/color/weight treatment rather than replacing it. */
 .library-nav__item.is-active {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
   font-weight: 600;
+  box-shadow: var(--glow-accent);
 }
 
 .library-nav__label {
@@ -2052,9 +2067,13 @@ kbd {
   padding: 0 2px;
 }
 
+/* UI-REDESIGN-PLAN.md §4/§3.2: mono readout for card metadata (page counts,
+   dates) - one of the small, specific technical-register accents §3.2 names,
+   not a base-font change. */
 .doc-card__meta {
   color: var(--text-muted);
   font-size: 0.76rem;
+  font-family: var(--font-mono);
 }
 
 .doc-card__pin {
