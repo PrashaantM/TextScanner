@@ -1061,6 +1061,24 @@ kbd {
   gap: 0.6rem;
 }
 
+/* "Clean up this text" and "View on photo" are declared the guided PRIMARY
+   path above (`.result-toolbar__row--secondary`'s comment), with the raw mode
+   toggle deliberately de-emphasized beside them via opacity + a 0.94 scale -
+   not via font-size, which .mode-toggle__btn has carried at 0.85rem since
+   before either guided button existed (7a75e9f, three weeks earlier, for an
+   unrelated Image-format-mode toggle). These two buttons instead reuse
+   `.btn--small` (0.75rem) - the generic compact-button utility introduced
+   later still, for the Coherence panel's controls, with no comparison to the
+   toggle it would end up sitting next to. Net effect: the controls the
+   interface actively steers people toward rendered smaller (12px) than the
+   ones it visually quiets down (13.6px, scaled to ~12.8px) - the opposite of
+   the stated hierarchy. Restoring the toggle's own base size here is what
+   actually delivers that hierarchy, given the toggle is already shrunk
+   further on top of it. */
+.result-toolbar__guided .btn {
+  font-size: 0.85rem;
+}
+
 .result-toolbar__guided-hint {
   flex-basis: 100%;
   font-size: 0.8rem;
