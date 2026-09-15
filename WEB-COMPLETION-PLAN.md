@@ -18,6 +18,18 @@ own section rather than in a separate tracker that could drift from it.
 
 ## 0. Where the web build actually stands
 
+**Standing rule, added after this section's own numbers drifted three
+separate times in three separate sessions.** Whichever commit touches
+`EXPECTED_ID_COUNT` in `test/dom-contract.js`, adds a `node` step to
+`ci.yml`'s per-push job, or otherwise moves the id count, the module/line
+count or the CI-gate count this section states, updates this section's
+numbers **in that same commit** - not in a follow-up doc pass, which is
+exactly how they drifted every time so far: a doc-accuracy commit is only
+accurate as of the moment it lands, and every commit after it in the same
+session is a chance to move a number the doc just fixed. Say in one sentence
+in the commit message whether the commit touches any of the three; if it
+does, the same commit carries the doc update.
+
 Checked today rather than carried forward from `HANDOFF.md`:
 
 | Fact | How it was checked |
@@ -28,7 +40,7 @@ Checked today rather than carried forward from `HANDOFF.md`:
 | 60 unit tests pass | `node --test test/unit/*.test.js` — 60 pass, 0 fail |
 | The newest browser gate passes | `node test/interaction-layer.js` — all 24 checks green |
 | Last CI run on `main` green | run `34673998815`, 3m30s |
-| 46 modules, 14,607 lines in `js/` | `wc -l js/*.js` |
+| 46 modules, 14,627 lines in `js/` | `wc -l js/*.js` |
 | Tracked repo 8.87 MiB; `vendor/tesseract` is 11 MB of it on disk | `git count-objects -vH`, `du` |
 
 **Jekyll is not eating anything.** Its default excludes cover `vendor/bundle`,
@@ -39,9 +51,9 @@ empirically by the 200s above, so no `.nojekyll` is needed.
 `js/`, gzipped per-file, multiplexed on one connection. Don't add a bundler; the
 no-build-step property is worth more than the milliseconds.
 
-### The "68 DOM ids" number is stale — it is **71**
+### The "68 DOM ids" number is stale — it is **72**
 
-`js/dom.js` resolves 71 ids today, and all 71 exist in `index.html` (verified by
+`js/dom.js` resolves 72 ids today, and all 72 exist in `index.html` (verified by
 looping every `getElementById("…")` literal against the markup — zero missing).
 
 | Commit | ids in `dom.js` | What moved |
@@ -49,16 +61,17 @@ looping every `getElementById("…")` literal against the markup — zero missin
 | `4ae7cfd`, `ca341d7` | 68 | the number every doc still quotes |
 | `8d37a35` | 70 | `clean-up-text-btn`, `view-on-photo-btn` |
 | `e181738` | 71 | `coherence-gate-hint` |
+| `a511ac0` | 72 | `footer-version` (W12) |
 
-Treat **71** as the invariant from here on. `index.html` carries 153 ids in total;
+Treat **72** as the invariant from here on. `index.html` carries 154 ids in total;
 the other 82 are resolved locally by `app.js`, `library.js`, `scanDoc.js` etc. and
 are *not* the protected contract — though `add-to-doc-btn` and `save-note-btn`
 (queried directly in `js/main.js:1141-1142`) behave like it in practice.
 
-### The 25 CI gates, and which ones a change can actually break
+### The 26 CI gates, and which ones a change can actually break
 
-`.github/workflows/ci.yml` runs gate 1 immediately (it needs nothing), gate 2
-right after (also nothing - see its own comment), then `npm ci` +
+`.github/workflows/ci.yml` runs gate 1 immediately (it needs nothing), gates
+2 and 3 right after (also nothing - see their own comments), then `npm ci` +
 `playwright-core install chromium`, then the rest, in the order the workflow
 file actually runs them:
 
@@ -66,35 +79,37 @@ file actually runs them:
 |---|---|---|
 | 1 | `dom-contract.js` — **added by W3** | It *is* the id contract |
 | 2 | `motion-contract.js` | No — also browser-free, greps `style.css` |
-| 3 | `node --test test/unit/*.test.js` | No — pure functions |
-| 4 | `run-benchmark.js --check-regression --baseline test/baseline-2026-08-28.json --tolerance 2.0` | Yes, the scan flow |
-| 5 | `region-coverage.js` | Yes, the same scan flow, scored area by area |
-| 6 | `touch-interactions.js` | Yes — **and CDP-only, see W2** |
-| 7 | `malformed-input.js` | Yes |
-| 8 | `exif-orientation.js` | Yes |
-| 9 | `move-inpaint.js` | Yes |
-| 10 | `guided-path.js` | Yes — the buttons the UI itself points people at, not the raw mode toggles |
-| 11 | `editor-delete.js` | Yes |
-| 12 | `replacement-size.js` | Yes |
-| 13 | `not-text-warning.js` | Yes |
-| 14 | `render-fidelity.js` | Yes, plus `import("/js/dom.js")` directly |
-| 15 | `non-latin-limitation.js` | Yes |
-| 16 | `heic-input.js` | Yes |
-| 17 | `web-tier-smoke.js` | Yes, plus `import("/js/dom.js")` |
-| 18 | `pdf-export.js` | Partly; `qlmanage` leg is macOS-only and skipped on CI |
-| 19 | `library-documents.js` | **Mostly no** — imports `/js/documents.js` and drives the model |
-| 20 | `document-creation.js` | Yes, through the real nav/action sheet |
-| 21 | `interaction-layer.js` | Yes |
-| 22 | `destructive-actions.js` | Yes, through the real dialog-gated controls |
-| 23 | `radial-call-sites.js` | Yes |
-| 24 | `inpaint-fidelity.js` | No — imports `/js/inpaint.js` and drives the algorithm directly |
-| 25 | `backup-roundtrip.js` | Partly - mostly imports `/js/store.js`, `/js/documents.js` and `/js/backup.js` directly, but "Delete all local data" goes through the real `#settings-delete-all` button |
+| 3 | `site-metadata.js` — **added by W12/W11** | No — also browser-free, checks the version stamp and og:/404 metadata as text |
+| 4 | `node --test test/unit/*.test.js` | No — pure functions |
+| 5 | `run-benchmark.js --check-regression --baseline test/baseline-2026-08-28.json --tolerance 2.0` | Yes, the scan flow |
+| 6 | `region-coverage.js` | Yes, the same scan flow, scored area by area |
+| 7 | `touch-interactions.js` | Yes — **and CDP-only, see W2** |
+| 8 | `malformed-input.js` | Yes |
+| 9 | `exif-orientation.js` | Yes |
+| 10 | `move-inpaint.js` | Yes |
+| 11 | `guided-path.js` | Yes — the buttons the UI itself points people at, not the raw mode toggles |
+| 12 | `editor-delete.js` | Yes |
+| 13 | `replacement-size.js` | Yes |
+| 14 | `not-text-warning.js` | Yes |
+| 15 | `render-fidelity.js` | Yes, plus `import("/js/dom.js")` directly |
+| 16 | `non-latin-limitation.js` | Yes |
+| 17 | `heic-input.js` | Yes |
+| 18 | `web-tier-smoke.js` | Yes, plus `import("/js/dom.js")` |
+| 19 | `pdf-export.js` | Partly; `qlmanage` leg is macOS-only and skipped on CI |
+| 20 | `library-documents.js` | **Mostly no** — imports `/js/documents.js` and drives the model |
+| 21 | `document-creation.js` | Yes, through the real nav/action sheet |
+| 22 | `interaction-layer.js` | Yes |
+| 23 | `destructive-actions.js` | Yes, through the real dialog-gated controls |
+| 24 | `radial-call-sites.js` | Yes |
+| 25 | `inpaint-fidelity.js` | No — imports `/js/inpaint.js` and drives the algorithm directly |
+| 26 | `backup-roundtrip.js` | Partly - mostly imports `/js/store.js`, `/js/documents.js` and `/js/backup.js` directly, but "Delete all local data" goes through the real `#settings-delete-all` button |
 
-This table drifts every time a gate is added, and it has moved twice already
-in one week - **recount `.github/workflows/ci.yml`'s `test:` job directly
-before trusting this number again**, rather than carrying this one forward.
+This table drifts every time a gate is added, and it has now moved three
+times in three sessions - **recount `.github/workflows/ci.yml`'s `test:` job
+directly before trusting this number again**, rather than carrying this one
+forward. See this section's standing rule at the top of §0.
 
-**Until W3 landed, nothing in that table asserted that the 71 ids resolve.**
+**Until W3 landed, nothing in that table asserted that the 72 ids resolve.**
 `getElementById` returns `null`, it does not throw, so `js/dom.js` imports cleanly
 with a missing element and the failure surfaces later as a `TypeError` at the first
 use — and only if a gate happens to touch that particular control. Renaming an id
@@ -129,7 +144,7 @@ this is the gap most worth closing rather than rewording.
 Network → **Offline** (and again with Wi-Fi genuinely off, which is a different
 code path in Safari), a full reload of the live URL renders the Library, and
 scanning a local image completes end to end. DevTools → Application → Cache
-Storage lists `index.html`, `style.css`, all 44 `js/*.js`, `tesseract.min.js`,
+Storage lists `index.html`, `style.css`, all 46 `js/*.js`, `tesseract.min.js`,
 `worker.min.js`, one core `.wasm.js`, and `eng.traineddata.gz`. A second check
 that matters as much: push any change to `main`, wait for Pages, reload twice, and
 confirm you get the **new** build — a service worker that pins `index.html`
@@ -379,7 +394,7 @@ exit=1
 
 Both restorations returned to green with a clean `git diff`.
 
-**Scope, deliberately narrow.** `js/dom.js` only. `index.html` carries 153 ids;
+**Scope, deliberately narrow.** `js/dom.js` only. `index.html` carries 154 ids;
 widening this to all of them trades a precise contract for a noisy one. The gate's
 header names `add-to-doc-btn` and `save-note-btn` (`js/main.js:1141-1142`) as
 honourable mentions — `main.js` queries them directly and treats them like the
@@ -962,7 +977,7 @@ Vision migration, and on the web it is not.
 
 ## 2. Risk summary
 
-| Task | Touches the 71 ids | Can turn CI red | Effort |
+| Task | Touches the 72 ids | Can turn CI red | Effort |
 |---|---|---|---|
 | W1 offline / service worker | No | New gate; SW must not intercept existing gates | M |
 | ~~W2 cross-browser CI~~ **done** | No | Nightly red on WebKit: X1, X2, X3 | M–L |

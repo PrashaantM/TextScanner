@@ -23,7 +23,7 @@
 // than a number that quietly diverges from the prose describing it.
 //
 // SCOPE, deliberately narrow. This covers js/dom.js only. index.html carries
-// 153 ids in total; the other 82 are looked up locally by app.js, library.js,
+// 154 ids in total; the other 82 are looked up locally by app.js, library.js,
 // scanDoc.js and friends, and some markup is generated at runtime. Widening
 // this to "every id anywhere" would trade a precise, meaningful contract for a
 // noisy one. Two ids are worth knowing about as honourable mentions, since
@@ -48,7 +48,7 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const EXPECTED_ID_COUNT = 72;
 
 // Matches `document.getElementById("some-id")` as it is written in js/dom.js -
-// every one of the 71 uses a double-quoted literal. A computed id would not
+// every one of the 72 uses a double-quoted literal. A computed id would not
 // match, which is intentional: this gate can only assert what it can read
 // statically, and dom.js deliberately contains nothing dynamic.
 const DOM_ID_PATTERN = /getElementById\(\s*"([^"]+)"\s*\)/g;
