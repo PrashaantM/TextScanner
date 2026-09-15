@@ -29,8 +29,13 @@ export const modeImageBtn = document.getElementById("mode-image-btn");
 export const modeFullBtn = document.getElementById("mode-full-btn");
 export const modeButtons = [modeTextBtn, modeImageBtn, modeFullBtn];
 // Guided primary actions: proxy to filterCoherenceBtn and
-// modeImageBtn respectively via a real .click(), rather than duplicating their
-// logic - see the wiring in js/main.js.
+// modeFullBtn respectively via a real .click(), rather than duplicating their
+// logic - see the wiring in js/main.js. viewOnPhotoBtn proxies to modeFullBtn,
+// not modeImageBtn: Full image is the view with the photo underneath and the
+// only one with "Move components" available (setMode only shows
+// #editor-toolbar there), so routing "View on photo" to Image format - a blank
+// canvas, with nothing to move - was the guided-path bug this fixed. See the
+// routing itself in js/main.js and test/guided-path.js.
 export const cleanUpTextBtn = document.getElementById("clean-up-text-btn");
 export const viewOnPhotoBtn = document.getElementById("view-on-photo-btn");
 // The skip-the-call gate's inline suggestion (js/coherenceGate.js).

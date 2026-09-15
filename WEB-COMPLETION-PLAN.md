@@ -28,14 +28,14 @@ Checked today rather than carried forward from `HANDOFF.md`:
 | 60 unit tests pass | `node --test test/unit/*.test.js` — 60 pass, 0 fail |
 | The newest browser gate passes | `node test/interaction-layer.js` — all 24 checks green |
 | Last CI run on `main` green | run `34673998815`, 3m30s |
-| 44 modules, 12,739 lines in `js/` | `wc -l js/*.js` |
+| 46 modules, 14,607 lines in `js/` | `wc -l js/*.js` |
 | Tracked repo 8.87 MiB; `vendor/tesseract` is 11 MB of it on disk | `git count-objects -vH`, `du` |
 
 **Jekyll is not eating anything.** Its default excludes cover `vendor/bundle`,
 `vendor/cache`, `vendor/gems`, `vendor/ruby` — not `vendor/tesseract`. Confirmed
 empirically by the 200s above, so no `.nojekyll` is needed.
 
-**44 unbundled ES modules over HTTP/2 is not a load problem.** 584 KB raw across
+**46 unbundled ES modules over HTTP/2 is not a load problem.** 584 KB raw across
 `js/`, gzipped per-file, multiplexed on one connection. Don't add a bundler; the
 no-build-step property is worth more than the milliseconds.
 
@@ -50,33 +50,49 @@ looping every `getElementById("…")` literal against the markup — zero missin
 | `8d37a35` | 70 | `clean-up-text-btn`, `view-on-photo-btn` |
 | `e181738` | 71 | `coherence-gate-hint` |
 
-Treat **71** as the invariant from here on. `index.html` carries 147 ids in total;
-the other 76 are resolved locally by `app.js`, `library.js`, `scanDoc.js` etc. and
+Treat **71** as the invariant from here on. `index.html` carries 153 ids in total;
+the other 82 are resolved locally by `app.js`, `library.js`, `scanDoc.js` etc. and
 are *not* the protected contract — though `add-to-doc-btn` and `save-note-btn`
 (queried directly in `js/main.js:1141-1142`) behave like it in practice.
 
-### The 15 CI gates, and which ones a change can actually break
+### The 25 CI gates, and which ones a change can actually break
 
-`.github/workflows/ci.yml` runs gate 1 immediately (it needs nothing), then
-`npm ci` + `playwright-core install chromium`, then the rest:
+`.github/workflows/ci.yml` runs gate 1 immediately (it needs nothing), gate 2
+right after (also nothing - see its own comment), then `npm ci` +
+`playwright-core install chromium`, then the rest, in the order the workflow
+file actually runs them:
 
 | # | Gate | Drives the app through element ids? |
 |---|---|---|
 | 1 | `dom-contract.js` — **added by W3** | It *is* the id contract |
-| 2 | `node --test test/unit/*.test.js` (60) | No — pure functions |
-| 3 | `run-benchmark.js --check-regression --baseline test/baseline-2026-08-28.json --tolerance 2.0` | Yes, the scan flow |
-| 4 | `touch-interactions.js` | Yes — **and CDP-only, see W2** |
-| 5 | `malformed-input.js` | Yes |
-| 6 | `exif-orientation.js` | Yes |
-| 7 | `move-inpaint.js` | Yes |
-| 8 | `render-fidelity.js` | Yes, plus `import("/js/dom.js")` directly |
-| 9 | `non-latin-limitation.js` | Yes |
-| 10 | `heic-input.js` | Yes |
-| 11 | `web-tier-smoke.js` | Yes, plus `import("/js/dom.js")` |
-| 12 | `pdf-export.js` | Partly; `qlmanage` leg is macOS-only and skipped on CI |
-| 13 | `library-documents.js` | **Mostly no** — imports `/js/documents.js` and drives the model |
-| 14 | `document-creation.js` | Yes, through the real nav/action sheet |
-| 15 | `interaction-layer.js` | Yes |
+| 2 | `motion-contract.js` | No — also browser-free, greps `style.css` |
+| 3 | `node --test test/unit/*.test.js` | No — pure functions |
+| 4 | `run-benchmark.js --check-regression --baseline test/baseline-2026-08-28.json --tolerance 2.0` | Yes, the scan flow |
+| 5 | `region-coverage.js` | Yes, the same scan flow, scored area by area |
+| 6 | `touch-interactions.js` | Yes — **and CDP-only, see W2** |
+| 7 | `malformed-input.js` | Yes |
+| 8 | `exif-orientation.js` | Yes |
+| 9 | `move-inpaint.js` | Yes |
+| 10 | `guided-path.js` | Yes — the buttons the UI itself points people at, not the raw mode toggles |
+| 11 | `editor-delete.js` | Yes |
+| 12 | `replacement-size.js` | Yes |
+| 13 | `not-text-warning.js` | Yes |
+| 14 | `render-fidelity.js` | Yes, plus `import("/js/dom.js")` directly |
+| 15 | `non-latin-limitation.js` | Yes |
+| 16 | `heic-input.js` | Yes |
+| 17 | `web-tier-smoke.js` | Yes, plus `import("/js/dom.js")` |
+| 18 | `pdf-export.js` | Partly; `qlmanage` leg is macOS-only and skipped on CI |
+| 19 | `library-documents.js` | **Mostly no** — imports `/js/documents.js` and drives the model |
+| 20 | `document-creation.js` | Yes, through the real nav/action sheet |
+| 21 | `interaction-layer.js` | Yes |
+| 22 | `destructive-actions.js` | Yes, through the real dialog-gated controls |
+| 23 | `radial-call-sites.js` | Yes |
+| 24 | `inpaint-fidelity.js` | No — imports `/js/inpaint.js` and drives the algorithm directly |
+| 25 | `backup-roundtrip.js` | Partly - mostly imports `/js/store.js`, `/js/documents.js` and `/js/backup.js` directly, but "Delete all local data" goes through the real `#settings-delete-all` button |
+
+This table drifts every time a gate is added, and it has moved twice already
+in one week - **recount `.github/workflows/ci.yml`'s `test:` job directly
+before trusting this number again**, rather than carrying this one forward.
 
 **Until W3 landed, nothing in that table asserted that the 71 ids resolve.**
 `getElementById` returns `null`, it does not throw, so `js/dom.js` imports cleanly
@@ -363,7 +379,7 @@ exit=1
 
 Both restorations returned to green with a clean `git diff`.
 
-**Scope, deliberately narrow.** `js/dom.js` only. `index.html` carries 147 ids;
+**Scope, deliberately narrow.** `js/dom.js` only. `index.html` carries 153 ids;
 widening this to all of them trades a precise contract for a noisy one. The gate's
 header names `add-to-doc-btn` and `save-note-btn` (`js/main.js:1141-1142`) as
 honourable mentions — `main.js` queries them directly and treats them like the
@@ -1104,7 +1120,7 @@ Listed so their absence is not mistaken for an oversight:
   `scripts/sync-web-assets.sh`, and no part of the Pages deployment reads it. It is
   currently stale (`www/index.html` is 38 KB against the root's 46 KB) and that
   costs the web build nothing.
-- **Bundling or a build step.** §0: 44 modules over HTTP/2 with gzip is fine, and
+- **Bundling or a build step.** §0: 46 modules over HTTP/2 with gzip is fine, and
   the zero-build property is load-bearing for the CSP, for reviewability and for
   every gate that does `import("/js/dom.js")` against the live source.
 - **Adding a `.nojekyll`.** Verified unnecessary — every vendored asset serves 200.

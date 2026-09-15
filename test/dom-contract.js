@@ -23,7 +23,7 @@
 // than a number that quietly diverges from the prose describing it.
 //
 // SCOPE, deliberately narrow. This covers js/dom.js only. index.html carries
-// 147 ids in total; the other 76 are looked up locally by app.js, library.js,
+// 153 ids in total; the other 82 are looked up locally by app.js, library.js,
 // scanDoc.js and friends, and some markup is generated at runtime. Widening
 // this to "every id anywhere" would trade a precise, meaningful contract for a
 // noisy one. Two ids are worth knowing about as honourable mentions, since
