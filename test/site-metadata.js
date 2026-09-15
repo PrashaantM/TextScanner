@@ -1,17 +1,16 @@
-// site-metadata.js: the app's version stamp (W12) - one source of truth,
-// rendered in the footer and included in the diagnostic export, and this
-// gate is what keeps the footer's rendered value from silently drifting away
-// from it.
+// site-metadata.js: the app's version stamp (W12), and the site-level
+// metadata a browser or crawler reads without running any JS - link-preview
+// tags and the custom 404 page (W11).
 //
-// WHY THIS EXISTS. js/state.js's APP_VERSION is the one source of truth;
-// index.html's #footer-version span and js/diagnostics.js's export both have
-// to agree with it rather than carrying their own copy. That is exactly the
-// failure pattern the same session that added this gate had just spent a
-// commit fixing elsewhere (four numbers - an id count, a module count, a
-// line count, a CI step count - that had each drifted from the code they
-// described and nothing caught it). A version string rendered in markup and
-// duplicated nowhere else is the same shape of bug waiting to happen; this
-// pins it so it can't.
+// WHY THE VERSION CHECK EXISTS. js/state.js's APP_VERSION is the one source
+// of truth; index.html's #footer-version span and js/diagnostics.js's export
+// both have to agree with it rather than carrying their own copy. That is
+// exactly the failure pattern the same session that added this gate had just
+// spent a commit fixing elsewhere (four numbers - an id count, a module
+// count, a line count, a CI step count - that had each drifted from the code
+// they described and nothing caught it). A version string rendered in markup
+// and duplicated nowhere else is the same shape of bug waiting to happen;
+// this pins it so it can't.
 //
 // No browser, no server, same discipline as test/dom-contract.js: this parses
 // files as text, so it runs in well under a second and can't fail for any
@@ -66,10 +65,45 @@ if (!/footerVersion\.textContent\s*=\s*APP_VERSION/.test(mainSource)) {
   );
 }
 
+// ---- W11: link-preview meta tags ----
+
+for (const [name, pattern] of [
+  ["og:title", /<meta\s+property="og:title"\s+content="([^"]+)"/],
+  ["og:url", /<meta\s+property="og:url"\s+content="([^"]+)"/],
+]) {
+  const m = htmlSource.match(pattern);
+  if (!m || !m[1]) {
+    failures.push(`index.html has no <meta property="${name}" content="..."> with a non-empty value`);
+  }
+}
+
+// ---- W11: the custom 404 page ----
+
+let notFoundSource = null;
+try {
+  notFoundSource = await read("404.html");
+} catch {
+  failures.push("404.html does not exist at the repo root - GitHub Pages will keep showing its own stock 404 page");
+}
+if (notFoundSource !== null) {
+  // A real navigable link, not just the site's name in prose - and an
+  // absolute URL rather than a relative one, since GitHub Pages serves this
+  // exact file for a 404 at any depth under the site, where a relative href
+  // would resolve against the missing path rather than against the root. See
+  // 404.html's own header comment for why.
+  if (!/<a\s+href="https:\/\/prashaantm\.github\.io\/TextScanner\/[^"]*"/.test(notFoundSource)) {
+    failures.push('404.html has no <a href="https://prashaantm.github.io/TextScanner/..."> link back into the app');
+  }
+}
+
+console.log(
+  `index.html declares og:title and og:url. 404.html ${notFoundSource !== null ? "exists and links back into the app" : "is missing"}.`
+);
+
 if (failures.length) {
   console.error("\nFAILED:");
   for (const f of failures) console.error("  -", f);
   process.exit(1);
 }
 
-console.log("\nThe version stamp has one source of truth and the footer agrees with it.");
+console.log("\nThe version stamp has one source of truth and the footer agrees with it; the link-preview tags and the custom 404 page are in place.");

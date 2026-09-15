@@ -1,0 +1,76 @@
+<!--
+  404.html: GitHub Pages' custom not-found page (W11). Served for any
+  unmatched path under the site - confirmed previously showing GitHub's own
+  stock page instead of this one; this file existing is what flips
+  `custom_404` on for the deployment at
+  https://prashaantm.github.io/TextScanner/.
+
+  No front matter, so Jekyll copies this file as-is rather than wrapping it
+  in a layout - the standard way to hand GitHub Pages a custom 404.
+
+  Self-contained on purpose, not just as a style preference: this is the page
+  that has to work when something about the site's own structure is already
+  wrong, so it carries no dependency on style.css, no script, and no
+  cross-origin resource of any kind - only inline CSS and a data: URI for the
+  icon, the same one index.html uses. The link back uses the full absolute
+  URL rather than a relative one, because GitHub Pages serves this same file
+  for a 404 at ANY depth under the site (e.g. /TextScanner/some/missing/path)
+  and a relative href would resolve against that path, not against the site
+  root.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Page not found - TextScanner</title>
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2222%22 fill=%22%233457d5%22/><g stroke=%22white%22 stroke-width=%225.5%22 stroke-linecap=%22round%22 fill=%22none%22><path d=%22M20,34 L20,22 Q20,20 22,20 L34,20%22/><path d=%22M66,20 L78,20 Q80,20 80,22 L80,34%22/><path d=%22M20,66 L20,78 Q20,80 22,80 L34,80%22/><path d=%22M80,66 L80,78 Q80,80 78,80 L66,80%22/></g><g fill=%22white%22><rect x=%2246%22 y=%2232%22 width=%228%22 height=%2236%22 rx=%222%22/><rect x=%2239%22 y=%2232%22 width=%2222%22 height=%224.5%22 rx=%221.8%22/><rect x=%2239%22 y=%2263.5%22 width=%2222%22 height=%224.5%22 rx=%221.8%22/></g></svg>" />
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f7f9;
+      --text: #14141a;
+      --muted: #5b5b66;
+      --accent: #3457d5;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #14141a; --text: #f7f7f9; --muted: #a6a6b3; }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      text-align: center;
+    }
+    main { max-width: 32em; }
+    h1 { font-size: 1.5rem; margin: 0 0 0.5em; }
+    p { color: var(--muted); line-height: 1.5; }
+    a {
+      display: inline-block;
+      margin-top: 1em;
+      color: #fff;
+      background: var(--accent);
+      padding: 0.6em 1.2em;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    a:hover, a:focus { opacity: 0.9; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Page not found</h1>
+    <p>There's nothing at this address. TextScanner scans, edits and translates documents entirely on your device - no upload, no server, no account.</p>
+    <a href="https://prashaantm.github.io/TextScanner/">Go to TextScanner</a>
+  </main>
+</body>
+</html>

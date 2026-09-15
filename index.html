@@ -56,6 +56,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>TextScanner</title>
   <meta name="description" content="Scan documents, take notes, and translate text - all on your device. No upload, no server, no account." />
+  <!-- W11: link previews. No new resource is loaded for these - og:image and
+       twitter:image point at icons/icon-512.png, which the manifest already
+       ships - and og:url/canonical are the one live origin, since there is no
+       custom domain yet (docs/CUSTOM-DOMAIN-MIGRATION.md is unstarted). -->
+  <link rel="canonical" href="https://prashaantm.github.io/TextScanner/" />
+  <meta property="og:title" content="TextScanner" />
+  <meta property="og:description" content="Scan documents, take notes, and translate text - all on your device. No upload, no server, no account." />
+  <meta property="og:image" content="https://prashaantm.github.io/TextScanner/icons/icon-512.png" />
+  <meta property="og:url" content="https://prashaantm.github.io/TextScanner/" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="TextScanner" />
+  <meta name="twitter:description" content="Scan documents, take notes, and translate text - all on your device. No upload, no server, no account." />
+  <meta name="twitter:image" content="https://prashaantm.github.io/TextScanner/icons/icon-512.png" />
   <meta name="theme-color" content="#f7f7f9" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#14141a" media="(prefers-color-scheme: dark)" />
   <!-- Matches the app icon concept (ios/App/App/Assets.xcassets/AppIcon.appiconset):
