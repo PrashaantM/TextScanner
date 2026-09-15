@@ -47,13 +47,15 @@ export const state = {
   lastNaturalWidth: 0,
   lastNaturalHeight: 0,
 
-  // Image format / Full image shared state: every word span is an "object"
-  // that can be selected and (in Full image mode) moved via move-handle and
-  // resized via resize-handle. type: 'word' | 'image' (the background image
-  // itself is type 'image' but not selectable/moveable - see
-  // editorInteractions.js's pointerdown dispatcher). Word objects additionally
-  // carry origin: 'ocr' (recognized from the scan) or 'user' (added via the
-  // New text/Paste tools).
+  // Image format / Full image shared state: every word span, and (in Full
+  // image mode) the background photo itself, is an "object" that can be
+  // selected and moved via move-handle and resized via resize-handle.
+  // type: 'word' | 'image' - the background image is type 'image', selected
+  // by tapping the photo the same way a word is tapped (Full image mode
+  // only; see editorInteractions.js's pointerdown dispatcher and
+  // editorObjects.js's renderImageFormatView for where it's built). Word
+  // objects additionally carry origin: 'ocr' (recognized from the scan) or
+  // 'user' (added via the New text/Paste tools).
   editorObjects: [],
   objectIdCounter: 0,
   selectedObjectIds: new Set(),

@@ -773,10 +773,17 @@ function beginMarquee(e, additive, startX, startY) {
     marqueeBox.style.height = `${y2 - y1}px`;
 
     state.editorObjects.forEach((obj) => {
-      // The background image is not a selectable/moveable object in this
-      // redesign (UI-REDESIGN-PLAN.md §2.3 folds it into "empty canvas" for
-      // gesture-routing purposes - see the dispatcher below), so a marquee
-      // sweeping across the photo must not scoop it up as a side effect.
+      // The background image object (obj-bg) exists even in Image format
+      // mode, where its element is display:none (the photo is never shown
+      // there) - which means its getBoundingClientRect() is the same
+      // 0,0,0,0 a retired word's is, and the exact same false-positive the
+      // next line exists to avoid: a marquee dragged from the very top-left
+      // of the surface would still "intersect" it. Marquee is unlikely to
+      // even reach this far in Full image mode at all now that the photo is
+      // a selectable object again (a press on it goes to the dispatcher's
+      // objEl branch instead - see test/touch-interactions.js for whether
+      // that leaves marquee reachable there at all), so this mostly matters
+      // for Image format mode in practice.
       if (obj.type === "image") return;
       // A retired word is display:none, so its rect is 0,0,0,0 - which a marquee
       // dragged from the very top-left of the surface would still "intersect".
@@ -909,13 +916,15 @@ imageFormatView.addEventListener("pointerdown", (e) => {
   }
 
   const additive = e.shiftKey || e.metaKey || e.ctrlKey;
-  // .image-format-bg is deliberately excluded: the background photo is not a
-  // selectable/moveable object in this redesign (see beginMarquee above), so
-  // a press on it falls straight through to the empty-canvas branch below,
-  // the same as a press on any other unoccupied part of the surface. Without
-  // this, Full image mode - where the photo fills the whole container -
-  // would have nowhere for a marquee to ever start from at all.
-  const objEl = e.target.closest(".image-format-word");
+  // .image-format-bg is included on purpose: the background photo is a real
+  // selectable/moveable object here (obj-bg, type "image", still built by
+  // renderImageFormatView in js/editorObjects.js), matching the README's
+  // "moving and resizing the text and the image itself, freely and
+  // independently." It only ever matches in Full image mode - Image format
+  // mode's .image-format-bg is display:none (see style.css), so it can't be
+  // pressed there regardless of this selector - and only once
+  // .image-format-view.show-bg grants it pointer-events (see style.css).
+  const objEl = e.target.closest(".image-format-word, .image-format-bg");
 
   if (objEl) {
     const obj = getObjectByElement(objEl);
@@ -925,14 +934,20 @@ imageFormatView.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       toggleSelection(obj.id);
     } else {
-      // A tap always edits (no preventDefault: the browser places a text
-      // caret normally) - and, in Full image mode, also selects the word, so
-      // move-handle/resize-handle appear immediately rather than only once a
-      // separate mode button had been pressed (UI-REDESIGN-PLAN.md §2.3).
-      // Image format mode keeps today's behaviour, where a plain tap does not
-      // touch the selection at all (only shift-click/additive does) - nothing
-      // about that was part of the named flaw, and Image format has no
-      // handles to reveal anyway.
+      // A tap always selects - and for a word, also edits it (no
+      // preventDefault: the browser places a text caret normally; the
+      // background image has no text to place a caret in, so there's
+      // nothing to preserve by skipping it there either). In Full image
+      // mode this also reveals move-handle/resize-handle immediately rather
+      // than only once a separate mode button had been pressed
+      // (UI-REDESIGN-PLAN.md §2.3) - dragging the selection, whether it's a
+      // word or the photo itself, happens from those handles now, not from
+      // pressing the object's own body. Image format mode keeps today's
+      // behaviour for words, where a plain tap does not touch the selection
+      // at all (only shift-click/additive does) - nothing about that was
+      // part of the named flaw, and Image format has no handles to reveal
+      // anyway (its background is never shown, so obj-bg can't be reached
+      // there regardless).
       if (state.activeMode === "full") {
         state.selectedObjectIds.clear();
         state.selectedObjectIds.add(obj.id);
@@ -944,10 +959,13 @@ imageFormatView.addEventListener("pointerdown", (e) => {
     return;
   }
 
-  // Empty canvas (including the background photo): a press-and-hold-then-drag
-  // starts a marquee; a quick drag keeps scrolling/panning exactly as it does
-  // today. Available in both Image format and Full image, matching where
-  // selection already applied before this redesign.
+  // Empty canvas: a press-and-hold-then-drag starts a marquee; a quick drag
+  // keeps scrolling/panning exactly as it does today. Available in both
+  // Image format and Full image, matching where selection already applied
+  // before this redesign. In Full image mode specifically, the background
+  // photo now absorbs presses again (the branch above), the same as every
+  // other pre-redesign build - see test/touch-interactions.js for whether
+  // that leaves this reachable there at all, checked rather than assumed.
   if (state.activeMode === "image" || state.activeMode === "full") {
     beginCanvasPressHold(e, additive);
   }

@@ -231,6 +231,34 @@ export function objectsFromSelection() {
   return state.editorObjects.filter((obj) => state.selectedObjectIds.has(obj.id));
 }
 
+// .image-format-view clips with overflow:hidden, and both handles are a
+// fixed 28px box centered ON their anchor point (transform: translate(-50%,
+// -50%) in style.css) - so an object anchored exactly at the container's 0%
+// or 100% edge has HALF its handle clipped away, hit-target and visible dot
+// both, leaving nothing to press. Words almost never sit exactly on an edge,
+// but the background image object (obj-bg) always does - it's full-bleed,
+// x:0,y:0,w:100,h:100 by construction (js/editorObjects.js's
+// renderImageFormatView) - so selecting the photo made this a real,
+// reachable bug rather than a theoretical one. Insetting the handle's
+// position by half its own size keeps the whole 28px box inside the
+// container's clipped bounds regardless of which object is selected; it's a
+// pixel measurement (the handle's own fixed size), so it's computed against
+// the container's current rendered size rather than expressed as a fixed
+// percentage, which would over- or under-correct depending on how wide the
+// container happens to be rendered.
+const HANDLE_HALF_PX = 14;
+
+function edgeInsetPct(axis) {
+  const rect = imageFormatView.getBoundingClientRect();
+  const px = axis === "x" ? rect.width : rect.height;
+  return px ? (HANDLE_HALF_PX / px) * 100 : 0;
+}
+
+function clampToVisibleEdge(pct, axis) {
+  const inset = edgeInsetPct(axis);
+  return clamp(pct, inset, 100 - inset);
+}
+
 export function updateResizeHandle() {
   if (state.activeMode === "full" && state.selectedObjectIds.size === 1) {
     const obj = getObjectById([...state.selectedObjectIds][0]);
@@ -238,8 +266,8 @@ export function updateResizeHandle() {
       resizeHandle.style.display = "none";
       return;
     }
-    resizeHandle.style.left = `${obj.x + obj.w}%`;
-    resizeHandle.style.top = `${obj.y + obj.h}%`;
+    resizeHandle.style.left = `${clampToVisibleEdge(obj.x + obj.w, "x")}%`;
+    resizeHandle.style.top = `${clampToVisibleEdge(obj.y + obj.h, "y")}%`;
     resizeHandle.style.display = "block";
   } else {
     resizeHandle.style.display = "none";
@@ -263,8 +291,8 @@ export function updateMoveHandle() {
     }
     const minX = Math.min(...objects.map((o) => o.x));
     const minY = Math.min(...objects.map((o) => o.y));
-    moveHandle.style.left = `${minX}%`;
-    moveHandle.style.top = `${minY}%`;
+    moveHandle.style.left = `${clampToVisibleEdge(minX, "x")}%`;
+    moveHandle.style.top = `${clampToVisibleEdge(minY, "y")}%`;
     moveHandle.style.display = "block";
   } else {
     moveHandle.style.display = "none";

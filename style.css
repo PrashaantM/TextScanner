@@ -1375,8 +1375,25 @@ kbd {
   z-index: 0;
 }
 
+/* obj-bg (js/editorObjects.js's renderImageFormatView) is a real selectable/
+   moveable object in Full image mode, matching the README's "moving and
+   resizing the text and the image itself, freely and independently" -
+   pointer-events only turns on here, under the same .show-bg gate that
+   reveals the photo at all, rather than under a separate mode class the way
+   it once was (that class no longer exists - selecting anything, word or
+   photo, no longer needs a mode entered first). cursor: pointer rather than
+   the old cursor: grab, since a tap here now SELECTS rather than starting a
+   direct-body drag - dragging happens from move-handle once selected,
+   exactly like a word. */
 .image-format-view.show-bg .image-format-bg {
   display: block;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.image-format-bg.is-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 /* A solid patch sampled from the surrounding image, dropped in behind a word's
