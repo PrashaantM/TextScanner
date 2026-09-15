@@ -16,9 +16,9 @@ screen, repeated TV boxes, and a cluttered store aisle.
 deliberately partial ground truth.** Illegible fine print was omitted rather
 than guessed at. That makes their CER directional only, and it makes them
 actively misleading to optimize against: an engine that correctly reads *more*
-of the real fine print scores *worse* on them. `tune-thresholds.js` reports
-them separately for exactly this reason, and the headline number is the mean
-over the other eight.
+of the real fine print scores *worse* on them. `run-benchmark.js` and
+`tune-thresholds.js` both report them separately for exactly this reason, and
+both headline numbers are the mean over the other eight.
 
 ## What's missing, and why it matters
 
@@ -63,5 +63,6 @@ they can't be synthesized honestly:**
   are the details the Coherence Filter is explicitly promised to preserve, so
   they need to be right here.
 - If you add an image whose ground truth is necessarily partial, add its name to
-  `PARTIAL_GROUND_TRUTH` in `test/tune-thresholds.js` so it stays out of the
-  headline average.
+  `PARTIAL_GROUND_TRUTH` in `test/partialGroundTruth.js` - shared by
+  `run-benchmark.js` and `tune-thresholds.js` - so it stays out of both
+  headline averages.

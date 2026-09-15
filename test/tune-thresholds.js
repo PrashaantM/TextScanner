@@ -38,6 +38,7 @@ import { createServer } from "node:http";
 import { extname, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { characterErrorRate, wordErrorRate } from "./metrics.js";
+import { PARTIAL_GROUND_TRUTH } from "./partialGroundTruth.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 // Constants live in two files, so the sweep patches both: the stage thresholds
@@ -46,10 +47,6 @@ const TUNABLE_FILES = [join(ROOT, "js/ocrEngine.js"), join(ROOT, "js/preprocess.
 const IMAGE_DIR = join(ROOT, "test/images");
 const GROUNDTRUTH_DIR = join(ROOT, "test/groundtruth");
 const PORT = 8124;
-
-// Ground truth for these three deliberately omits illegible fine print, so
-// their CER is directional only and is reported apart from the headline.
-const PARTIAL_GROUND_TRUTH = new Set(["complexPic7", "complexPic10", "complexPic11"]);
 
 // Each variant is a set of constant overrides applied together. Chosen around
 // the levers the completion plan names: the thresholds gating each pipeline

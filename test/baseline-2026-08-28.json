@@ -1,75 +1,81 @@
 {
-  "recordedAt": "2026-08-29T04:53:55.844Z",
+  "recordedAt": "2026-09-15T01:46:28.250Z",
   "engine": "tesseract.js (web path)",
   "imageCount": 11,
-  "averageCer": 0.6825967507205043,
-  "averageWer": 1.120132533467082,
+  "completeImageCount": 8,
+  "partialImageCount": 3,
+  "completeCer": 0.41558948581349353,
+  "completeWer": 0.5710261151616116,
+  "partialCer": 1.2994886823953795,
+  "partialWer": 2.584710581320751,
+  "allCer": 0.6566529030630988,
+  "allWer": 1.1202127877504677,
   "images": [
     {
       "name": "complexPic1",
-      "cer": 0.46153846153846156,
-      "wer": 0.64,
-      "elapsedMs": 2436
+      "cer": 0.3141025641025641,
+      "wer": 0.56,
+      "elapsedMs": 2743
     },
     {
       "name": "complexPic10",
       "cer": 1.6603773584905661,
       "wer": 2.9714285714285715,
-      "elapsedMs": 4428
+      "elapsedMs": 4868
     },
     {
       "name": "complexPic11",
       "cer": 1.4323144104803494,
       "wer": 3.358974358974359,
-      "elapsedMs": 3920
+      "elapsedMs": 21088
     },
     {
       "name": "complexPic2",
-      "cer": 0.3810810810810811,
-      "wer": 0.6666666666666666,
-      "elapsedMs": 1915
+      "cer": 0.3621621621621622,
+      "wer": 0.7142857142857143,
+      "elapsedMs": 3092
     },
     {
       "name": "complexPic3",
-      "cer": 0.7941776629030064,
+      "cer": 0.7906407291524963,
       "wer": 0.9475555555555556,
-      "elapsedMs": 17968
+      "elapsedMs": 25697
     },
     {
       "name": "complexPic4",
-      "cer": 0.2101542416452442,
+      "cer": 0.20501285347043702,
       "wer": 0.1650485436893204,
-      "elapsedMs": 2444
+      "elapsedMs": 5664
     },
     {
       "name": "complexPic5",
       "cer": 0.0776978417266187,
       "wer": 0.1794871794871795,
-      "elapsedMs": 1405
+      "elapsedMs": 1836
     },
     {
       "name": "complexPic6",
-      "cer": 0.765793528505393,
-      "wer": 0.9095744680851063,
-      "elapsedMs": 4915
+      "cer": 0.7496147919876733,
+      "wer": 0.973404255319149,
+      "elapsedMs": 141487
     },
     {
       "name": "complexPic7",
       "cer": 0.8057742782152231,
       "wer": 1.423728813559322,
-      "elapsedMs": 3907
+      "elapsedMs": 4521
     },
     {
       "name": "complexPic8",
-      "cer": 0.34265734265734266,
-      "wer": 0.4056603773584906,
-      "elapsedMs": 1398
+      "cer": 0.3479020979020979,
+      "wer": 0.41509433962264153,
+      "elapsedMs": 3078
     },
     {
       "name": "complexPic9",
-      "cer": 0.5769980506822612,
-      "wer": 0.6533333333333333,
-      "elapsedMs": 1385
+      "cer": 0.4775828460038986,
+      "wer": 0.6133333333333333,
+      "elapsedMs": 2402
     }
   ]
 }
