@@ -195,7 +195,7 @@ async function run(page, fontMode) {
     dom.previewImg.src = dataUrl;
     await dom.previewImg.decode();
     document.getElementById("result-section").classList.remove("hidden");
-    objects.renderImageFormatView(dom.previewImg, words, W, H, dataUrl);
+    await objects.renderImageFormatView(dom.previewImg, words, W, H, dataUrl);
     interactions.setMode("image");
   }, built);
 
@@ -250,7 +250,7 @@ async function replayMlkitFixtures(page) {
 
       // The real production call, fed the real production flattener.
       const words = flattenBlocks(fixture.rawResult.blocks);
-      objects.renderImageFormatView(dom.previewImg, words, W, H, src);
+      await objects.renderImageFormatView(dom.previewImg, words, W, H, src);
       interactions.setMode("image");
 
       const view = document.getElementById("image-format-view");

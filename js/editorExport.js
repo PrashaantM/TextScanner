@@ -24,6 +24,7 @@ import {
   refreshModifiedStates,
   refitWordFontSize,
   inkFitPxAtScale,
+  wordFontFamily,
 } from "./editorObjects.js";
 
 let filterTextHook = null;
@@ -240,7 +241,12 @@ export function buildResultCanvas() {
     const text = obj.el.textContent;
     if (!text) return;
     const fontPx = exportFontPx(obj, text, canvas.width);
-    ctx.font = `${fontPx}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+    // wordFontFamily(), not a second hardcoded copy of the stack: W13 made the
+    // family conditional (condensed source text draws in a narrower font -
+    // see editorObjects.js's detectCondensedSource), and reading the same
+    // live resolution the preview and the sizing solve already use is what
+    // keeps the export canvas from silently drawing in the wrong one.
+    ctx.font = `${fontPx}px ${wordFontFamily()}`;
     const wx = (obj.x / 100) * canvas.width;
     const wy = (obj.y / 100) * canvas.height;
     ctx.textBaseline = "top";

@@ -444,7 +444,7 @@ scanBtn.addEventListener("click", async () => {
     if (!plainText) {
       setStatus("No text was detected in this image. Try a clearer or higher-contrast image.", "error");
     } else {
-      renderImageFormatView(previewImg, words, previewImg.naturalWidth, previewImg.naturalHeight, state.currentObjectUrl);
+      await renderImageFormatView(previewImg, words, previewImg.naturalWidth, previewImg.naturalHeight, state.currentObjectUrl);
       applyFilterLevel(state.activeFilterLevel);
       // Suggest a translation target from what was actually recognized, so the
       // translate controls open with a sensible default rather than an

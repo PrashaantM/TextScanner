@@ -536,10 +536,17 @@ const failures = [];
 let resolvedFontReported = false;
 const browser = await launchBrowser();
 
-// complexPic1 is the poster set in a condensed hand-drawn face - the case where
-// width binds and the font-matcher gap shows. complexPic5 is ordinary type,
-// where height should land on 1.0 almost exactly.
-for (const image of ["complexPic1.jpeg", "complexPic5.jpeg"]) {
+// complexPic1 is the poster set in a condensed hand-drawn face - the case
+// where width binds and the font-matcher gap shows, and (since W13) the one
+// image in the 11-image benchmark corpus detectCondensedSource actually
+// fires on - see that function's header in js/editorObjects.js for the
+// threshold and the evidence behind it. complexPic2 and complexPic5 are
+// ordinary sans type, where height should land near 1.0 and W13 must NOT
+// fire: the property this loop checks is unchanged by which image is being
+// looked at, but these two exist here specifically to prove the condensed
+// branch does not make a non-condensed image worse, which complexPic1 alone
+// could never show.
+for (const image of ["complexPic1.jpeg", "complexPic2.jpeg", "complexPic5.jpeg"]) {
   const context = await browser.newContext({ viewport: { width: 1200, height: 1600 } });
   const page = await context.newPage();
   const pageErrors = [];
@@ -584,7 +591,51 @@ for (const image of ["complexPic1.jpeg", "complexPic5.jpeg"]) {
 
   // ---- As recognized ----
   const wideWidth = await page.evaluate(() => document.getElementById("image-format-view").clientWidth);
-  check(await measureAll(page), `${image} as-scanned`, failures);
+  const asScannedRows = await measureAll(page);
+  check(asScannedRows, `${image} as-scanned`, failures);
+
+  // ---- W13: the condensed-source detector fired on the right image ----
+  //
+  // P1/P2 above already fail if the condensed font gets applied and produces
+  // a bad fit, but say nothing about whether detectCondensedSource fired on
+  // the RIGHT image. complexPic1 is the one condensed image in this gate's
+  // own corpus (see that function's header in js/editorObjects.js); complexPic2
+  // and complexPic5 are ordinary sans and must NOT get it. A future change to
+  // the threshold that quietly starts firing on ordinary type would still
+  // pass P1/P2 (the font swap is sized correctly either way) while silently
+  // degrading images that never needed help - this is what actually catches
+  // that, at the source, rather than hoping a fill number moves enough to notice.
+  const gotCondensedClass = await page.evaluate(() =>
+    document.getElementById("image-format-view").classList.contains("condensed-source")
+  );
+  const expectCondensed = image === "complexPic1.jpeg";
+  if (gotCondensedClass !== expectCondensed) {
+    failures.push(
+      `${image}: condensed-source class is ${gotCondensedClass ? "present" : "absent"}, expected ` +
+        `${expectCondensed ? "present - this is the one condensed image in the gate's corpus" : "absent - this is ordinary type"}`
+    );
+  }
+
+  // ---- W13: complexPic1's height fill actually improved, and stays improved ----
+  //
+  // Freshly measured before this feature existed (same image, same Docker
+  // container, same Liberation Sans, same day): median height fill 0.552.
+  // After: 0.705. 0.65 sits well above the old number and comfortably below
+  // the new one, so a regression back toward the pre-W13 behaviour - the
+  // classifier silently stops firing, or fires but the stack it picks stops
+  // helping - fails here rather than only showing up as a smaller number
+  // nobody was watching.
+  if (image === "complexPic1.jpeg") {
+    const CONDENSED_FILL_FLOOR = 0.65;
+    const hFills = asScannedRows.map((r) => r.hFill).sort((a, b) => a - b);
+    const medianH = hFills[hFills.length >> 1];
+    if (medianH < CONDENSED_FILL_FLOOR) {
+      failures.push(
+        `${image}: median height fill ${medianH.toFixed(3)} is below the W13 regression floor ${CONDENSED_FILL_FLOOR} ` +
+          `(pre-W13 baseline was 0.552) - the condensed-font branch may have stopped helping this image`
+      );
+    }
+  }
 
   // ---- After retyping, through the real contenteditable spans ----
   // Replacements chosen to move the glyph mix around on purpose: all-caps (cap

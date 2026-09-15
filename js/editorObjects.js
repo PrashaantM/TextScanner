@@ -653,14 +653,24 @@ function quantizeInkSize(px) {
 // the cache goes with it.
 //
 // What re-resolving does NOT cover is the same stack resolving to a different
-// FACE - a webfont arriving after the first measurement. That cannot happen
-// here, and the reason is checkable rather than assumed: this app declares no
-// @font-face and loads no font resource (nothing matches `@font-face`,
-// `fonts.googleapis` or `new FontFace(` in style.css, index.html or js/), so
-// every family in the stack is either present on the platform at load or never.
+// FACE - a webfont arriving after the first measurement. Until W13 that could
+// not happen: this app declared no @font-face and loaded no font resource, so
+// every family in the stack was either present on the platform at load or
+// never. W13 added exactly one @font-face (the condensed replacement font,
+// see style.css and detectCondensedSource) - but every caller that applies
+// its class (renderImageFormatView) does so only after confirming
+// document.fonts.check() is already true, so by the time this function can
+// possibly be called against that class, the face it resolves to is loaded,
+// not still arriving. The invariant is narrower now, not gone.
 let inkFontFamily = null;
 
-function wordFontFamily() {
+// Exported for buildResultCanvas (editorExport.js), which used to carry a
+// second, hardcoded copy of this same stack string - the two happened to
+// agree only because nobody had a reason to change one without the other.
+// Reading the live resolution here instead means the export canvas draws in
+// whatever face the preview actually resolved to (condensed or not) by
+// construction, not by two authors remembering to keep two strings in sync.
+export function wordFontFamily() {
   const family = getComputedStyle(imageFormatView).fontFamily || "sans-serif";
   if (family !== inkFontFamily) {
     if (inkFontFamily !== null) inkPerEmCache.clear();
@@ -970,6 +980,12 @@ export function clearImageFormatView() {
   imageFormatView.querySelectorAll(".image-format-word, .image-format-patch").forEach((el) => el.remove());
   imageFormatBg.removeAttribute("src");
   imageFormatView.style.aspectRatio = "";
+  // renderImageFormatView always sets this to match the CURRENT scan, so
+  // leaving a stale class here between Reset and the next scan is cosmetically
+  // inert (nothing is rendered in between) rather than wrong - cleared anyway
+  // so this function resets every per-scan flag it's responsible for, not all
+  // but one of them (W13).
+  imageFormatView.classList.remove("condensed-source");
   resetEditorObjects();
   state.imageFormatLines = [];
   inkPerEmCache.clear();
@@ -1259,6 +1275,34 @@ function medianSurroundingLuma(imageData, naturalWidth, naturalHeight, left, top
   return samples[Math.floor(samples.length / 2)];
 }
 
+// Otsu's method: the threshold maximizing between-class variance, over a
+// 256-bin luminance histogram. Shared by sampleInkAppearance's ink/background
+// split below and detectCondensedSource's binarization (W13) - one
+// implementation, not two copies of the same algorithm.
+function otsuThreshold(histogram, total) {
+  let sum = 0;
+  for (let v = 0; v < 256; v++) sum += v * histogram[v];
+  let sumBelow = 0;
+  let countBelow = 0;
+  let bestVariance = -1;
+  let threshold = 0;
+  for (let v = 0; v < 256; v++) {
+    countBelow += histogram[v];
+    if (!countBelow) continue;
+    const countAbove = total - countBelow;
+    if (!countAbove) break;
+    sumBelow += v * histogram[v];
+    const meanBelow = sumBelow / countBelow;
+    const meanAbove = (sum - sumBelow) / countAbove;
+    const variance = countBelow * countAbove * (meanBelow - meanAbove) ** 2;
+    if (variance > bestVariance) {
+      bestVariance = variance;
+      threshold = v;
+    }
+  }
+  return threshold;
+}
+
 function sampleInkAppearance(imageData, naturalWidth, naturalHeight, x0, y0, x1, y1) {
   if (!imageData) return null;
 
@@ -1281,27 +1325,7 @@ function sampleInkAppearance(imageData, naturalWidth, naturalHeight, x0, y0, x1,
   }
   if (!total) return null;
 
-  // Otsu: the threshold maximizing between-class variance.
-  let sum = 0;
-  for (let v = 0; v < 256; v++) sum += v * histogram[v];
-  let sumBelow = 0;
-  let countBelow = 0;
-  let bestVariance = -1;
-  let threshold = 0;
-  for (let v = 0; v < 256; v++) {
-    countBelow += histogram[v];
-    if (!countBelow) continue;
-    const countAbove = total - countBelow;
-    if (!countAbove) break;
-    sumBelow += v * histogram[v];
-    const meanBelow = sumBelow / countBelow;
-    const meanAbove = (sum - sumBelow) / countAbove;
-    const variance = countBelow * countAbove * (meanBelow - meanAbove) ** 2;
-    if (variance > bestVariance) {
-      bestVariance = variance;
-      threshold = v;
-    }
-  }
+  const threshold = otsuThreshold(histogram, total);
 
   // A box with no real two-tone structure - blank, or a flat fill. Guessing an
   // ink colour out of noise is worse than declining to.
@@ -1371,6 +1395,147 @@ function sampleInkAppearance(imageData, naturalWidth, naturalHeight, x0, y0, x1,
     inkFraction: inkCount / total,
     fallbackUsed,
   };
+}
+
+// ---- Condensed-source-text detection (W13) ----
+//
+// A replacement word is set in the app's own font, not the photo's - the
+// font matcher that doesn't exist yet (see fontSizePctForInk's header). On an
+// ordinary photo that costs almost nothing: complexPic5, ordinary sans body
+// text, sizes to a median 0.948 of its source box's height. On complexPic1 -
+// a poster in a condensed hand-drawn display face - the same measured (in
+// this session, freshly, in the pinned Docker container, on Liberation Sans)
+// at 0.552: the app's WIDER default font has to shrink well past its
+// height-matched size just to fit the box's WIDTH, and 8 of 22 words hit the
+// width floor outright. Two prior investigation sessions ruled out ink
+// coverage/stroke width (falsified: ranges overlap almost entirely, and
+// invert on a display face), stroke contrast (degenerates to ~1.0 at the
+// pixel resolutions real photographed text has), x-height ratio (confounded
+// by all-caps headlines) and terminal shape (no serif exemplar in this
+// corpus to test against) as usable signals. Glyph aspect ratio - how wide a
+// letterform's own connected-component bounding box is relative to its
+// height - was the one exception: real, if noisy, in the right direction.
+//
+// WHY 0.70, AND WHY IT'S ONE POSITIVE EXAMPLE STILL. Widened to the full
+// 11-image benchmark corpus (test/research/condensed-source-detection.md has
+// the per-image numbers and the script that produced them), the per-WORD
+// distributions overlap substantially - this is NOT a reliable per-word
+// classifier. But aggregated to one median per image - the unit this
+// function actually decides on - complexPic1 is the unambiguous minimum
+// across all 11 (0.633), with real headroom to the next-lowest image
+// (complexPic2, 0.786 - a 0.153 gap no other image falls anywhere near; the
+// one outlier, complexPic10, sits at 4.000, dominated by short numeric/price
+// fragments rather than condensed prose). 0.70 sits close to the midpoint of
+// that gap. That still means complexPic1 is the ONLY genuinely condensed
+// face in the corpus this threshold was checked against - there is no second
+// positive example to confirm the cut generalizes to a condensed face this
+// corpus doesn't happen to contain, only 10 confirmed true negatives. That
+// residual risk is exactly why the gate (test/replacement-size.js) checks
+// every image the classifier can see, not just complexPic1: the claim being
+// defended is "this does not make any non-condensed image worse," which 10
+// true negatives DOES support, not "this generalizes to condensed faces in
+// general," which it cannot.
+const CONDENSED_MIN_WORDS = 5;
+const CONDENSED_ASPECT_THRESHOLD = 0.7;
+const CONDENSED_FONT_LOAD_SPEC = '400 16px "Roboto Condensed"';
+
+// Warms the condensed-font cache well before any scan can complete - OCR
+// takes seconds at minimum, this is a same-origin ~47KB file - so
+// detectCondensedSource's caller below is awaiting an already-resolved
+// promise in the overwhelming majority of real scans, not a fresh fetch.
+// Fire-and-forget: a failed or slow load just means the condensed branch
+// falls back to the regular stack for that one scan, not a broken word.
+if (typeof document !== "undefined" && document.fonts) {
+  document.fonts.load(CONDENSED_FONT_LOAD_SPEC).catch(() => {});
+}
+
+// The median glyph aspect ratio (connected-component width/height) within
+// one word's own box. Otsu-thresholded exactly like sampleInkAppearance -
+// ink is again whichever side of the split is the minority population,
+// same reasoning as that function's own header - then split into
+// 4-connected components; each surviving component (area >= 3px, filtering
+// single-pixel noise) is a glyph candidate. Touching/cursive letters merge
+// into fewer, wider components on some faces; that under-counts rather than
+// crashing, and is why the classifier below requires several words' worth of
+// agreement rather than trusting any single one.
+function medianGlyphAspect(imageData, naturalWidth, naturalHeight, x0, y0, x1, y1) {
+  const left = Math.max(0, Math.floor(x0));
+  const right = Math.min(naturalWidth - 1, Math.ceil(x1));
+  const top = Math.max(0, Math.floor(y0));
+  const bottom = Math.min(naturalHeight - 1, Math.ceil(y1));
+  const w = right - left + 1;
+  const h = bottom - top + 1;
+  if (w < 6 || h < 6) return null;
+
+  const { data, width } = imageData;
+  const histogram = new Uint32Array(256);
+  const luma = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = ((top + y) * width + (left + x)) * 4;
+      const l = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      luma[y * w + x] = l;
+      histogram[Math.round(l)]++;
+    }
+  }
+  const threshold = otsuThreshold(histogram, w * h);
+  let darkCount = 0;
+  for (let p = 0; p < luma.length; p++) if (luma[p] <= threshold) darkCount++;
+  const inkIsDark = darkCount <= luma.length / 2;
+  const grid = new Uint8Array(w * h);
+  for (let p = 0; p < luma.length; p++) {
+    grid[p] = (inkIsDark ? luma[p] <= threshold : luma[p] > threshold) ? 1 : 0;
+  }
+
+  const visited = new Uint8Array(w * h);
+  const aspects = [];
+  const stack = [];
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = y * w + x;
+      if (!grid[idx] || visited[idx]) continue;
+      let minX = x, maxX = x, minY = y, maxY = y, area = 0;
+      stack.push(idx);
+      visited[idx] = 1;
+      while (stack.length) {
+        const cur = stack.pop();
+        const cy = (cur / w) | 0;
+        const cx = cur % w;
+        area++;
+        if (cx < minX) minX = cx;
+        if (cx > maxX) maxX = cx;
+        if (cy < minY) minY = cy;
+        if (cy > maxY) maxY = cy;
+        if (cx > 0 && grid[cur - 1] && !visited[cur - 1]) { visited[cur - 1] = 1; stack.push(cur - 1); }
+        if (cx < w - 1 && grid[cur + 1] && !visited[cur + 1]) { visited[cur + 1] = 1; stack.push(cur + 1); }
+        if (cy > 0 && grid[cur - w] && !visited[cur - w]) { visited[cur - w] = 1; stack.push(cur - w); }
+        if (cy < h - 1 && grid[cur + w] && !visited[cur + w]) { visited[cur + w] = 1; stack.push(cur + w); }
+      }
+      if (area >= 3) aspects.push((maxX - minX + 1) / (maxY - minY + 1));
+    }
+  }
+  if (!aspects.length) return null;
+  aspects.sort((a, b) => a - b);
+  return aspects[Math.floor(aspects.length / 2)];
+}
+
+// Whether this scan's recognized text reads as a condensed face - see the
+// header above this section for the evidence and the threshold. Takes the
+// median-of-medians (one median per word, then the median of those) so a
+// handful of odd words - a logo OCR misread as a word, a single stray digit
+// - cannot swing the image-level decision the way they could swing a plain
+// mean.
+export function detectCondensedSource(pixels, naturalWidth, naturalHeight, ocrWords) {
+  if (!pixels) return false;
+  const medians = [];
+  for (const word of ocrWords) {
+    if (!word.bbox) continue;
+    const m = medianGlyphAspect(pixels, naturalWidth, naturalHeight, word.bbox.x0, word.bbox.y0, word.bbox.x1, word.bbox.y1);
+    if (m !== null) medians.push(m);
+  }
+  if (medians.length < CONDENSED_MIN_WORDS) return false;
+  medians.sort((a, b) => a - b);
+  return medians[Math.floor(medians.length / 2)] < CONDENSED_ASPECT_THRESHOLD;
 }
 
 export function isWordModified(obj) {
@@ -1445,7 +1610,14 @@ export function refreshModifiedStatesFor(objects) {
 // produced by ocrEngine.js (already corrected back into original-image coordinates
 // by preprocess.js when preprocessing changed geometry).
 
-export function renderImageFormatView(previewImg, ocrWords, naturalWidth, naturalHeight, imageUrl) {
+// Async since W13 - see the await below - but that await is only ever
+// reached for a scan detectCondensedSource fires on, which is the rare case;
+// every other call runs to completion synchronously the moment it's invoked,
+// same as before. All three callers (js/main.js's scan handler, and
+// test/render-fidelity.js and test/web-tier-smoke.js, which drive this
+// function directly with synthetic fixtures) now await it, so none of them
+// depend on which of those two paths a given call happens to take.
+export async function renderImageFormatView(previewImg, ocrWords, naturalWidth, naturalHeight, imageUrl) {
   clearImageFormatView();
 
   if (!naturalWidth || !naturalHeight) return;
@@ -1461,6 +1633,24 @@ export function renderImageFormatView(previewImg, ocrWords, naturalWidth, natura
   applyObjectStyle(bgObj);
 
   const pixels = readImagePixels(previewImg, naturalWidth, naturalHeight);
+
+  // W13: decided once, before any word below is sized, so every word sizes
+  // against whatever wordFontFamily() ends up resolving to - the same
+  // function inkFitPxAtScale (preview) and buildResultCanvas (export) both
+  // read, so this is one decision feeding both surfaces, not two that could
+  // drift. See detectCondensedSource's header for the evidence.
+  let condensed = detectCondensedSource(pixels, naturalWidth, naturalHeight, ocrWords);
+  if (condensed) {
+    try {
+      await document.fonts.load(CONDENSED_FONT_LOAD_SPEC);
+    } catch {
+      // Fetch failed (offline, blocked) - document.fonts.check() below will
+      // correctly read false either way, so nothing more to do here.
+    }
+    condensed = document.fonts.check(CONDENSED_FONT_LOAD_SPEC);
+  }
+  imageFormatView.classList.toggle("condensed-source", condensed);
+
   let currentLineIndex = null;
   let lineSpans = [];
 

@@ -40,7 +40,7 @@ Checked today rather than carried forward from `HANDOFF.md`:
 | 60 unit tests pass | `node --test test/unit/*.test.js` — 60 pass, 0 fail |
 | The newest browser gate passes | `node test/interaction-layer.js` — all 24 checks green |
 | Last CI run on `main` green | run `34673998815`, 3m30s |
-| 46 modules, 14,627 lines in `js/` | `wc -l js/*.js` |
+| 46 modules, 14,817 lines in `js/` | `wc -l js/*.js` |
 | Tracked repo 8.87 MiB; `vendor/tesseract` is 11 MB of it on disk | `git count-objects -vH`, `du` |
 
 **Jekyll is not eating anything.** Its default excludes cover `vendor/bundle`,

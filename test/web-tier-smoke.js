@@ -272,7 +272,7 @@ const exported = await page.evaluate(async () => {
     { lineIndex: 0, text: "WORLD", confidence: 90, bbox: { x0: 110, y0: 30, x1: 195, y1: 55 } },
     { lineIndex: 1, text: "SECOND", confidence: 90, bbox: { x0: 20, y0: 80, x1: 110, y1: 105 } },
   ];
-  objects.renderImageFormatView(dom.previewImg, words, W, H, src);
+  await objects.renderImageFormatView(dom.previewImg, words, W, H, src);
   interactions.setMode("image");
 
   const out = {};
