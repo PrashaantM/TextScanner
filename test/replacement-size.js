@@ -306,6 +306,167 @@ const measureAll = (page) =>
     return rows;
   });
 
+// Measures the words buildResultCanvas() ACTUALLY draws - the surface Download
+// and Save-as-note both flatten through - rather than the on-screen preview
+// measureAll reads.
+//
+// This is a DIFFERENT surface, not a restatement of the same check. A word's
+// fontSizePct is solved (and, since editorObjects.js's resize-refit, kept
+// current) against editorContentWidth() - the on-screen container's width.
+// buildResultCanvas draws at canvas.width = state.lastNaturalWidth, the
+// photo's own resolution, an unrelated absolute pixel scale that is essentially
+// never equal to the preview's. Ink-per-em is a staircase in ABSOLUTE size (see
+// editorObjects.js's header), so a percentage solved to fit at one absolute
+// scale is not thereby fit at another - the preview passing this gate proves
+// nothing about the export, and measureAll never looks at the export canvas at
+// all.
+//
+// CanvasRenderingContext2D.fillText is spied on for the one fact
+// buildResultCanvas cannot be asked directly: which font-size string it
+// actually used for a given word. That is a real-behaviour readback - the same
+// role getComputedStyle(el).fontSize plays for measureAll - not a
+// recomputation of the app's math: whatever formula chose the size, this reads
+// back what actually got handed to the canvas and independently re-measures
+// the ink it produces, at the size it was actually asked to render at.
+const measureExportAll = (page) =>
+  page.evaluate(async () => {
+    const { buildResultCanvas } = await import("/js/editorExport.js");
+    // MIN_WIDTH_FIT_SCALE only - the floor threshold, a constant this fix
+    // doesn't touch. Not inkFitPx: that function's scale is the LIVE PREVIEW's
+    // (editorContentWidth()/naturalWidth), and reusing a value computed at that
+    // scale as though it applied at the export canvas's own scale (1) was tried
+    // first and was wrong - it produced spurious P1/P2 failures on floored
+    // words from nothing but the scale mismatch. largestFittingSize is scale-
+    // free by construction (js/inkFit.js takes a metric callback and a target,
+    // nothing else), so calling it directly, here, with a callback that
+    // measures at the SAME absolute pixel sizes the export canvas actually
+    // renders at, is what makes the classification correct rather than
+    // borrowed from a different surface.
+    const { MIN_WIDTH_FIT_SCALE } = await import("/js/editorObjects.js");
+    const { largestFittingSize, INK_GRID_STEP_PX: GRID } = await import("/js/inkFit.js");
+    const { wordVerdict } = await import("/test/sizeVerdict.js");
+    const { PROPERTY_SPAN } = window.__gateConstants;
+    const s = window.__state;
+
+    const proto = CanvasRenderingContext2D.prototype;
+    const originalFillText = proto.fillText;
+    const draws = [];
+    proto.fillText = function (text, x, y, ...rest) {
+      draws.push({ text, font: this.font });
+      return originalFillText.call(this, text, x, y, ...rest);
+    };
+    let canvas = null;
+    try {
+      canvas = buildResultCanvas();
+    } finally {
+      proto.fillText = originalFillText;
+    }
+    if (!canvas) return { rows: [], expectedCount: 0, drawnCount: 0 };
+
+    // The exact predicate buildResultCanvas uses to decide which words it
+    // draws, and in the exact order it iterates them in, so draws[i] lines up
+    // with expected[i].
+    const expected = s.editorObjects.filter((o) => {
+      if (o.type !== "word") return false;
+      if (s.activeMode === "full" && !o.modified && o.origin === "ocr") return false;
+      return !!o.el.textContent;
+    });
+
+    const mctx = document.createElement("canvas").getContext("2d");
+    const rows = [];
+    for (let i = 0; i < expected.length; i++) {
+      const o = expected[i];
+      const draw = draws[i];
+      if (!o.originalBbox || !draw || draw.text !== o.el.textContent) continue;
+      const srcH = o.originalBbox.y1 - o.originalBbox.y0;
+      const srcW = o.originalBbox.x1 - o.originalBbox.x0;
+      if (!(srcH > 0) || !(srcW > 0)) continue;
+      const text = o.el.textContent;
+
+      // The size buildResultCanvas actually used, read back from the real
+      // draw call - not recomputed. canvas.width is natural resolution, so
+      // this is directly in source-image pixels, the same unit srcH/srcW are
+      // in: no scale factor belongs anywhere in this file.
+      const renderedPx = parseFloat(draw.font);
+      mctx.font = draw.font;
+      const m = mctx.measureText(text);
+      const inkH = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+      const inkW = m.width;
+
+      const inkAtSize = (px, dimension) => {
+        mctx.font = draw.font.replace(/^[\d.]+px/, `${px}px`);
+        const q = mctx.measureText(text);
+        return dimension === "height" ? q.actualBoundingBoxAscent + q.actualBoundingBoxDescent : q.width;
+      };
+
+      // The height- and width-matched sizes, searched independently at the
+      // EXPORT's own scale (1: inkAtSize already measures in canvas/image
+      // pixels), so binding classification and the floor's own P1/P2 check
+      // below are self-consistent with what renderedPx was actually chosen
+      // against - not a value transplanted from a different absolute scale.
+      const heightFit = largestFittingSize(srcH, (px) => inkAtSize(px, "height"), { maxPx: 2048 });
+      const widthFit = srcW ? largestFittingSize(srcW, (px) => inkAtSize(px, "width"), { maxPx: 2048 }) : null;
+      const binding = !heightFit
+        ? null
+        : widthFit && widthFit.px < heightFit.px * MIN_WIDTH_FIT_SCALE
+          ? "floor"
+          : widthFit && widthFit.px < heightFit.px
+            ? "width"
+            : "height";
+
+      const row = { id: o.id, text, renderedPx, hFill: inkH / srcH, wFill: inkW / srcW, binding, floorScale: MIN_WIDTH_FIT_SCALE, violations: [] };
+      if (o.fontSizeLocked) {
+        rows.push(row);
+        continue;
+      }
+      if (binding === "height" || binding === "width") {
+        const target = binding === "height" ? srcH : srcW;
+        row.violations = wordVerdict({
+          text,
+          binding,
+          chosenPx: renderedPx,
+          targetPx: target,
+          inkAt: (px) => inkAtSize(px, binding),
+          gridStep: GRID,
+          spanPx: PROPERTY_SPAN,
+          renderedPx,
+          requireProbedTread: true,
+        });
+      } else if (binding === "floor") {
+        // A floored word is exempt from spilling in WIDTH by design (see
+        // editorObjects.js's floor comment) - what still has to hold is
+        // HEIGHT. Checked against renderedPx - the REAL rendered size - not a
+        // freshly re-searched heightFit, and P2/floor-selection are not asked
+        // at all here (spanPx: 0 with requireProbedTread left off, so neither
+        // fires). Both were tried and both were wrong for the same reason:
+        // this file's inkAtSize measures ink directly, while the app's own
+        // inkMetricsPerEm reaches the same number through measure-then-
+        // multiply-back-out "per em" arithmetic (see its header) - a
+        // deliberately different path, close but not bit-identical. Right at a
+        // tread boundary that's enough for the two independent searches this
+        // file and the app each run to land on ADJACENT grid points, which
+        // read as a P2/floor-selection failure even though nothing actually
+        // spills. P1 against the real output sidesteps that: it asks whether
+        // what was actually drawn fits, not whether a second computation
+        // agrees digit-for-digit with a first one - which is exactly the
+        // residual-vs-property distinction this file's own header describes.
+        row.violations = wordVerdict({
+          text,
+          binding: "floor",
+          chosenPx: renderedPx,
+          targetPx: srcH,
+          inkAt: (px) => inkAtSize(px, "height"),
+          gridStep: GRID,
+          spanPx: 0,
+        });
+      } else {
+        row.violations = wordVerdict({ text, binding: null });
+      }
+      rows.push(row);
+    }
+    return { rows, expectedCount: expected.length, drawnCount: draws.length };
+  });
+
 // The gating decision is entirely wordVerdict's, computed in-browser by
 // measureAll and carried on r.violations - see test/sizeVerdict.js. What is
 // left here is aggregation: push every violation, and print the informational
@@ -453,6 +614,23 @@ for (const image of ["complexPic1.jpeg", "complexPic5.jpeg"]) {
   }
   check(retyped, `${image} retyped`, failures);
 
+  // ---- The export canvas, not the preview - no resize yet ----
+  //
+  // Download and Save-as-note both flatten through buildResultCanvas(), which
+  // this file had never once checked - see measureExportAll's header for why
+  // that is a genuinely different surface rather than a restatement of the
+  // check above. No resize has happened at this point in the run: the surface
+  // is still whatever the 1200x1600 viewport laid out. This is the SAME check
+  // that runs again below after the resize, so a difference between the two
+  // numbers is the resize's effect, not a difference in what is being asked.
+  const exportedWide = await measureExportAll(page);
+  if (exportedWide.drawnCount !== exportedWide.expectedCount) {
+    failures.push(
+      `${image}: buildResultCanvas drew ${exportedWide.drawnCount} word(s) but ${exportedWide.expectedCount} were expected - the draw predicate or order has drifted from what this gate assumes`
+    );
+  }
+  check(exportedWide.rows, `${image} export (no resize)`, failures);
+
   // ---- And it survives the container changing width ----
   //
   // A word's font-size is a percentage of the editor surface's width, so every
@@ -471,6 +649,23 @@ for (const image of ["complexPic1.jpeg", "complexPic5.jpeg"]) {
     failures.push(`${image}: resizing to a phone viewport did not narrow the editor surface (${wideWidth} -> ${narrowWidth}), so this proves nothing`);
   }
   check(await measureAll(page), `${image} after resize to ${narrowWidth}px`, failures);
+
+  // ---- The export canvas, not the preview - after the resize ----
+  //
+  // Same words, same measureExportAll, still at the narrowed container: the
+  // resize-refit just re-solved every fontSizePct against a smaller preview
+  // width, which moves it further from the export canvas's own scale, not
+  // closer. Nothing about the export SHOULD depend on the preview's width at
+  // all - the fixed version solves fresh against the export canvas regardless
+  // of what the preview last did - so this number should not get worse than
+  // the no-resize measurement above once that is true.
+  const exportedNarrow = await measureExportAll(page);
+  if (exportedNarrow.drawnCount !== exportedNarrow.expectedCount) {
+    failures.push(
+      `${image}: buildResultCanvas drew ${exportedNarrow.drawnCount} word(s) but ${exportedNarrow.expectedCount} were expected (after resize) - the draw predicate or order has drifted from what this gate assumes`
+    );
+  }
+  check(exportedNarrow.rows, `${image} export (after resize to ${narrowWidth}px)`, failures);
 
   await page.setViewportSize({ width: 1200, height: 1600 });
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));

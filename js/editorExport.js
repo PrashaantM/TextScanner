@@ -23,6 +23,7 @@ import {
   pushUndo,
   refreshModifiedStates,
   refitWordFontSize,
+  inkFitPxAtScale,
 } from "./editorObjects.js";
 
 let filterTextHook = null;
@@ -165,6 +166,32 @@ export function setPatchCanvasProvider(fn) {
   patchCanvasProvider = fn;
 }
 
+// The font size to draw `obj`'s text at on the export canvas, in canvas pixels.
+//
+// obj.fontSizePct is solved against editorContentWidth() - the ON-SCREEN
+// PREVIEW's width - and re-solved live as that width changes (see
+// refitWordsForContainerWidth in editorObjects.js). The export canvas is a
+// DIFFERENT, unrelated absolute pixel scale: canvas.width is
+// state.lastNaturalWidth, the photo's own resolution, which is essentially
+// never equal to the preview's on-screen width. Ink-per-em is a staircase in
+// absolute size (see editorObjects.js's header), so a percentage that fits at
+// the preview's scale is not thereby fit at the export's - reusing it here
+// renders a word sized for a container it is not being drawn into.
+//
+// So a word with a source target to match gets its own solve, fresh, against
+// the export canvas's own scale (1: canvas.width is already natural-resolution
+// pixels, one canvas unit is one source-image pixel, no conversion applies).
+// The two words this can't do anything for keep the percentage: a user-added
+// word has no inkTargetPx to solve against, and a hand-resized word is
+// carrying the size the user chose, which must not be silently overridden.
+function exportFontPx(obj, text, canvasWidth) {
+  if (!obj.fontSizeLocked && obj.inkTargetPx) {
+    const fit = inkFitPxAtScale(text, obj.inkTargetPx, obj.inkTargetWpx, 1);
+    if (fit) return fit.fitPx;
+  }
+  return (obj.fontSizePct / 100) * canvasWidth;
+}
+
 export function buildResultCanvas() {
   if (!state.lastNaturalWidth || !state.lastNaturalHeight) return null;
 
@@ -212,7 +239,7 @@ export function buildResultCanvas() {
     if (state.activeMode === "full" && !obj.modified && obj.origin === "ocr") return;
     const text = obj.el.textContent;
     if (!text) return;
-    const fontPx = (obj.fontSizePct / 100) * canvas.width;
+    const fontPx = exportFontPx(obj, text, canvas.width);
     ctx.font = `${fontPx}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
     const wx = (obj.x / 100) * canvas.width;
     const wy = (obj.y / 100) * canvas.height;

@@ -797,10 +797,26 @@ export const MIN_WIDTH_FIT_SCALE = 0.5;
 // spill failure on a word this code had floored exactly right. Handing out the
 // predicate makes the gate ask this module's question instead of a similar-
 // looking one of its own.
-export function inkFitPx(text, inkHeightPx, inkWidthPx, naturalWidth) {
-  if (!naturalWidth || !inkHeightPx) return null;
+// The search itself, parameterized by `scale` rather than deriving it from the
+// live editor surface - inkFitPx below is the on-screen caller (scale =
+// editorContentWidth()/naturalWidth, re-read live so it tracks the container);
+// buildResultCanvas (editorExport.js) is the other one, with scale = 1, because
+// the export canvas is drawn at natural resolution - one canvas unit already IS
+// one source-image pixel there, so no conversion is needed and none should be
+// applied.
+//
+// That split exists because `scale` is NOT a property of the word, it is a
+// property of WHICH SURFACE is about to render it, and the two surfaces are
+// different absolute pixel scales almost always (a phone-width preview vs. a
+// multi-thousand-pixel photo). Ink-per-em is a staircase in ABSOLUTE size (see
+// this module's header), so a percentage solved to fit at one absolute scale is
+// not thereby fit at another - measured, on complexPic5, retyped words that
+// pass P1 in the preview still spill the export canvas with no resize involved
+// at all, because "no resize" only holds the PREVIEW's scale fixed, not the
+// export's.
+export function inkFitPxAtScale(text, inkHeightPx, inkWidthPx, scale) {
+  if (!inkHeightPx || !scale) return null;
   const family = wordFontFamily();
-  const scale = inkRenderScale(naturalWidth);
   const inkAt = (dimension) => (cssPx) => {
     const m = inkMetricsPerEm(text, cssPx, family);
     return m ? m[dimension] * cssPx : NaN;
@@ -828,6 +844,11 @@ export function inkFitPx(text, inkHeightPx, inkWidthPx, naturalWidth) {
     heightFits: height.fits,
     widthFits: width ? width.fits : null,
   };
+}
+
+export function inkFitPx(text, inkHeightPx, inkWidthPx, naturalWidth) {
+  if (!naturalWidth || !inkHeightPx) return null;
+  return inkFitPxAtScale(text, inkHeightPx, inkWidthPx, inkRenderScale(naturalWidth));
 }
 
 export function fontSizePctForInk(text, inkHeightPx, inkWidthPx, naturalWidth) {
