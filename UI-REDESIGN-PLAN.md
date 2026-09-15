@@ -17,8 +17,25 @@ pass. All 29 gates in the local suite (the 28 per-push CI gates plus a new
 `test/paste-placement.js`) pass, including real-touch coverage
 (`test/touch-interactions.js`, via CDP's `Input.dispatchTouchEvent` — genuine
 trusted touch input, not a synthesized approximation) for select-via-tap,
-drag-via-move-handle, resize-via-handle, press-and-hold marquee in both Image
-format and Full image mode, and quick-drag-still-scrolls.
+drag-via-move-handle, resize-via-handle, and quick-drag-still-scrolls.
+
+Marquee's own coverage is asymmetric by design, not an oversight: reachable
+by press-and-hold in Image format mode (real empty canvas between words), but
+*not* reachable in Full image mode, because the background photo — a real
+selectable/moveable object there too (see the note below), full-bleed by
+default — absorbs the press before it ever reaches empty canvas. That's the
+same as every pre-redesign build; confirmed with a real CDP touch, not
+inferred by reading the dispatcher.
+
+**The background photo (`obj-bg`) is a selectable/moveable object in Full
+image mode, exactly like a word — tap to select, then drag from
+move-handle/resize-handle. This was never part of §2.3** (which is about
+words and the marquee gesture only); an earlier revision of this branch
+removed the photo's selectability by mistake, breaking the README's "moving
+and resizing the text and the image itself, freely and independently." It has
+since been restored, using the same move-handle/resize-handle mechanism as a
+word rather than reintroducing the old direct-body drag — one interaction
+model across every object type, per the decision below.
 
 **One thing is not done: the real-device pass §2.3 itself requires before
 this ships.** No physical iOS device was reachable this session (the paired
