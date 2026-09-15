@@ -1,7 +1,13 @@
-// move-inpaint.js: drives the real editor - scan a real photo, enter Full
-// image + Move components, drag a recognized word away from its original
-// spot - and asserts the vacated region shows the inpainted patch, not the
-// untouched source pixels.
+// move-inpaint.js: drives the real editor - scan a real photo, select a
+// recognized word in Full image mode and drag it away from its original spot
+// via move-handle - and asserts the vacated region shows the inpainted
+// patch, not the untouched source pixels.
+//
+// UI-REDESIGN-PLAN.md §2.3: "Move components" is gone as a persistent mode.
+// A tap always edits a word, and in Full image mode also selects it, showing
+// move-handle next to resize-handle; dragging FROM the handle - not from the
+// word's own body - is what moves it now, on purpose, so a tap never has to
+// disambiguate against a drag the way it used to.
 //
 // TEXTSCANNER-HARDENING-PLAN.md's Phase 13 described this as an open gap: the
 // patch-application function was assumed to run only for the delete handler,
@@ -76,7 +82,6 @@ await page.setInputFiles("#file-input", join(ROOT, "test/images/complexPic5.jpeg
 await page.click("#scan-btn");
 await page.waitForSelector("#result-section:not(.hidden)", { timeout: 120000 });
 await page.click("#mode-full-btn");
-await page.click("#editor-mode-btn");
 await page.evaluate(() => document.getElementById("image-format-view").scrollIntoView({ block: "start" }));
 await page.waitForTimeout(300);
 
@@ -105,11 +110,26 @@ if (!target) {
 
 const rawBgShot = await page.locator("#image-format-bg").screenshot({ clip: target.rect });
 
+// A tap selects the word (unchanged - this is the same native click every
+// other gate already drives) and, in Full image mode, that also reveals
+// move-handle at the selection's top-left corner.
+await page.mouse.click(target.x, target.y);
+await page.waitForTimeout(150);
+
+const handle = await page.evaluate(() => {
+  const r = document.getElementById("move-handle").getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2, visible: getComputedStyle(document.getElementById("move-handle")).display !== "none" };
+});
+if (!handle.visible) {
+  console.error("FAILED: move-handle did not appear after selecting the word");
+  process.exit(1);
+}
+
 const DRAG_DX = 150;
 const DRAG_DY = 120;
-await page.mouse.move(target.x, target.y);
+await page.mouse.move(handle.x, handle.y);
 await page.mouse.down();
-await page.mouse.move(target.x + DRAG_DX, target.y + DRAG_DY, { steps: 15 });
+await page.mouse.move(handle.x + DRAG_DX, handle.y + DRAG_DY, { steps: 15 });
 await page.mouse.up();
 await page.waitForTimeout(300);
 

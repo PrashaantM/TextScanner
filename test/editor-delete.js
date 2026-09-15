@@ -64,7 +64,6 @@ await page.setInputFiles("#file-input", join(ROOT, "test/images/complexPic1.jpeg
 await page.click("#scan-btn");
 await page.waitForSelector("#result-section:not(.hidden)", { timeout: 120000 });
 await page.click("#mode-full-btn");
-await page.click("#editor-mode-btn");
 await page.waitForTimeout(250);
 
 // The state a person can observe, plus the two things only the model knows
@@ -169,28 +168,26 @@ if (!retired.objectStillExists) failures.push("retiring the leftover removed the
 if (!retired.patchShown) failures.push("retiring the leftover hid the inpainted patch, so the photo's original text is visible again");
 
 // ---- 4. A marquee that sweeps the whole image must not pick it back up ----
+// UI-REDESIGN-PLAN.md §2.3: marquee is a press-and-hold-then-drag starting on
+// empty canvas now, not a button-armed mode - no separate arm/disarm step,
+// and it coexists with Full image mode rather than requiring it be left.
 await page.evaluate(() => {
   window.__state.selectedObjectIds.clear();
 });
-await page.click("#editor-mode-btn"); // leave Move mode; marquee needs it off
-await page.click("#select-multi-btn");
-await page.waitForTimeout(150);
 const box = await page.evaluate(() => {
   const r = document.getElementById("image-format-view").getBoundingClientRect();
   return { x1: r.left + 2, y1: Math.max(r.top + 2, 2), x2: r.right - 2, y2: Math.min(r.bottom - 2, innerHeight - 2) };
 });
 await page.mouse.move(box.x1, box.y1);
 await page.mouse.down();
+await page.waitForTimeout(450); // past the 420ms hold threshold, arms the marquee
 await page.mouse.move(box.x2, box.y2, { steps: 10 });
 await page.mouse.up();
 await page.waitForTimeout(200);
 const sweptIn = await page.evaluate(() => window.__state.selectedObjectIds.has(window.__target));
 if (sweptIn) failures.push("a marquee across the whole image re-selected the retired leftover");
-await page.click("#select-multi-btn");
 
 // ---- 5. Undo brings it back, because everything else in this editor is undoable ----
-await page.click("#editor-mode-btn");
-await page.waitForTimeout(150);
 await page.click("#undo-btn");
 await page.waitForTimeout(300);
 const undone = await probe();

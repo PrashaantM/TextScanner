@@ -13,8 +13,12 @@
 // /js/documents.js and calling purgeDocument() directly. That tests the model.
 // It cannot catch a button wired to nothing, a handler that reads the wrong id,
 // or a confirm whose early return is inverted, because it never presses
-// anything. The eleven rows below were, until this file, reachable only by a
-// human.
+// anything. The rows below were, until this file, reachable only by a human.
+//
+// Twelve now, not the original eleven: UI-REDESIGN-PLAN.md §2.2 added Paste's
+// whole-buffer replace in Text mode, gated by its own confirm - the same
+// "Cancel silently passes CI" risk this file exists for, on day one of that
+// confirm's existence rather than found later.
 //
 // The most consequential of them is "Delete all local data" (js/app.js:512-513),
 // the only genuinely unrecoverable action in the app. Nothing automated had ever
@@ -60,7 +64,7 @@ const check = (name, condition, detail = "") => {
 };
 
 const browser = await launchBrowser({ headless: true });
-const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, permissions: ["clipboard-read", "clipboard-write"] });
 const page = await context.newPage();
 const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(e.message));
@@ -436,7 +440,45 @@ await page.waitForTimeout(900);
 check("accepting removes the saved row too", (await rowCounts()).history === 0, JSON.stringify(await rowCounts()));
 check("...and the confirm said saved phrases were included", sawMessage("saved phrases"), JSON.stringify(dialogs));
 
-// ---- 11. Delete all local data (js/app.js:512-513) ----
+// ---- 11. Paste replaces the whole result text in Text mode (js/main.js,
+// UI-REDESIGN-PLAN.md §2.2) ----
+//
+// The twelfth path, added with the Paste control - not one of the original
+// eleven this file's header describes, but exactly the kind this file exists
+// to catch: a confirm whose Cancel branch is the one every CI run before
+// destructive-actions.js existed would have silently taken.
+
+console.log("\nPaste (Text mode) replaces the result outright");
+await page.goto(`http://localhost:${PORT}/index.html`);
+await page.waitForFunction(() => document.body.dataset.activeView, null, { timeout: 20000 });
+await page.click("#nav-add");
+await page.click("#action-sheet-scan");
+await page.waitForSelector("#sample-btn", { state: "visible" });
+await page.click("#sample-btn");
+await page.waitForSelector("#preview-section:not(.hidden)");
+await page.click("#scan-btn");
+await page.waitForSelector("#result-section:not(.hidden)", { timeout: 30000 });
+const beforePaste = await ev(() => document.getElementById("result-text").value);
+check("the sample scan produced some result text to protect", beforePaste.trim().length > 0, JSON.stringify(beforePaste));
+
+await ev(() => navigator.clipboard.writeText("pasted replacement text"));
+
+answerCancel();
+await page.click("#paste-btn");
+await page.waitForTimeout(400);
+const afterCancelPaste = await ev(() => document.getElementById("result-text").value);
+check("cancelling Paste leaves the result text exactly as it was", afterCancelPaste === beforePaste,
+      `expected ${JSON.stringify(beforePaste)}, got ${JSON.stringify(afterCancelPaste)}`);
+check("...and it asked a confirm naming what it's about to do", sawMessage("Replace"), JSON.stringify(dialogs));
+
+answerOk();
+await page.click("#paste-btn");
+await page.waitForTimeout(400);
+const afterOkPaste = await ev(() => document.getElementById("result-text").value);
+check("accepting Paste replaces the result text with the clipboard contents", afterOkPaste === "pasted replacement text",
+      `expected "pasted replacement text", got ${JSON.stringify(afterOkPaste)}`);
+
+// ---- 12. Delete all local data (js/app.js:512-513) ----
 //
 // The only genuinely unrecoverable action in the app, and the one nothing
 // automated had ever pressed. Two confirms, deliberately.
@@ -568,4 +610,4 @@ if (failures.length) {
   for (const f of failures) console.error("  -", f);
   process.exit(1);
 }
-console.log("\nAll eleven dialog-gated paths act on OK, do nothing on Cancel, and ask what they claim to.");
+console.log("\nAll twelve dialog-gated paths act on OK, do nothing on Cancel, and ask what they claim to.");

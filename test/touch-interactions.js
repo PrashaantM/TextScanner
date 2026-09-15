@@ -13,12 +13,17 @@
 // uses CDP Input.dispatchTouchEvent, which makes the browser produce genuine,
 // trusted touch input.
 //
-// Two things that look like failures and are not, learned while writing this:
+// UI-REDESIGN-PLAN.md §2.3: dragging a word now happens from move-handle,
+// which appears next to resize-handle on selection, rather than from the
+// word's own body - a tap always edits/selects; move-handle is what drags.
+// Marquee is a press-and-hold-then-drag starting on empty canvas rather than
+// a button-armed mode, and (also per §2.3) the background image is no longer
+// a draggable object anywhere, so marquee is reachable in Full image mode
+// now too, not only Image format - both are checked below.
+//
+// One thing that looks like a failure and is not, learned while writing this:
 //   - Targets must be scrolled into the viewport first. A tap at y=1064 in an
 //     844px-tall viewport hits nothing and every later assertion cascades.
-//   - Marquee belongs to the NON-editor views. In Full image + Move components
-//     the background image is itself a draggable object covering the surface, so
-//     a drag there correctly moves the image instead.
 //
 // Usage: node test/touch-interactions.js   (exits non-zero if anything regressed)
 
@@ -77,6 +82,18 @@ async function touchDrag(from, to, steps = 10) {
   }
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
 }
+// Same shape, but holds past the marquee threshold (420ms, editorInteractions.js)
+// before moving, so a press-and-hold on empty canvas escalates into a marquee
+// the way it's meant to rather than reading as a quick drag/scroll.
+async function touchPressHoldDrag(from, to, { holdMs = 500, steps = 10 } = {}) {
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: from.x, y: from.y, id: 1 }] });
+  await new Promise((resolve) => setTimeout(resolve, holdMs));
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, id: 1 }] });
+  }
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+}
 const tap = async (p) => {
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: p.x, y: p.y, id: 1 }] });
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
@@ -108,7 +125,6 @@ await page.waitForSelector("#preview-section:not(.hidden)");
 await page.click("#scan-btn");
 await page.waitForSelector("#result-section:not(.hidden)", { timeout: 120000 });
 await page.click("#mode-full-btn");
-await page.click("#editor-mode-btn");
 await page.evaluate(async () => {
   const { state } = await import("/js/state.js");
   window.__state = state;
@@ -116,17 +132,28 @@ await page.evaluate(async () => {
 });
 await page.waitForTimeout(300);
 
-// ---- 1. Touch-drag a word ----
+// ---- 1. Touch: tap a word to select it (a tap always edits/selects now -
+// UI-REDESIGN-PLAN.md §2.3), then drag it via move-handle, which appears at
+// the selection's corner rather than dragging the word's own body ----
 const target = await pickVisibleWord();
+await tap(target);
+await page.waitForTimeout(150);
 const before = await readTarget();
-await touchDrag(target, { x: target.x + 55, y: target.y + 70 });
+const moveHandlePos = await page.evaluate(() => {
+  const el = document.getElementById("move-handle");
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2, visible: getComputedStyle(el).display !== "none" };
+});
+console.log("1. TOUCH SELECT + MOVE-HANDLE DRAG");
+console.log("   move-handle visible after tap-select:", moveHandlePos.visible);
+if (!moveHandlePos.visible) failures.push("move-handle did not appear after tap-selecting a word in Full image mode");
+await touchDrag(moveHandlePos, { x: moveHandlePos.x + 55, y: moveHandlePos.y + 70 });
 await page.waitForTimeout(150);
 const afterDrag = await readTarget();
-console.log("1. TOUCH DRAG");
 console.log("   before:", before, "\n   after: ", afterDrag);
 const dragOk = before.x !== afterDrag.x || before.y !== afterDrag.y;
 console.log("   ->", dragOk ? "MOVED (ok)" : "NOT MOVED - FAIL");
-if (!dragOk) failures.push("touch drag did not move the word");
+if (!dragOk) failures.push("touch drag from move-handle did not move the word");
 
 // ---- 2. Resize handle by touch ----
 // The drag already left the word selected; no extra tap needed.
@@ -149,31 +176,95 @@ console.log("   font:", beforeResize.font, "->", afterResize.font, resizeOk ? "R
 if (!resizeOk) failures.push("touch drag on the resize handle did not resize");
 if (handle.w < 24 || handle.h < 24) failures.push(`resize handle hit target is ${handle.w}x${handle.h}, below the 24px minimum`);
 
-// ---- 3. Marquee by touch, in the mode where it is reachable ----
-// Not Full-image editor mode: there the background image is itself a draggable
-// object covering the surface, so a drag correctly moves the image. Marquee
-// lives in the non-editor views, where the background has pointer-events: none.
-await page.click("#mode-image-btn");
-await page.evaluate(() => {
-  window.__state.selectedObjectIds.clear();
+// Finds a point on the image surface that is not inside ANY word's real
+// bounding box (plus a safety margin), checked directly against the object
+// model rather than document.elementFromPoint - elementFromPoint's hit-test
+// and a real CDP-dispatched touch's own hit-test turned out to disagree at
+// exactly the coordinates this originally picked (elementFromPoint said
+// "empty", the real touch landed on a word anyway), so this checks the thing
+// a touch actually has to avoid instead of trusting a second hit-test API to
+// agree with the first.
+async function findEmptyPoint() {
+  return page.evaluate(() => {
+    const view = document.getElementById("image-format-view");
+    const r = view.getBoundingClientRect();
+    const margin = 8;
+    const wordRects = window.__state.editorObjects
+      .filter((o) => o.type === "word" && !o.removed)
+      .map((o) => o.el.getBoundingClientRect());
+    // The view's own top edge can sit above the viewport after
+    // scrollIntoView({block:"start"}) (a negative rect.top), and clamping
+    // that up to 0 alone can still land inside the sticky app bar - a real
+    // element, just not the one under test. Floor at the app bar's own
+    // bottom edge too, not just the viewport's.
+    const appBar = document.getElementById("app-bar");
+    const chromeBottom = appBar ? appBar.getBoundingClientRect().bottom : 0;
+    const top = Math.max(r.top, chromeBottom, 0) + margin;
+    const bottom = Math.min(r.bottom, innerHeight) - margin;
+    const left = r.left + margin;
+    const right = r.right - margin;
+    for (let y = top; y < bottom; y += 10) {
+      for (let x = left; x < right; x += 10) {
+        const clear = wordRects.every((wr) => x < wr.left - margin || x > wr.right + margin || y < wr.top - margin || y > wr.bottom + margin);
+        if (clear) return { x, y, left: r.left, right: r.right, width: r.width };
+      }
+    }
+    return null;
+  });
+}
+
+// ---- 3. Marquee by touch: press-and-hold on empty canvas, then drag.
+// Checked in both Image format AND Full image mode now - UI-REDESIGN-PLAN.md
+// §2.3 removed the background image as a draggable object, which is
+// specifically what used to make Full image's surface have nowhere for a
+// marquee to start from. ----
+async function marqueeByTouch(modeBtnId, label) {
+  await page.click(modeBtnId);
+  await page.evaluate(async () => {
+    // clearSelection(), not a raw Set.clear() - the raw Set never hides
+    // move-handle/resize-handle, which stay positioned wherever selection
+    // last put them and can sit right on top of the "empty" point this is
+    // about to compute.
+    const { clearSelection } = await import("/js/editorObjects.js");
+    clearSelection();
+    document.getElementById("image-format-view").scrollIntoView({ block: "start" });
+  });
+  await page.waitForTimeout(300);
+  const start = await findEmptyPoint();
+  if (!start) {
+    failures.push(`touch marquee in ${label}: could not find an empty point on the image surface to start from`);
+    return;
+  }
+  const y1 = Math.min(start.y + 300, (await page.evaluate(() => innerHeight)) - 8);
+  await touchPressHoldDrag({ x: start.x, y: start.y }, { x: start.right - 8, y: y1 }, { holdMs: 500, steps: 14 });
+  await page.waitForTimeout(200);
+  const selectedCount = await page.evaluate(() => window.__state.selectedObjectIds.size);
+  console.log(`3. MARQUEE BY TOUCH (${label})`);
+  console.log("   start point:", start, "| objects selected:", selectedCount, selectedCount > 1 ? "(ok)" : "- FAIL");
+  if (selectedCount <= 1) failures.push(`touch marquee in ${label} selected ${selectedCount} objects`);
+}
+await marqueeByTouch("#mode-image-btn", "Image format mode");
+await marqueeByTouch("#mode-full-btn", "Full image mode");
+
+// ---- 3b. A quick drag (below the 420ms hold threshold) keeps scrolling/
+// panning exactly as it does today, rather than arming a marquee ----
+await page.evaluate(async () => {
+  const { clearSelection } = await import("/js/editorObjects.js");
+  clearSelection();
   document.getElementById("image-format-view").scrollIntoView({ block: "start" });
 });
 await page.waitForTimeout(300);
-await page.click("#select-multi-btn");
-await page.waitForTimeout(150);
-const view = await page.evaluate(() => {
-  const r = document.getElementById("image-format-view").getBoundingClientRect();
-  return { left: r.left, top: r.top, width: r.width, height: r.height,
-           touchAction: getComputedStyle(document.getElementById("image-format-view")).touchAction };
-});
-const y0 = Math.max(view.top + 8, 60);
-const y1 = Math.min(view.top + view.height * 0.45, 800);
-await touchDrag({ x: view.left + 5, y: y0 }, { x: view.left + view.width - 8, y: y1 }, 14);
+const scrollBefore = await page.evaluate(() => window.scrollY);
+const scrollStart = await findEmptyPoint();
+if (!scrollStart) failures.push("quick-drag-scrolls check: could not find an empty point on the image surface to start from");
+else await touchDrag({ x: scrollStart.x, y: scrollStart.y }, { x: scrollStart.x, y: scrollStart.y - 340 }, 10);
 await page.waitForTimeout(200);
-const selectedCount = await page.evaluate(() => window.__state.selectedObjectIds.size);
-console.log("3. MARQUEE BY TOUCH (Image format mode)");
-console.log("   touch-action:", view.touchAction, "| objects selected:", selectedCount, selectedCount > 1 ? "(ok)" : "- FAIL");
-if (selectedCount <= 1) failures.push("touch marquee selected " + selectedCount + " objects");
+const scrollAfter = await page.evaluate(() => window.scrollY);
+const selectedAfterQuickDrag = await page.evaluate(() => window.__state.selectedObjectIds.size);
+console.log("3b. QUICK DRAG STILL SCROLLS (Full image mode)");
+console.log("   scrollY:", scrollBefore, "->", scrollAfter, "| objects selected:", selectedAfterQuickDrag);
+if (scrollAfter === scrollBefore) failures.push("a quick drag on empty canvas did not scroll the page - the marquee hold may be intercepting quick drags too");
+if (selectedAfterQuickDrag > 0) failures.push("a quick drag on empty canvas armed a marquee (selected something) instead of just scrolling");
 
 console.log("4. UNDO after touch gestures:", (await page.$eval("#undo-btn", (el) => el.disabled)) ? "DISABLED - gestures did not register" : "enabled (ok)");
 console.log("ERRORS:", errors.length ? errors : "(none)");

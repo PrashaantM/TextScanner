@@ -90,7 +90,6 @@ await page.setInputFiles("#file-input", join(ROOT, "test/images/complexPic1.jpeg
 await page.click("#scan-btn");
 await page.waitForSelector("#result-section:not(.hidden)", { timeout: 120000 });
 await page.click("#mode-full-btn");
-await page.click("#editor-mode-btn");
 await page.waitForTimeout(250);
 
 const survey = await page.evaluate(async () => {

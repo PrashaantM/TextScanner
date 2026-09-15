@@ -1,34 +1,33 @@
-// guided-path.js: drives the editor through the buttons the UI itself points
-// people at, rather than through the raw mode toggles every other gate uses.
+// guided-path.js: drives the editor through the guided path to the photo
+// editor and asserts a word dragged from there moves ON SCREEN, at both sides
+// of the 600px breakpoint.
 //
-// WHY THIS EXISTS. "Components can't be moved" was reported from a phone while
-// test/move-inpaint.js was green. Both were true, and the gap between them is
-// the whole point of this file: move-inpaint.js reaches the editor by clicking
-// #mode-full-btn, and so does every other browser gate in CI. Nothing had ever
-// clicked #view-on-photo-btn - the large secondary CTA sitting directly under
-// the results heading, labelled "View on photo ->", which is how the interface
-// tells a first-time user to get to the photo editor at all.
+// WHY THIS EXISTS, ORIGINALLY. "Components can't be moved" was reported from a
+// phone while test/move-inpaint.js was green. Both were true, and the gap
+// between them was the whole point of this file: move-inpaint.js reached the
+// editor by clicking #mode-full-btn, and so did every other browser gate in
+// CI. Nothing had ever clicked #view-on-photo-btn - a SEPARATE guided CTA that
+// called modeImageBtn.click() (the view with no photo and no "Move
+// components"), so the guided path landed users somewhere nothing could be
+// moved, and stayed green because the gates all took the other door.
 //
-// That button called modeImageBtn.click(). "Image format" is the view that lays
-// the recognized words out on a BLANK canvas: no photo, and - because setMode
-// only show()s #editor-toolbar in "full" - no "Move components" button either.
-// So the guided path landed users in the one view where nothing can be moved,
-// and stayed green because the gates all took the other door.
+// WHY IT STILL EXISTS. UI-REDESIGN-PLAN.md §2.4 removed the separate
+// #view-on-photo-btn outright: "View on photo" is now #mode-full-btn's own
+// label, the same element every other gate already drives. That specific bug
+// class - a guided proxy quietly pointing somewhere else - is structurally
+// gone, since there is only one button left to point anywhere. What is still
+// worth a dedicated file: nothing else in CI checks the tap-to-select,
+// drag-from-move-handle mechanics (UI-REDESIGN-PLAN.md §2.3) at PHONE width
+// with mouse input specifically - move-inpaint.js only runs one desktop
+// viewport, touch-interactions.js only runs one phone viewport via CDP touch.
+// This is the combination test/radial-call-sites.js taught this repo to check
+// for separately: present at desktop width, absent (or broken) on a phone.
 //
-// Two assertions follow from that, and the second matters as much as the first:
-//
-//   1. The guided CTA must land where its label says. Asserted on the observable
-//      state a user would see (the photo is showing, the editor toolbar is
-//      reachable), not on which function it happens to call.
-//   2. A word dragged from there must move ON SCREEN. move-inpaint.js checks
-//      obj.x !== obj.originalX and the pixels at the vacated spot - both true of
-//      a word whose model moved while its rendering did not. Nothing in CI had
-//      ever compared a word's getBoundingClientRect() before a drag against
-//      after one, which is the only thing a user can actually see.
-//
-// Run at both sides of the 600px breakpoint, because the report came from a
-// phone and test/radial-call-sites.js has already caught one control that was
-// present at desktop width and absent on every phone.
+// A word dragged via move-handle must move ON SCREEN, not just in the model -
+// move-inpaint.js checks obj.x !== obj.originalX and the pixels at the
+// vacated spot, both true of a word whose model moved while its rendering did
+// not. Nothing in CI had ever compared a word's getBoundingClientRect() before
+// a drag against after one, which is the only thing a user can actually see.
 //
 // Usage: node test/guided-path.js   (exits non-zero if anything regressed)
 
@@ -81,24 +80,21 @@ for (const viewport of [
   await page.waitForSelector("#result-section:not(.hidden)", { timeout: 120000 });
 
   // ---- 1. The guided CTA lands where its label promises ----
-  const label = await page.textContent("#view-on-photo-btn");
-  await page.click("#view-on-photo-btn");
+  // No separate #view-on-photo-btn any more (UI-REDESIGN-PLAN.md §2.4) -
+  // #mode-full-btn IS the guided CTA now, labeled "View on photo".
+  const label = await page.textContent("#mode-full-btn");
+  await page.click("#mode-full-btn");
   await page.waitForTimeout(250);
 
   const landed = await page.evaluate(async () => {
     const { state } = await import("/js/state.js");
     const view = document.getElementById("image-format-view");
     const toolbar = document.getElementById("editor-toolbar");
-    const moveBtn = document.getElementById("editor-mode-btn");
     return {
       activeMode: state.activeMode,
       // The photo itself - `show-bg` is what un-hides #image-format-bg.
       showsPhoto: view.classList.contains("show-bg"),
       toolbarHidden: toolbar.classList.contains("hidden"),
-      // getClientRects().length is the honest question: not "does the element
-      // exist" (it always does - views.js keeps every view in the document) but
-      // "can a person see and press it".
-      moveBtnVisible: moveBtn.getClientRects().length > 0,
     };
   });
 
@@ -108,17 +104,14 @@ for (const viewport of [
   if (!landed.showsPhoto) {
     failures.push(`${viewport.label}: "${label.trim()}" did not show the photo (#image-format-view has no .show-bg)`);
   }
-  if (landed.toolbarHidden || !landed.moveBtnVisible) {
-    failures.push(`${viewport.label}: after "${label.trim()}", "Move components" is not reachable (toolbarHidden=${landed.toolbarHidden}, moveBtnVisible=${landed.moveBtnVisible}) - so nothing on the image can be moved`);
+  if (landed.toolbarHidden) {
+    failures.push(`${viewport.label}: after "${label.trim()}", the editor toolbar is not reachable`);
   }
 
   // ---- 2. A word dragged from there moves on screen, not just in the model ----
-  // Everything below is reached WITHOUT touching #mode-full-btn, so the whole
-  // chain is the one a user walks.
-  if (landed.moveBtnVisible) {
-    await page.click("#editor-mode-btn");
-    await page.waitForTimeout(200);
-
+  // Select it with a tap (always available now - no separate mode to enter),
+  // then drag from move-handle, which appears at the selection's corner.
+  if (!landed.toolbarHidden) {
     const before = await page.evaluate(async () => {
       const { state } = await import("/js/state.js");
       window.__state = state;
@@ -130,7 +123,7 @@ for (const viewport of [
         const cy = r.top + r.height / 2;
         if (cx > 30 && cx < innerWidth - 30 && cy > 90 && cy < innerHeight - 120 && r.width > 16 && r.height > 8) {
           window.__target = w.id;
-          return { id: w.id, text: w.el.textContent, cx, cy, left: r.left, top: r.top, modelX: w.x, modelY: w.y, fullEditorMode: state.fullEditorMode };
+          return { id: w.id, text: w.el.textContent, cx, cy, left: r.left, top: r.top, modelX: w.x, modelY: w.y };
         }
       }
       return null;
@@ -138,13 +131,27 @@ for (const viewport of [
 
     if (!before) {
       failures.push(`${viewport.label}: no word was on screen to drag - test setup problem, not the thing under test`);
-    } else if (!before.fullEditorMode) {
-      failures.push(`${viewport.label}: clicking "Move components" did not enter Move-components mode`);
     } else {
-      await page.mouse.move(before.cx, before.cy);
+      await page.mouse.click(before.cx, before.cy);
+      await page.waitForTimeout(150);
+
+      const handle = await page.evaluate(() => {
+        const el = document.getElementById("move-handle");
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, visible: getComputedStyle(el).display !== "none" };
+      });
+
+      if (!handle.visible) {
+        failures.push(`${viewport.label}: tapping "${before.text}" selected it but move-handle never appeared - so nothing on the image can be moved`);
+        if (pageErrors.length) failures.push(`${viewport.label}: ${pageErrors.length} uncaught page error(s): ${pageErrors.join("; ")}`);
+        await context.close();
+        continue;
+      }
+
+      await page.mouse.move(handle.x, handle.y);
       await page.mouse.down();
       for (let i = 1; i <= 12; i++) {
-        await page.mouse.move(before.cx + (DRAG_DX * i) / 12, before.cy + (DRAG_DY * i) / 12);
+        await page.mouse.move(handle.x + (DRAG_DX * i) / 12, handle.y + (DRAG_DY * i) / 12);
       }
       await page.mouse.up();
       await page.waitForTimeout(250);
