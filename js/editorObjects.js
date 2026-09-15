@@ -25,6 +25,7 @@ import {
   imageFormatView,
   imageFormatBg,
   resizeHandle,
+  moveHandle,
   undoBtn,
   redoBtn,
   deleteBtn,
@@ -171,6 +172,7 @@ export function updateSelectionVisuals() {
     if (obj.type === "word") obj.el.setAttribute("aria-selected", String(selected));
   });
   updateResizeHandle();
+  updateMoveHandle();
   updateDeleteButton();
   announceSelection();
 }
@@ -230,7 +232,7 @@ export function objectsFromSelection() {
 }
 
 export function updateResizeHandle() {
-  if (state.fullEditorMode && state.selectedObjectIds.size === 1) {
+  if (state.activeMode === "full" && state.selectedObjectIds.size === 1) {
     const obj = getObjectById([...state.selectedObjectIds][0]);
     if (!obj) {
       resizeHandle.style.display = "none";
@@ -244,11 +246,36 @@ export function updateResizeHandle() {
   }
 }
 
+// move-handle (UI-REDESIGN-PLAN.md §2.3): appears alongside resizeHandle the
+// moment ANY selection exists (not restricted to exactly one object, unlike
+// resize) - dragging from it moves the whole current selection, the same
+// group beginObjectDrag already operates on. Anchored to the selection's
+// combined top-left bound rather than one object's corner, so the existing
+// "select several, then drag one to move them all together" capability keeps
+// working now that dragging is handle-only rather than triggered by pressing
+// any one of the selected words' own bodies.
+export function updateMoveHandle() {
+  if (state.activeMode === "full" && state.selectedObjectIds.size > 0) {
+    const objects = objectsFromSelection();
+    if (!objects.length) {
+      moveHandle.style.display = "none";
+      return;
+    }
+    const minX = Math.min(...objects.map((o) => o.x));
+    const minY = Math.min(...objects.map((o) => o.y));
+    moveHandle.style.left = `${minX}%`;
+    moveHandle.style.top = `${minY}%`;
+    moveHandle.style.display = "block";
+  } else {
+    moveHandle.style.display = "none";
+  }
+}
+
 // Exported so editorInteractions.js's mode toggles can keep the Delete button
-// in step; enabling it depends on editor mode, which lives over there.
+// in step; enabling it depends on which mode is active, which lives over there.
 export function updateDeleteButton() {
   if (!deleteBtn) return;
-  deleteBtn.disabled = !(state.fullEditorMode && state.selectedObjectIds.size > 0);
+  deleteBtn.disabled = !(state.activeMode === "full" && state.selectedObjectIds.size > 0);
 }
 
 // ---- Undo / redo ----
@@ -395,7 +422,7 @@ export function setDeleteHandler(fn) {
 }
 
 function performDelete() {
-  if (!state.fullEditorMode || state.selectedObjectIds.size === 0) return;
+  if (state.activeMode !== "full" || state.selectedObjectIds.size === 0) return;
   if (deleteHandler) deleteHandler(objectsFromSelection());
 }
 
@@ -406,7 +433,7 @@ document.addEventListener("keydown", (e) => {
     clearSelection();
     return;
   }
-  if (!state.fullEditorMode) return;
+  if (state.activeMode !== "full") return;
   if ((e.key === "Delete" || e.key === "Backspace") && state.selectedObjectIds.size > 0 && deleteHandler) {
     const active = document.activeElement;
     const editingText = active && active.isContentEditable;
@@ -1010,7 +1037,12 @@ export function clearImageFormatView() {
 export function createWordObject({ text, x, y, w, h, fontSizePct, rotationDeg, origin, confidence, bbox, inkTargetPx, inkTargetWpx, notTextMetrics }) {
   const span = document.createElement("span");
   span.className = "image-format-word";
-  span.contentEditable = String(!state.fullEditorMode);
+  // Always editable now (UI-REDESIGN-PLAN.md §2.3) - a tap always edits, and
+  // moving/resizing happens from move-handle/resize-handle instead of the
+  // word's own body, so there is no mode that ever needs this turned off for
+  // more than the live duration of an active handle-drag (see
+  // beginObjectDrag in editorInteractions.js).
+  span.contentEditable = "true";
   span.spellcheck = false;
   span.textContent = text;
   // A contenteditable <span> with no role and no name tells a screen reader
@@ -1020,10 +1052,6 @@ export function createWordObject({ text, x, y, w, h, fontSizePct, rotationDeg, o
   span.setAttribute("role", "textbox");
   span.setAttribute("aria-multiline", "false");
   span.setAttribute("aria-selected", "false");
-  // Explicit, and set here rather than per mode. contentEditable is what makes
-  // a span focusable, and Move mode turns it off - which silently removed every
-  // word from the tab order in exactly the mode a keyboard user most needs to
-  // reach them in.
   span.tabIndex = 0;
 
   const patchEl = document.createElement("div");

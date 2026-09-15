@@ -405,11 +405,6 @@
           </div>
 
           <div class="result-toolbar__row result-toolbar__actions">
-            <!-- Only meaningful in the two image views, where words have positions
-                 to rubber-band across. Exists for touch: a finger drag is how the
-                 page scrolls, so marquee selection has to be an explicit mode
-                 rather than a gesture that competes with scrolling. -->
-            <button id="select-multi-btn" class="btn btn--secondary hidden" type="button" aria-pressed="false">Select multiple</button>
             <button id="copy-btn" class="btn btn--secondary" type="button">Copy</button>
             <button id="download-btn" class="btn btn--secondary" type="button">Download .txt</button>
             <button id="download-image-btn" class="btn btn--secondary hidden" type="button">Download image</button>
@@ -449,11 +444,14 @@
             <button id="tts-stop-btn" class="btn btn--ghost" type="button" disabled>Stop</button>
           </div>
 
-          <!-- Only relevant to Full image mode: toggles the drag/resize editor, arms
-               placing a new user-added text box, and exposes delete, undo, and redo
-               for the current selection. -->
+          <!-- Only relevant to Full image mode: arms placing a new user-added text
+               box, and exposes delete, undo, and redo for the current selection.
+               "Move components" no longer lives here (UI-REDESIGN-PLAN.md §2.3) -
+               a tap on a word always edits it now, and dragging it happens from
+               move-handle, which appears on selection next to resize-handle below,
+               the moment something is selected rather than only once a mode
+               button had been pressed first. -->
           <div id="editor-toolbar" class="editor-toolbar hidden">
-            <button id="editor-mode-btn" class="btn btn--secondary" type="button" aria-pressed="false">Move components</button>
             <button id="new-text-btn" class="btn btn--secondary" type="button" aria-pressed="false">New text</button>
             <div id="undo-redo-group" class="undo-redo-group hidden">
               <button id="delete-btn" class="btn btn--ghost" type="button" disabled>Delete</button>
@@ -469,14 +467,23 @@
         <!-- Image format / Full image modes: js/editorObjects.js populates this container at scan
              time with one absolutely-positioned, contenteditable span per recognized word (plus a
              background <img> for Full image mode), reproducing each word's original position
-             in the source image. resize-handle and marquee-box are editor-mode overlays for
-             resizing a selected word and rubber-band selecting multiple words. -->
+             in the source image. resize-handle, move-handle and marquee-box are selection
+             overlays: the first two appear once something is selected (Full image only),
+             the third only while a marquee drag is in progress. -->
         <!-- Selection state was an outline and nothing else: no aria-selected, and
              no announcement when it changed. This region is what a screen reader
              reads when the selection count moves. -->
         <p id="selection-status" class="visually-hidden" role="status" aria-live="polite"></p>
         <div id="image-format-view" class="image-format-view flow-panel hidden">
           <img id="image-format-bg" class="image-format-bg" alt="Scanned image" />
+          <!-- Appears alongside resize-handle the moment exactly one object is
+               selected in Full image mode (or the selection's combined bounds, for
+               several). Dragging from here moves the current selection -
+               js/editorInteractions.js's beginObjectDrag, unchanged - rather than
+               dragging the word's own body, which is what let a tap-to-edit and a
+               press-and-hold-to-move share one gesture with no mode button and no
+               race against the browser's own native text-selection handling. -->
+          <button id="move-handle" type="button" class="move-handle" aria-label="Move selected item"></button>
           <!-- Was a bare, unfocusable <div>. As a slider it has a name, a role,
                a keyboard path (arrow keys resize the selection) and a tab stop. -->
           <div id="resize-handle" class="resize-handle" role="slider" tabindex="0"

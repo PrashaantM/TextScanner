@@ -1270,27 +1270,16 @@ kbd {
   touch-action: pan-y pinch-zoom;
 }
 
-/* Armed by the "Select multiple" button. Rubber-band selection needs the finger
-   drag that scrolling otherwise takes, and on a phone there is no shift key to
-   express "drag to select" the way the desktop hint describes - so it becomes an
-   explicit, visible mode instead of an undiscoverable gesture that silently
-   scrolls. Scrolling comes back the moment it's switched off. */
+/* Armed the instant a press-and-hold on empty canvas escalates into a marquee
+   drag (UI-REDESIGN-PLAN.md §2.3) - true only for the live duration of that
+   drag, not a standing mode. Rubber-band selection needs the finger drag that
+   scrolling otherwise takes, and on a phone there is no shift key to express
+   "drag to select" the way the desktop hint describes. Scrolling comes back
+   the moment the drag ends. */
 .image-format-view.marquee-mode {
   touch-action: none;
   user-select: none;
   cursor: crosshair;
-}
-
-.image-format-view.editor-mode {
-  user-select: none;
-  /* Not `none`, deliberately. `none` would make single-finger drag reliable and
-     simultaneously kill pinch-to-zoom over the image - and pinch was only just
-     re-enabled at the Capacitor config layer, precisely so people can zoom in on
-     small text before editing it. `pinch-zoom` gives up only single-finger
-     panning, which in this mode is what the drag handler wants anyway: the
-     browser can no longer decide mid-gesture that a drag was really a scroll and
-     snatch it away. Two-finger zoom keeps working. */
-  touch-action: pinch-zoom;
 }
 
 /* The condensed-source class: applied by js/editorObjects.js's
@@ -1319,16 +1308,6 @@ kbd {
 
 .image-format-view.show-bg .image-format-bg {
   display: block;
-}
-
-.image-format-view.editor-mode .image-format-bg {
-  pointer-events: auto;
-  cursor: grab;
-}
-
-.image-format-bg.is-selected {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
 }
 
 /* A solid patch sampled from the surrounding image, dropped in behind a word's
@@ -1367,10 +1346,6 @@ kbd {
   outline: none;
   cursor: text;
   transform-origin: top left;
-}
-
-.image-format-view.editor-mode .image-format-word {
-  cursor: grab;
 }
 
 .image-format-word:hover {
@@ -1530,7 +1505,7 @@ kbd {
 }
 
 .resize-handle:focus-visible::after {
-  box-shadow: 0 0 0 3px var(--accent), 0 0 0 5px var(--accent-contrast);
+  box-shadow: var(--glow-accent);
 }
 
 .resize-handle::after {
@@ -1544,6 +1519,51 @@ kbd {
   background: var(--accent);
   border: 1.5px solid var(--accent-contrast);
   border-radius: 3px;
+}
+
+/* move-handle (UI-REDESIGN-PLAN.md §2.3): appears next to resize-handle the
+   moment a selection exists, at the selection's top-left corner. Same 28px
+   hit-target / small visible indicator shape as resize-handle, styled round
+   rather than square so the two read as distinct affordances at a glance
+   despite sitting on the same object at the same time. Dragging from it is
+   the only way to move a word now - a tap on the word itself always edits -
+   which is what lets contentEditable stay on permanently instead of racing
+   the browser's own native long-press text-selection handling (see
+   beginObjectDrag in js/editorInteractions.js). */
+.move-handle {
+  display: none;
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  transform: translate(-50%, -50%);
+  cursor: grab;
+  touch-action: none;
+  z-index: 4;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.move-handle:focus-visible {
+  outline: none;
+}
+
+.move-handle:focus-visible::after {
+  box-shadow: var(--glow-accent);
+}
+
+.move-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 11px;
+  height: 11px;
+  transform: translate(-50%, -50%);
+  background: var(--accent);
+  border: 1.5px solid var(--accent-contrast);
+  border-radius: 50%;
 }
 
 .marquee-box {

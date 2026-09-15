@@ -22,42 +22,44 @@ export const statusSection = document.getElementById("status-section");
 export const resultSection = document.getElementById("result-section");
 export const resultText = document.getElementById("result-text");
 export const copyBtn = document.getElementById("copy-btn");
+// Paste (UI-REDESIGN-PLAN.md §2.2): whole-buffer replace in Text mode,
+// arm-then-place in Image format/Full image - see js/main.js.
+export const pasteBtn = document.getElementById("paste-btn");
+// Download (UI-REDESIGN-PLAN.md §2.1): one button, merged from the old
+// download-btn/download-image-btn pair. Downloads the text directly in Text
+// mode; opens downloadMenu (Image/Text) in the two image modes, where both
+// artifacts exist. See js/main.js.
 export const downloadBtn = document.getElementById("download-btn");
-export const downloadImageBtn = document.getElementById("download-image-btn");
+export const downloadMenu = document.getElementById("download-menu");
+export const downloadMenuBackdrop = document.getElementById("download-menu-backdrop");
 export const modeTextBtn = document.getElementById("mode-text-btn");
 export const modeImageBtn = document.getElementById("mode-image-btn");
+// Doubles as the old guided "View on photo ->" CTA, merged into this toggle's
+// third option (UI-REDESIGN-PLAN.md §2.4) - modeFullBtn.click() is no longer
+// a separate proxy target, it's just this button.
 export const modeFullBtn = document.getElementById("mode-full-btn");
 export const modeButtons = [modeTextBtn, modeImageBtn, modeFullBtn];
-// Guided primary actions: proxy to filterCoherenceBtn and
-// modeFullBtn respectively via a real .click(), rather than duplicating their
-// logic - see the wiring in js/main.js. viewOnPhotoBtn proxies to modeFullBtn,
-// not modeImageBtn: Full image is the view with the photo underneath and the
-// only one with "Move components" available (setMode only shows
-// #editor-toolbar there), so routing "View on photo" to Image format - a blank
-// canvas, with nothing to move - was the guided-path bug this fixed. See the
-// routing itself in js/main.js and test/guided-path.js.
-export const cleanUpTextBtn = document.getElementById("clean-up-text-btn");
-export const viewOnPhotoBtn = document.getElementById("view-on-photo-btn");
-// The skip-the-call gate's inline suggestion (js/coherenceGate.js).
+// The skip-the-call gate's inline suggestion (js/coherenceGate.js), now fired
+// directly from filterCoherenceBtn - see js/main.js.
 export const coherenceGateHint = document.getElementById("coherence-gate-hint");
 export const imageFormatView = document.getElementById("image-format-view");
 export const imageFormatBg = document.getElementById("image-format-bg");
 export const resizeHandle = document.getElementById("resize-handle");
+// Appears alongside resizeHandle on selection (Full image only); dragging
+// from here moves the current selection (UI-REDESIGN-PLAN.md §2.3's
+// handle-based move gesture) rather than dragging a word's own body.
+export const moveHandle = document.getElementById("move-handle");
 export const marqueeBox = document.getElementById("marquee-box");
 export const imageFormatHint = document.getElementById("image-format-hint");
 // Shown only on an engine with no per-word confidence signal (see
 // engineProvidesConfidence() in js/recognize.js).
 export const confidenceNote = document.getElementById("confidence-note");
-// Arms rubber-band selection (see setMarqueeMode in js/editorInteractions.js). Needed for
-// touch, where a plain drag belongs to the page's scrolling.
-export const selectMultiBtn = document.getElementById("select-multi-btn");
 // Phase 6 accessibility: a live region for selection changes, the editor's
 // keyboard hint, and the manual theme toggle.
 export const selectionStatus = document.getElementById("selection-status");
 export const editorKeyboardHint = document.getElementById("editor-keyboard-hint");
 export const themeBtn = document.getElementById("theme-btn");
 export const editorToolbar = document.getElementById("editor-toolbar");
-export const editorModeBtn = document.getElementById("editor-mode-btn");
 export const newTextBtn = document.getElementById("new-text-btn");
 export const deleteBtn = document.getElementById("delete-btn");
 export const undoRedoGroup = document.getElementById("undo-redo-group");

@@ -47,18 +47,25 @@ export const state = {
   lastNaturalWidth: 0,
   lastNaturalHeight: 0,
 
-  // Image format / Full image shared state: every word span and the background
-  // image are "objects" that can be selected, and (in full editor mode) moved and
-  // resized. type: 'word' | 'image'. Word objects additionally carry origin:
-  // 'ocr' (recognized from the scan) or 'user' (added via the New text tool).
+  // Image format / Full image shared state: every word span is an "object"
+  // that can be selected and (in Full image mode) moved via move-handle and
+  // resized via resize-handle. type: 'word' | 'image' (the background image
+  // itself is type 'image' but not selectable/moveable - see
+  // editorInteractions.js's pointerdown dispatcher). Word objects additionally
+  // carry origin: 'ocr' (recognized from the scan) or 'user' (added via the
+  // New text/Paste tools).
   editorObjects: [],
   objectIdCounter: 0,
   selectedObjectIds: new Set(),
-  fullEditorMode: false,
   addTextMode: false,
-  // Rubber-band selection armed (see setMarqueeMode in js/editorInteractions.js). Exists for
-  // touch: while on, the editor surface takes the finger drag that would
-  // otherwise scroll the page.
+  // Paste's placement mode (UI-REDESIGN-PLAN.md §2.2), mirroring addTextMode
+  // exactly: armed by pasteBtn, disarmed by placing (or by leaving Full image
+  // mode).
+  pasteArmed: false,
+  // True only for the live duration of an actual marquee drag (see
+  // beginMarquee in js/editorInteractions.js) - not a standing mode. While
+  // true, the editor surface takes the finger drag that would otherwise
+  // scroll the page.
   marqueeMode: false,
   undoStack: [],
   redoStack: [],

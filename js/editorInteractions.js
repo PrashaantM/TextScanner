@@ -1,6 +1,11 @@
 // editorInteractions.js: everything the user does to the editor with a pointer
-// or a mode button - view switching, Move-components mode, marquee mode,
-// add-text mode, and the drag/resize/marquee gestures themselves.
+// or a mode button - view switching, add-text/paste-placement mode, and the
+// select/drag/resize/marquee gestures themselves. Move-components and Select
+// multiple are no longer separate persistent modes (UI-REDESIGN-PLAN.md §2.3):
+// a tap always edits a word, dragging its move-handle (which appears on
+// selection next to resize-handle) moves the selection, and a press-and-hold-
+// then-drag starting on empty canvas starts a marquee - both transient
+// gestures, not modes you explicitly step into and out of.
 //
 // One of three files that used to be a single 1,400-line editor.js. Depends on
 // editorObjects.js (it acts on objects; objects know nothing about gestures)
@@ -19,15 +24,14 @@ import {
   resultText,
   imageFormatView,
   resizeHandle,
+  moveHandle,
   imageFormatBg,
   marqueeBox,
   imageFormatHint,
   editorToolbar,
-  editorModeBtn,
-  downloadImageBtn,
   undoRedoGroup,
   newTextBtn,
-  selectMultiBtn,
+  pasteBtn,
 } from "./dom.js";
 import { state } from "./state.js";
 import {
@@ -52,6 +56,7 @@ import {
   updateSelectionVisuals,
   objectsFromSelection,
   updateResizeHandle,
+  updateMoveHandle,
   updateDeleteButton,
   refreshModifiedStates,
   refreshModifiedStatesFor,
@@ -90,26 +95,33 @@ export function setMode(mode) {
   hide(imageFormatView);
   hide(imageFormatHint);
   hide(editorToolbar);
-  hide(downloadImageBtn);
 
   if (mode === "text") {
     revealFlowPanel(resultText);
-    // Marquee mode takes scrolling away from the surface; it must not survive
-    // into a view that has no marquee.
+    // Marquee takes scrolling away from the surface while it's actively being
+    // drawn; it must not survive into a view that has no marquee.
     if (state.marqueeMode) setMarqueeMode(false);
+    if (state.addTextMode) setAddTextMode(false);
+    if (state.pasteArmed) setPasteArmed(false);
   } else {
     revealFlowPanel(imageFormatView);
     show(imageFormatHint);
-    show(downloadImageBtn);
     imageFormatView.classList.toggle("show-bg", mode === "full");
 
     if (mode === "full") {
       show(editorToolbar);
-    } else if (state.fullEditorMode) {
-      setFullEditorMode(false);
+      show(undoRedoGroup);
+    } else {
+      hide(undoRedoGroup);
+      if (state.addTextMode) setAddTextMode(false);
+      if (state.pasteArmed) setPasteArmed(false);
     }
   }
 
+  updateUndoRedoButtons();
+  updateDeleteButton();
+  updateResizeHandle();
+  updateMoveHandle();
   updateImageFormatHint();
   document.dispatchEvent(new CustomEvent("mode-changed", { detail: { mode } }));
 }
@@ -121,92 +133,59 @@ modeImageBtn.addEventListener("click", () => setMode("image"));
 modeFullBtn.addEventListener("click", () => setMode("full"));
 
 export function updateImageFormatHint() {
-  if (state.marqueeMode) {
-    imageFormatHint.textContent =
-      "Drag across the image to select several items at once. Tap \u201cDone selecting\u201d when you're finished.";
+  if (state.pasteArmed) {
+    imageFormatHint.textContent = "Tap anywhere on the image to paste the copied text there.";
+    return;
+  }
+  if (state.addTextMode) {
+    imageFormatHint.textContent = "Tap anywhere on the image to place a new text box.";
     return;
   }
   if (state.activeMode === "image") {
     imageFormatHint.textContent =
-      "Text is positioned where it appeared in the source image. Click a word to edit it, or shift-click and drag to select multiple.";
-  } else if (state.activeMode === "full" && !state.fullEditorMode) {
+      "Text is positioned where it appeared in the source image. Tap a word to edit it, or press and hold empty space and drag to select several.";
+  } else if (state.activeMode === "full") {
     imageFormatHint.textContent =
-      "The full image is shown with editable text on top. Click a word to edit it, or shift-click and drag to select multiple. Click Move components to move and resize.";
-  } else if (state.activeMode === "full" && state.fullEditorMode) {
-    imageFormatHint.textContent = state.addTextMode
-      ? "Click anywhere on the image to place a new text box."
-      : "Drag an item to move it, or drag its corner handle to resize. Shift-click or drag a selection box to move multiple items together. Press Delete to remove the selection.";
+      "The full image is shown with editable text on top. Tap a word to edit it or select it \u2014 drag its move-handle to reposition it, or its corner handle to resize. Press and hold empty space and drag to select several. Press Delete to remove the selection.";
   }
 }
 
-// ---- Full editor mode ----
-
-// Registered with editorObjects.js so clearImageFormatView can leave
-// Move-components mode without that module importing this one. See
-// registerModeReset there for why the edge goes this way round.
+// Registered with editorObjects.js so clearImageFormatView can leave any
+// in-progress marquee/add-text/paste gesture without that module importing
+// this one. See registerModeReset there for why the edge goes this way round.
 registerModeReset(() => {
-  setFullEditorMode(false);
   setMarqueeMode(false);
+  setAddTextMode(false);
+  setPasteArmed(false);
 });
 
-export function setFullEditorMode(on) {
-  state.fullEditorMode = on;
-  if (!on) setAddTextMode(false);
-  imageFormatView.classList.toggle("editor-mode", on);
-  state.editorObjects.forEach((obj) => {
-    if (obj.type === "word") {
-      obj.el.contentEditable = String(!on);
-      // Kept explicitly: turning contentEditable off would otherwise drop the
-      // span out of the tab order (see createWordObject).
-      obj.el.tabIndex = 0;
-    }
-  });
-  editorModeBtn.textContent = on ? "Done moving" : "Move components";
-  editorModeBtn.setAttribute("aria-pressed", String(on));
-  if (on) {
-    show(undoRedoGroup);
-  } else {
-    hide(undoRedoGroup);
-  }
-  updateUndoRedoButtons();
-  updateDeleteButton();
-  updateImageFormatHint();
-  updateResizeHandle();
-}
-
-editorModeBtn.addEventListener("click", () => setFullEditorMode(!state.fullEditorMode));
-
-// ---- Marquee (rubber-band) selection mode ----
+// ---- Marquee (rubber-band) selection ----
 //
 // On a mouse this was never a mode: shift-drag, or drag on empty space, and the
 // marquee appears. Touch has neither - there is no shift key, and a plain drag
-// is how the page scrolls, so the surface has to give scrolling up to receive
-// it (see .marquee-mode's touch-action in style.css). Making that an explicit,
-// visible toggle rather than a silent gesture means scrolling still works the
-// rest of the time, and it makes multi-select discoverable on a phone at all,
-// which the desktop-worded hint ("shift-click and drag") never did.
+// is how the page scrolls, so the surface has to give scrolling up while a
+// marquee is actually being drawn (see .marquee-mode's touch-action in
+// style.css). A press-and-hold-then-drag starting on empty canvas is what
+// arms it now (see beginCanvasPressHold below) - not a persistent toggle
+// button - mirroring the same fast-drag-scrolls/held-drag-escalates pattern
+// the library view's card swipe/long-press already uses (UI-REDESIGN-PLAN.md
+// \u00a72.3, \u00a71.1).
 //
-// While armed, a drag starts a marquee even when it begins on top of a word -
-// otherwise on a densely recognized image there would be nowhere to start one.
+// Deliberately does NOT start on top of a word - that disambiguation (what
+// the press landed on) is decided once, at pointerdown, by the dispatcher
+// below, the same way it already decides word vs. resize-handle vs. canvas.
 
 export function setMarqueeMode(on) {
   state.marqueeMode = on;
   imageFormatView.classList.toggle("marquee-mode", on);
-  if (selectMultiBtn) {
-    selectMultiBtn.textContent = on ? "Done selecting" : "Select multiple";
-    selectMultiBtn.setAttribute("aria-pressed", String(on));
-  }
   updateImageFormatHint();
-}
-
-if (selectMultiBtn) {
-  selectMultiBtn.addEventListener("click", () => setMarqueeMode(!state.marqueeMode));
 }
 
 // ---- Add-text mode (Phase 4 hook; toggled by main.js's New text button) ----
 
 export function setAddTextMode(on) {
   state.addTextMode = on;
+  if (on && state.pasteArmed) setPasteArmed(false);
   imageFormatView.classList.toggle("add-text-mode", on);
   if (newTextBtn) {
     newTextBtn.textContent = on ? "Cancel" : "New text";
@@ -238,19 +217,43 @@ function computeDefaultGeometry() {
   return { fontSizePct, w, h };
 }
 
-// Phase 4's "New text" tool: places a new origin:'user' word at the clicked
-// point, selects it, and focuses it for immediate typing (contentEditable is
-// normally false for every word while in Move mode, so this temporarily
-// overrides that for just this new span until the user clicks away). If the
-// user clicks away without typing anything, the placement is silently undone
-// instead of leaving an invisible empty box in editorObjects/undo history.
+// ---- Paste-placement mode (UI-REDESIGN-PLAN.md §2.2; mirrors add-text mode
+// exactly, just with a pre-filled word instead of an empty one) ----
 
-export function addUserTextObject(xPct, yPct) {
+let onSurfaceClickForPaste = null;
+
+export function setPasteClickHandler(fn) {
+  onSurfaceClickForPaste = fn;
+}
+
+export function setPasteArmed(on) {
+  state.pasteArmed = on;
+  if (on && state.addTextMode) setAddTextMode(false);
+  imageFormatView.classList.toggle("paste-armed", on);
+  if (pasteBtn) {
+    // Mirrors newTextBtn's own armed-state label exactly (same arm-then-place
+    // pattern, same "Cancel" while armed) rather than leaving the only signal
+    // to aria-pressed, which nobody sighted would ever see.
+    pasteBtn.textContent = on ? "Cancel" : "Paste";
+    pasteBtn.setAttribute("aria-pressed", String(on));
+  }
+  updateImageFormatHint();
+}
+
+// Phase 4's "New text" tool (and its §2.2 sibling, Paste's placement click):
+// places a new origin:'user' word at the tapped point, selects it, and
+// focuses it for immediate typing. If the user taps away without typing
+// anything, the placement is silently undone instead of leaving an invisible
+// empty box in editorObjects/undo history - pre-filled Paste text counts as
+// "typed" for this purpose, since discarding pasted text the moment you tap
+// away from it would be a surprising way to lose it.
+
+export function addUserTextObject(xPct, yPct, initialText = "") {
   const preSnapshot = snapshotState();
   const { fontSizePct, w, h } = computeDefaultGeometry();
 
   const obj = createWordObject({
-    text: "",
+    text: initialText,
     x: clampPosition(xPct, w),
     y: clampPosition(yPct, h),
     w,
@@ -269,16 +272,23 @@ export function addUserTextObject(xPct, yPct) {
   updateSelectionVisuals();
   refreshModifiedStates();
   setAddTextMode(false);
+  setPasteArmed(false);
 
-  obj.el.contentEditable = "true";
   obj.el.focus();
+  if (initialText) {
+    // Caret at the end of the pasted text, not the start - matches where a
+    // caret lands after any other paste.
+    const range = document.createRange();
+    range.selectNodeContents(obj.el);
+    range.collapse(false);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
 
   const onBlur = () => {
     obj.el.removeEventListener("blur", onBlur);
-    if (obj.el.textContent.trim() !== "") {
-      obj.el.contentEditable = String(!state.fullEditorMode);
-      return;
-    }
+    if (obj.el.textContent.trim() !== "") return;
     if (state.undoStack[state.undoStack.length - 1] === preSnapshot) {
       state.undoStack.pop();
       updateUndoRedoButtons();
@@ -308,9 +318,9 @@ imageFormatView.addEventListener("input", (e) => {
   refreshModifiedStates();
 });
 
-// Direct contenteditable text edits (typing into a word, outside full editor mode)
-// aren't covered by the drag/resize undo pushes above. Capture a snapshot on focus
-// and push it on blur, but only if the text actually changed during that session -
+// Direct contenteditable text edits (typing into a word) aren't covered by
+// the drag/resize undo pushes above. Capture a snapshot on focus and push it
+// on blur, but only if the text actually changed during that session -
 // otherwise every stray click into a word would pollute the undo stack.
 
 let editingSpan = null;
@@ -321,7 +331,7 @@ let editingPreSnapshot = null;
 
 imageFormatView.addEventListener("focusin", (e) => {
   const span = e.target.closest(".image-format-word");
-  if (!span || state.fullEditorMode) return;
+  if (!span) return;
   editingSpan = span;
   editingOriginalText = span.textContent;
   editingPreSnapshot = snapshotState();
@@ -366,8 +376,8 @@ imageFormatView.addEventListener("focusout", (e) => {
 // The bindings are chosen to match what people already expect from any canvas
 // or design tool, so there is nothing app-specific to learn:
 //
-//   Tab / Shift+Tab   move between items (word spans are in the tab order in
-//                     both modes now - see setFullEditorMode)
+//   Tab / Shift+Tab   move between items (word spans are always in the tab
+//                     order - see createWordObject in editorObjects.js)
 //   Enter / Space     select the focused item
 //   Arrows            nudge the selection
 //   Shift + arrows    nudge in larger steps
@@ -414,6 +424,7 @@ function nudgeSelection(dxPct, dyPct) {
     applyObjectStyle(obj);
   });
   updateResizeHandle();
+  updateMoveHandle();
   refreshModifiedStatesFor(objects);
   commitKeyboardNudge(preSnapshot);
   return true;
@@ -468,12 +479,25 @@ document.addEventListener("keydown", (e) => {
   if (state.activeMode !== "image" && state.activeMode !== "full") return;
 
   const active = document.activeElement;
-  const editingText = active && active.isContentEditable && !state.fullEditorMode;
+  // contentEditable is on every word all the time now (UI-REDESIGN-PLAN.md
+  // §2.3 - no more mode-wide toggle), so a focused word IS an editing caret,
+  // full stop: no separate "focused but not editing" DOM state exists for a
+  // word span the way it did while contentEditable was off during the old
+  // Move mode. Arrow keys use this to move the caret rather than nudge the
+  // selection whenever a word itself has focus - to nudge by keyboard,
+  // Tab to move-handle/resize-handle instead, neither of which is
+  // contentEditable, so this is false there and arrows reach nudgeSelection.
+  const editingText = active && active.isContentEditable;
 
   // Enter or Space on a focused word selects it - the keyboard equivalent of
-  // clicking it - except while its text is being edited, where Space is a space.
-  if ((e.key === "Enter" || e.key === " ") && active && active.classList?.contains("image-format-word")) {
-    if (editingText) return;
+  // tapping it - except Space while its text is being edited, where Space
+  // must stay a literal space. Enter always selects: unlike Space, a bare
+  // newline was never meaningful input for one of these short OCR word spans,
+  // and Enter is the one key that still has to reach selection even while a
+  // word is focused-and-therefore-"editing" by the rule above - otherwise a
+  // keyboard-only user could Tab to a word but could never select it at all,
+  // since focus and "editing" are no longer distinguishable DOM states.
+  if (active && active.classList?.contains("image-format-word") && (e.key === "Enter" || (e.key === " " && !editingText))) {
     const obj = getObjectByElement(active);
     if (!obj) return;
     e.preventDefault();
@@ -572,31 +596,35 @@ function trackPointer(e, { onMove, onEnd }) {
   surface.addEventListener("pointercancel", finish);
 }
 
-function beginObjectDrag(e, obj, additive) {
-  let selectionChangedAtDown = false;
-  if (!state.selectedObjectIds.has(obj.id)) {
-    if (!additive) state.selectedObjectIds.clear();
-    state.selectedObjectIds.add(obj.id);
-    updateSelectionVisuals();
-    selectionChangedAtDown = true;
-    hapticLight();
-  }
+// Drags the current selection - always reached from move-handle now
+// (UI-REDESIGN-PLAN.md §2.3), never from pressing a word's own body, which is
+// what lets a tap keep meaning "edit" unconditionally: the drag never starts
+// on text, so there is no race against the browser's own native long-press
+// text-selection handling to manage (the prototype phase found that race
+// real and not reliably winnable by timing alone - see the plan). Because the
+// drag starts on a plain non-editable handle instead, contentEditable only
+// has to come off the moving words for the live duration of THIS drag, not as
+// a standing mode - restored on release, same "commit once on release" shape
+// as the transform-then-commit positioning below and as beginResize's own
+// scale-then-commit.
+function beginObjectDrag(e) {
+  const moving = objectsFromSelection();
+  if (!moving.length) return;
 
   const startX = e.clientX;
   const startY = e.clientY;
   const rect = imageFormatView.getBoundingClientRect();
-  // Captured once, not re-queried per pointermove: the selection doesn't
-  // change mid-drag, and the transform-then-commit approach below needs a
-  // fixed list of elements to apply/clear the transform on and compute final
-  // positions for.
-  const moving = objectsFromSelection();
   const starts = new Map();
   moving.forEach((o) => starts.set(o.id, { x: o.x, y: o.y }));
   const preSnapshot = snapshotState();
-  const showsResizeHandle = state.fullEditorMode && state.selectedObjectIds.size === 1;
+  const showsResizeHandle = state.activeMode === "full" && state.selectedObjectIds.size === 1;
   let moved = false;
   let lastDx = 0;
   let lastDy = 0;
+
+  moving.forEach((o) => {
+    if (o.type === "word") o.el.contentEditable = "false";
+  });
 
   function onMove(ev) {
     const dx = ev.clientX - startX;
@@ -607,6 +635,7 @@ function beginObjectDrag(e, obj, additive) {
         o.el.style.willChange = "transform";
       });
       if (showsResizeHandle) resizeHandle.style.willChange = "transform";
+      moveHandle.style.willChange = "transform";
     }
     if (!moved) return;
     lastDx = dx;
@@ -623,9 +652,13 @@ function beginObjectDrag(e, obj, additive) {
       o.el.style.transform = transform;
     });
     if (showsResizeHandle) resizeHandle.style.transform = transform;
+    moveHandle.style.transform = transform;
   }
 
   function onUp() {
+    moving.forEach((o) => {
+      if (o.type === "word") o.el.contentEditable = "true";
+    });
     if (moved) {
       const dxPct = (lastDx / rect.width) * 100;
       const dyPct = (lastDy / rect.height) * 100;
@@ -642,20 +675,14 @@ function beginObjectDrag(e, obj, additive) {
         resizeHandle.style.transform = "";
         resizeHandle.style.willChange = "";
       }
+      moveHandle.style.transform = "";
+      moveHandle.style.willChange = "";
       updateResizeHandle();
+      updateMoveHandle();
       // One full reconciliation at the end of the gesture, not hundreds during it.
       refreshModifiedStates();
       pushUndo(preSnapshot);
       hapticLight();
-    } else if (!selectionChangedAtDown) {
-      if (additive) {
-        state.selectedObjectIds.delete(obj.id);
-        updateSelectionVisuals();
-      } else if (state.selectedObjectIds.size > 1) {
-        state.selectedObjectIds.clear();
-        state.selectedObjectIds.add(obj.id);
-        updateSelectionVisuals();
-      }
     }
   }
 
@@ -724,12 +751,15 @@ function beginResize(e) {
   trackPointer(e, { onMove, onEnd: onUp });
 }
 
-function beginMarquee(e, additive) {
+// The "armed" phase of a marquee: only reached once beginCanvasPressHold's
+// hold timer has actually fired (see below). state.marqueeMode is true for
+// exactly the live duration of this drag - not a standing mode - which is
+// what lets the surface give touch-scrolling back the instant it ends.
+function beginMarquee(e, additive, startX, startY) {
   if (!additive) clearSelection();
+  setMarqueeMode(true);
 
   const rect = imageFormatView.getBoundingClientRect();
-  const startX = e.clientX;
-  const startY = e.clientY;
   marqueeBox.style.display = "block";
 
   function onMove(ev) {
@@ -743,7 +773,11 @@ function beginMarquee(e, additive) {
     marqueeBox.style.height = `${y2 - y1}px`;
 
     state.editorObjects.forEach((obj) => {
-      if (obj.type === "image" && !state.fullEditorMode) return;
+      // The background image is not a selectable/moveable object in this
+      // redesign (UI-REDESIGN-PLAN.md §2.3 folds it into "empty canvas" for
+      // gesture-routing purposes - see the dispatcher below), so a marquee
+      // sweeping across the photo must not scoop it up as a side effect.
+      if (obj.type === "image") return;
       // A retired word is display:none, so its rect is 0,0,0,0 - which a marquee
       // dragged from the very top-left of the surface would still "intersect".
       // Skipping it explicitly is cheaper than reasoning about that every time.
@@ -761,9 +795,55 @@ function beginMarquee(e, additive) {
 
   function onUp() {
     marqueeBox.style.display = "none";
+    setMarqueeMode(false);
   }
 
   trackPointer(e, { onMove, onEnd: onUp });
+}
+
+// The "pending" phase: a press on empty canvas that MIGHT become a marquee.
+// Mirrors the library card's own long-press-vs-swipe split (§1.1) and the
+// phase-2 prototype's verified timing - see UI-REDESIGN-PLAN.md §2.3. Adds no
+// listener that could intercept anything (no preventDefault, no capture,
+// no touch-action change) until the hold timer actually fires, so a quick
+// drag below the threshold is indistinguishable from an ordinary scroll/pan
+// and the browser keeps driving it exactly as it does today.
+const MARQUEE_HOLD_MS = 420;
+const MARQUEE_MOVE_THRESHOLD_PX = 10;
+
+function beginCanvasPressHold(e, additive) {
+  const startX = e.clientX;
+  const startY = e.clientY;
+  const pointerId = e.pointerId;
+
+  function cleanupPending() {
+    imageFormatView.removeEventListener("pointermove", pendingMove);
+    imageFormatView.removeEventListener("pointerup", pendingUp);
+    imageFormatView.removeEventListener("pointercancel", pendingUp);
+  }
+  function pendingMove(ev) {
+    if (ev.pointerId !== pointerId) return;
+    const dx = ev.clientX - startX;
+    const dy = ev.clientY - startY;
+    if (Math.hypot(dx, dy) > MARQUEE_MOVE_THRESHOLD_PX) {
+      clearTimeout(timer);
+      cleanupPending();
+    }
+  }
+  function pendingUp(ev) {
+    if (ev.pointerId !== pointerId) return;
+    clearTimeout(timer);
+    cleanupPending();
+  }
+  imageFormatView.addEventListener("pointermove", pendingMove);
+  imageFormatView.addEventListener("pointerup", pendingUp);
+  imageFormatView.addEventListener("pointercancel", pendingUp);
+
+  const timer = setTimeout(() => {
+    cleanupPending();
+    hapticLight();
+    beginMarquee(e, additive, startX, startY);
+  }, MARQUEE_HOLD_MS);
 }
 
 let onSurfaceClickForAdd = null;
@@ -790,14 +870,21 @@ imageFormatView.addEventListener("pointerdown", (e) => {
     document.activeElement.blur();
   }
 
-  const handleEl = e.target.closest(".resize-handle");
-  if (handleEl && state.fullEditorMode) {
+  const moveHandleEl = e.target.closest(".move-handle");
+  if (moveHandleEl && state.activeMode === "full" && state.selectedObjectIds.size > 0) {
+    e.preventDefault();
+    beginObjectDrag(e);
+    return;
+  }
+
+  const resizeHandleEl = e.target.closest(".resize-handle");
+  if (resizeHandleEl && state.activeMode === "full") {
     e.preventDefault();
     beginResize(e);
     return;
   }
 
-  if (state.fullEditorMode && state.addTextMode) {
+  if (state.activeMode === "full" && state.addTextMode) {
     const onSurface = e.target === imageFormatView || e.target === imageFormatBg;
     if (onSurface) {
       e.preventDefault();
@@ -809,34 +896,59 @@ imageFormatView.addEventListener("pointerdown", (e) => {
     }
   }
 
-  const additive = e.shiftKey || e.metaKey || e.ctrlKey;
-  const objEl = e.target.closest(".image-format-word, .image-format-bg");
-
-  // Armed marquee wins over everything except the editor's own drag/resize: on a
-  // densely recognized image the words cover the surface, so requiring empty
-  // space to start from would leave nowhere to begin.
-  if (state.marqueeMode && !state.fullEditorMode) {
-    e.preventDefault();
-    beginMarquee(e, additive);
-    return;
+  if (state.activeMode === "full" && state.pasteArmed) {
+    const onSurface = e.target === imageFormatView || e.target === imageFormatBg;
+    if (onSurface) {
+      e.preventDefault();
+      const rect = imageFormatView.getBoundingClientRect();
+      const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+      const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+      if (onSurfaceClickForPaste) onSurfaceClickForPaste(xPct, yPct);
+      return;
+    }
   }
+
+  const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+  // .image-format-bg is deliberately excluded: the background photo is not a
+  // selectable/moveable object in this redesign (see beginMarquee above), so
+  // a press on it falls straight through to the empty-canvas branch below,
+  // the same as a press on any other unoccupied part of the surface. Without
+  // this, Full image mode - where the photo fills the whole container -
+  // would have nowhere for a marquee to ever start from at all.
+  const objEl = e.target.closest(".image-format-word");
 
   if (objEl) {
     const obj = getObjectByElement(objEl);
     if (!obj) return;
 
-    if (state.fullEditorMode) {
-      e.preventDefault();
-      beginObjectDrag(e, obj, additive);
-    } else if (additive) {
+    if (additive) {
       e.preventDefault();
       toggleSelection(obj.id);
-    } else if (obj.type === "word") {
-      clearSelection();
-      // No preventDefault: let the browser place a text caret for normal editing.
+    } else {
+      // A tap always edits (no preventDefault: the browser places a text
+      // caret normally) - and, in Full image mode, also selects the word, so
+      // move-handle/resize-handle appear immediately rather than only once a
+      // separate mode button had been pressed (UI-REDESIGN-PLAN.md §2.3).
+      // Image format mode keeps today's behaviour, where a plain tap does not
+      // touch the selection at all (only shift-click/additive does) - nothing
+      // about that was part of the named flaw, and Image format has no
+      // handles to reveal anyway.
+      if (state.activeMode === "full") {
+        state.selectedObjectIds.clear();
+        state.selectedObjectIds.add(obj.id);
+        updateSelectionVisuals();
+      } else {
+        clearSelection();
+      }
     }
     return;
   }
 
-  beginMarquee(e, additive);
+  // Empty canvas (including the background photo): a press-and-hold-then-drag
+  // starts a marquee; a quick drag keeps scrolling/panning exactly as it does
+  // today. Available in both Image format and Full image, matching where
+  // selection already applied before this redesign.
+  if (state.activeMode === "image" || state.activeMode === "full") {
+    beginCanvasPressHold(e, additive);
+  }
 });
