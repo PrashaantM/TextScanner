@@ -1112,8 +1112,9 @@ the live URL in Safari on a Mac and on an iPhone. Small, but nothing in CI
 substitutes for it.
 
 
-**The manual checklist, as of 2026-09-13.** Two things the nightly job explicitly
-cannot settle, both needing nothing more than Safari and five minutes:
+**The manual checklist, as of 2026-09-15.** Three things the nightly job
+explicitly cannot settle, all needing nothing more than Safari (or, for #3,
+an iPhone) and a few minutes:
 
 1. **Store a scanned page and reopen it, then restore a backup.** Scan or add any image as a document
    page in Safari, close the tab, reopen the app, and confirm the page image is
@@ -1136,6 +1137,22 @@ cannot settle, both needing nothing more than Safari and five minutes:
    the app declines to crop rather than guessing. See X4 below — this one is
    *expected to fail*, and confirming it on real Safari is what turns a
    Playwright measurement into a user-facing bug report.
+3. **The UI-REDESIGN-PLAN.md §2.3 gesture pass, still outstanding since the
+   redesign merged to `main` on 2026-09-15.** `test/touch-interactions.js`
+   drives the tap-select/move-handle/resize-handle/marquee mechanics with
+   real CDP touch events, but that is Chromium's touch pipeline — it has
+   never run against WKWebView's, which is what both mobile Safari and the
+   iOS app actually use. On a real iPhone, confirm: a quick tap still edits
+   a word with no perceptible delay (not a beat late, the way a naive
+   long-press/tap disambiguation would feel), and a full press-hold-drag-
+   release completes reliably across several trials on both move-handle and
+   empty canvas (for marquee). No physical device was reachable when the
+   redesign was built or merged (`xcrun devicectl` showed the paired device
+   as `unavailable` throughout both sessions) — this is not a hedge, it is
+   the one check that was never actually possible to run. If it contradicts
+   what shipped, UI-REDESIGN-PLAN.md §2.3's own fallback (keep a toggle-
+   button alternative, ship only the parts that check out, or neither) is
+   still live.
 
 ### 4.4 Recognition accuracy — needs 14 photographs only you can take
 
