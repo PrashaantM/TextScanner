@@ -537,12 +537,13 @@ let resolvedFontReported = false;
 const browser = await launchBrowser();
 
 // complexPic1 is the poster set in a condensed hand-drawn face - the case
-// where width binds and the font-matcher gap shows, and (since W13) the one
+// where width binds and the font-matcher gap shows, and (since the condensed-
+// source detector landed) the one
 // image in the 11-image benchmark corpus detectCondensedSource actually
 // fires on - see that function's header in js/editorObjects.js for the
 // threshold and the evidence behind it. complexPic2 and complexPic5 are
-// ordinary sans type, where height should land near 1.0 and W13 must NOT
-// fire: the property this loop checks is unchanged by which image is being
+// ordinary sans type, where height should land near 1.0 and the detector must
+// NOT fire: the property this loop checks is unchanged by which image is being
 // looked at, but these two exist here specifically to prove the condensed
 // branch does not make a non-condensed image worse, which complexPic1 alone
 // could never show.
@@ -594,7 +595,7 @@ for (const image of ["complexPic1.jpeg", "complexPic2.jpeg", "complexPic5.jpeg"]
   const asScannedRows = await measureAll(page);
   check(asScannedRows, `${image} as-scanned`, failures);
 
-  // ---- W13: the condensed-source detector fired on the right image ----
+  // ---- The condensed-source detector fired on the right image ----
   //
   // P1/P2 above already fail if the condensed font gets applied and produces
   // a bad fit, but say nothing about whether detectCondensedSource fired on
@@ -616,12 +617,12 @@ for (const image of ["complexPic1.jpeg", "complexPic2.jpeg", "complexPic5.jpeg"]
     );
   }
 
-  // ---- W13: complexPic1's height fill actually improved, and stays improved ----
+  // ---- complexPic1's height fill actually improved, and stays improved ----
   //
   // Freshly measured before this feature existed (same image, same Docker
   // container, same Liberation Sans, same day): median height fill 0.552.
   // After: 0.705. 0.65 sits well above the old number and comfortably below
-  // the new one, so a regression back toward the pre-W13 behaviour - the
+  // the new one, so a regression back toward the pre-detector behaviour - the
   // classifier silently stops firing, or fires but the stack it picks stops
   // helping - fails here rather than only showing up as a smaller number
   // nobody was watching.
@@ -631,8 +632,8 @@ for (const image of ["complexPic1.jpeg", "complexPic2.jpeg", "complexPic5.jpeg"]
     const medianH = hFills[hFills.length >> 1];
     if (medianH < CONDENSED_FILL_FLOOR) {
       failures.push(
-        `${image}: median height fill ${medianH.toFixed(3)} is below the W13 regression floor ${CONDENSED_FILL_FLOOR} ` +
-          `(pre-W13 baseline was 0.552) - the condensed-font branch may have stopped helping this image`
+        `${image}: median height fill ${medianH.toFixed(3)} is below the condensed-source regression floor ${CONDENSED_FILL_FLOOR} ` +
+          `(pre-detector baseline was 0.552) - the condensed-font branch may have stopped helping this image`
       );
     }
   }

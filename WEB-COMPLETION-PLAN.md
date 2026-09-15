@@ -40,7 +40,7 @@ Checked today rather than carried forward from `HANDOFF.md`:
 | 60 unit tests pass | `node --test test/unit/*.test.js` — 60 pass, 0 fail |
 | The newest browser gate passes | `node test/interaction-layer.js` — all 24 checks green |
 | Last CI run on `main` green | run `34673998815`, 3m30s |
-| 46 modules, 14,817 lines in `js/` | `wc -l js/*.js` |
+| 46 modules, 15,284 lines in `js/` | `wc -l js/*.js` |
 | Tracked repo 8.87 MiB; `vendor/tesseract` is 11 MB of it on disk | `git count-objects -vH`, `du` |
 
 **Jekyll is not eating anything.** Its default excludes cover `vendor/bundle`,
@@ -63,12 +63,22 @@ looping every `getElementById("…")` literal against the markup — zero missin
 | `e181738` | 71 | `coherence-gate-hint` |
 | `a511ac0` | 72 | `footer-version` (W12) |
 
-Treat **72** as the invariant from here on. `index.html` carries 154 ids in total;
-the other 82 are resolved locally by `app.js`, `library.js`, `scanDoc.js` etc. and
+Treat **72** as the invariant from here on. `index.html` carries 160 ids in total;
+the other 88 are resolved locally by `app.js`, `library.js`, `scanDoc.js` etc. and
 are *not* the protected contract — though `add-to-doc-btn` and `save-note-btn`
 (queried directly in `js/main.js:1141-1142`) behave like it in practice.
 
-### The 26 CI gates, and which ones a change can actually break
+**`EXPECTED_ID_COUNT` did not move for the redaction work, and that is correct.**
+The six ids that commit added (`scan-redact-panel`, `scan-redact-overlay`,
+`scan-redact-count`, `scan-redact-apply`, `scan-redact-undo`,
+`scan-redact-cancel`) are resolved by `js/scanDoc.js`, exactly like every other
+scan-document control — `scan-doc-title`, `scan-page-info`, `scan-paper-size`
+and the rest. They are in the 88, not the 72. Moving `EXPECTED_ID_COUNT` would
+have meant hoisting a scan-doc-local control into `js/dom.js` purely to make a
+number change, which is the opposite of what that gate is for. The figure that
+moved is the total: 154 → 160.
+
+### The 27 CI gates, and which ones a change can actually break
 
 `.github/workflows/ci.yml` runs gate 1 immediately (it needs nothing), gates
 2 and 3 right after (also nothing - see their own comments), then `npm ci` +
@@ -100,14 +110,28 @@ file actually runs them:
 | 21 | `document-creation.js` | Yes, through the real nav/action sheet |
 | 22 | `interaction-layer.js` | Yes |
 | 23 | `destructive-actions.js` | Yes, through the real dialog-gated controls |
-| 24 | `radial-call-sites.js` | Yes |
-| 25 | `inpaint-fidelity.js` | No — imports `/js/inpaint.js` and drives the algorithm directly |
-| 26 | `backup-roundtrip.js` | Partly - mostly imports `/js/store.js`, `/js/documents.js` and `/js/backup.js` directly, but "Delete all local data" goes through the real `#settings-delete-all` button |
+| 24 | `redaction-destroys-original.js` — **added by the redaction change** | Yes — the real Redact button, a real drag, and both confirms; asserts against `STORES.BLOBS` directly |
+| 25 | `radial-call-sites.js` | Yes |
+| 26 | `inpaint-fidelity.js` | No — imports `/js/inpaint.js` and drives the algorithm directly |
+| 27 | `backup-roundtrip.js` | Partly - mostly imports `/js/store.js`, `/js/documents.js` and `/js/backup.js` directly, but "Delete all local data" goes through the real `#settings-delete-all` button |
 
-This table drifts every time a gate is added, and it has now moved three
-times in three sessions - **recount `.github/workflows/ci.yml`'s `test:` job
+This table drifts every time a gate is added, and it has now moved four
+times in four sessions - **recount `.github/workflows/ci.yml`'s `test:` job
 directly before trusting this number again**, rather than carrying this one
-forward. See this section's standing rule at the top of §0.
+forward. The 27 above was counted that way
+(`awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml | grep -c
+'^      - run: node'`), not by adding one to the 26 that was here. See this
+section's standing rule at the top of §0.
+
+**What gate 24 is protecting, since it is a contract change rather than a new
+feature.** Redaction used to keep the page's untouched original in IndexedDB
+under `originalBlobKey`, deliberately, so the person who drew it could undo it -
+`js/annotate.js` said so in as many words. That made the "redacted" badge true
+of the exported JPEG and false of the device, because `rebuildPage` re-derives
+the page from that original on every filter, rotate and crop. Applying a
+redaction now destroys it, in the same action, behind two confirms; a tombstone
+in `js/store.js` stops a restore putting it back; and the gate reads
+`STORES.BLOBS` directly rather than trusting a flag on the page record.
 
 **Until W3 landed, nothing in that table asserted that the 72 ids resolve.**
 `getElementById` returns `null`, it does not throw, so `js/dom.js` imports cleanly
@@ -394,7 +418,7 @@ exit=1
 
 Both restorations returned to green with a clean `git diff`.
 
-**Scope, deliberately narrow.** `js/dom.js` only. `index.html` carries 154 ids;
+**Scope, deliberately narrow.** `js/dom.js` only. `index.html` carries 160 ids;
 widening this to all of them trades a precise contract for a noisy one. The gate's
 header names `add-to-doc-btn` and `save-note-btn` (`js/main.js:1141-1142`) as
 honourable mentions — `main.js` queries them directly and treats them like the

@@ -576,6 +576,12 @@
                 <span class="scan-busy__spinner" aria-hidden="true"></span>
                 <span id="scan-busy-label" class="scan-busy__label"></span>
               </div>
+              <!-- Redaction drafting surface. Sized by js/scanDoc.js to the
+                   page image's own rect inside this wrap, not to the wrap:
+                   .page-preview draws the image `contain`, so a box dropped in
+                   the letterboxing would map to page pixels that do not
+                   exist. Hidden, and pointer-transparent, until Redact. -->
+              <div id="scan-redact-overlay" class="redact-overlay hidden"></div>
             </div>
 
             <p id="scan-page-info" class="scan-doc__info"></p>
@@ -587,7 +593,28 @@
               <button data-scan-action="rotate-right" class="btn btn--secondary btn--small" type="button" data-needs-pages>Rotate right</button>
               <button data-scan-action="crop" class="btn btn--secondary btn--small" type="button" data-needs-pages>Adjust edges</button>
               <button data-scan-action="filter-all" class="btn btn--secondary btn--small" type="button" data-needs-pages>Apply filter to all</button>
+              <button data-scan-action="redact" class="btn btn--secondary btn--small" type="button" data-needs-pages>Redact</button>
               <button data-scan-action="delete-page" class="btn btn--ghost btn--small" type="button" data-needs-pages>Delete page</button>
+            </div>
+
+            <!-- The redaction panel, shown only while drafting. "Undo last box"
+                 lives in HERE and nowhere else on purpose: applying a redaction
+                 destroys this page's original, so an undo control that outlived
+                 draft mode could only ever no-op or throw, and offering one
+                 would say the redaction is reversible at the exact moment it
+                 stopped being. See js/scanDoc.js's Redaction section. -->
+            <div id="scan-redact-panel" class="redact-panel hidden" role="group" aria-label="Redaction">
+              <p class="redact-panel__hint">
+                <strong>Applying a redaction deletes this page's unredacted original from this device.</strong>
+                It can't be undone afterwards, and re-running the filters will no longer be able to recover
+                what was covered. You'll be asked to confirm twice.
+              </p>
+              <p id="scan-redact-count" class="redact-panel__count" role="status" aria-live="polite"></p>
+              <div class="redact-panel__actions">
+                <button id="scan-redact-apply" data-scan-action="redact-apply" class="btn btn--primary btn--small" type="button" disabled>Apply redaction</button>
+                <button id="scan-redact-undo" data-scan-action="redact-undo" class="btn btn--secondary btn--small" type="button" disabled>Undo last box</button>
+                <button id="scan-redact-cancel" data-scan-action="redact-cancel" class="btn btn--ghost btn--small" type="button">Cancel</button>
+              </div>
             </div>
 
             <div class="scan-doc__actions">

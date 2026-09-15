@@ -14,6 +14,15 @@
 // page would visibly degrade each time - which is exactly the bug that makes
 // filter buttons in lesser scanner apps feel dangerous to touch.
 //
+// **A REDACTED page is the one exception, and it is a deliberate trade.**
+// Applying a redaction destroys that page's original (js/documents.js's
+// destroyPageOriginal) and repoints `originalBlobKey` at the page's own
+// redacted image. From then on this page really does re-filter from a processed
+// image and really will degrade a little each time - accepted, because the
+// alternative is keeping a copy of the thing someone just asked to have
+// destroyed so that their filter buttons stay lossless. Only redacted pages pay
+// it, and only after a confirmation that says so.
+//
 // **Page order lives in `doc.pageIds`, not in a sort key on each page.**
 // Reordering is one small write instead of N, which matters because reordering is
 // a drag gesture that fires continuously.
@@ -35,6 +44,7 @@ import {
   updateDocumentQuietly,
   deriveTitle,
   reindexDocument,
+  destroyPageOriginal,
 } from "./documents.js";
 import { getBlob, getBlobUrl, releaseObjectUrl, putBlob, removeBlob } from "./store.js";
 import {
@@ -49,7 +59,7 @@ import {
 } from "./scanFilters.js";
 import { warpPerspective } from "./perspective.js";
 import { isFullFrame } from "./edgeDetect.js";
-import { burnAnnotations, hasRedaction } from "./annotate.js";
+import { burnAnnotations, hasRedaction, createStroke, addPoint, TOOLS } from "./annotate.js";
 import { buildPdf, blobToUint8Array, PAPER_SIZES } from "./pdf.js";
 import { recognizeImage } from "./recognize.js";
 import { showView, VIEWS } from "./views.js";
@@ -64,6 +74,16 @@ let selectedPageId = null;
 const pageUrls = new Map();
 let onDocumentChanged = null;
 let busy = false;
+
+// ---- Redaction drafting state ----
+//
+// Draft boxes live HERE and not in the page record, which is the whole reason
+// undo works before applying and stops existing afterwards. Nothing in
+// `draftBoxes` has touched storage: cancelling drops the array, and applying
+// converts it to strokes, burns them, and destroys the original in one action.
+let redactMode = false;
+let draftBoxes = [];
+let dragStart = null;
 
 // ---- Image helpers ----
 
@@ -229,7 +249,13 @@ async function renderPreview() {
   if (page.width && page.height) info.push(`${page.width} x ${page.height}`);
   if (page.corners) info.push("cropped");
   if (page.rotation) info.push(`rotated ${page.rotation}°`);
-  if (hasRedaction(page.annotations)) info.push("redacted");
+  if (hasRedaction(page.annotations)) {
+    // Two different facts, and the difference is the whole point of the
+    // confirmation: "redacted" describes the pixels, "original destroyed"
+    // describes the device. A page can only reach the second state through
+    // applyRedaction below.
+    info.push(page.originalDestroyedAt ? "redacted - original destroyed" : "redacted");
+  }
   if (page.text) info.push(`${page.text.split(/\s+/).filter(Boolean).length} words recognized`);
   if (elements.pageInfo) elements.pageInfo.textContent = info.join(" · ");
 }
@@ -280,6 +306,170 @@ async function withBusy(message, fn) {
   } finally {
     setBusy(false);
   }
+}
+
+// ---- Redaction ----
+//
+// WHAT THIS IS FOR. A redaction that leaves the unredacted page sitting in
+// IndexedDB is not a redaction; it is a black rectangle drawn over a document
+// anyone with the device can still re-derive, because rebuildPage re-reads
+// `originalBlobKey` on every filter, rotate and crop. Applying a redaction here
+// therefore does two things in one action: burns the boxes into the page's
+// pixels (js/annotate.js's burnAnnotations) and destroys the original
+// (js/documents.js's destroyPageOriginal).
+//
+// THE UNDO STORY, stated once, here, because it is the part people get wrong:
+//
+//   - While drafting, boxes are free. Undo removes the last one, Cancel drops
+//     them all, and nothing has been written to storage.
+//   - Accepting the SECOND confirmation is the last moment undo exists. Past
+//     it, the covered pixels are gone from the page image and the bytes they
+//     came from are gone from the device.
+//   - So there is deliberately no undo control outside draft mode. Leaving one
+//     enabled that could only ever no-op or throw is worse than not offering
+//     it: it tells someone their redaction is reversible at exactly the moment
+//     it stopped being.
+//
+// The preview's own black pills and the burned result are the same geometry:
+// each stroke runs along its box's horizontal centre line, inset at both ends
+// by half the box height, drawn at a line width of exactly that height with the
+// round caps js/annotate.js already uses. Bounding box in, bounding box out.
+
+// The page image is drawn `contain`-style inside the preview element, so the
+// element's own box is not where the image is. Everything below works in the
+// IMAGE's rect, because a box dropped in the letterboxing would otherwise map
+// to page coordinates that do not exist.
+function previewImageRect(page) {
+  const box = elements.preview.getBoundingClientRect();
+  const pageWidth = page.width || box.width || 1;
+  const pageHeight = page.height || box.height || 1;
+  const scale = Math.min(box.width / pageWidth, box.height / pageHeight);
+  const width = pageWidth * scale;
+  const height = pageHeight * scale;
+  return {
+    left: (box.width - width) / 2,
+    top: (box.height - height) / 2,
+    width,
+    height,
+    clientLeft: box.left + (box.width - width) / 2,
+    clientTop: box.top + (box.height - height) / 2,
+  };
+}
+
+function positionRedactOverlay() {
+  const page = selectedPage();
+  if (!elements.redactOverlay || !page) return;
+  const rect = previewImageRect(page);
+  elements.redactOverlay.style.left = `${rect.left}px`;
+  elements.redactOverlay.style.top = `${rect.top}px`;
+  elements.redactOverlay.style.width = `${rect.width}px`;
+  elements.redactOverlay.style.height = `${rect.height}px`;
+}
+
+function renderDraftBoxes() {
+  if (!elements.redactOverlay) return;
+  elements.redactOverlay.innerHTML = draftBoxes
+    .map(
+      (b) =>
+        `<span class="redact-box" style="left:${b.x * 100}%;top:${b.y * 100}%;` +
+        `width:${b.width * 100}%;height:${b.height * 100}%"></span>`
+    )
+    .join("");
+  if (elements.redactUndo) elements.redactUndo.disabled = draftBoxes.length === 0;
+  if (elements.redactApply) elements.redactApply.disabled = draftBoxes.length === 0;
+  if (elements.redactCount) {
+    elements.redactCount.textContent = draftBoxes.length
+      ? `${draftBoxes.length} box${draftBoxes.length === 1 ? "" : "es"} drawn`
+      : "Drag across anything that should not leave this device.";
+  }
+}
+
+function setRedactMode(on) {
+  redactMode = on;
+  draftBoxes = [];
+  dragStart = null;
+  elements.redactPanel?.classList.toggle("hidden", !on);
+  elements.redactOverlay?.classList.toggle("hidden", !on);
+  if (on) positionRedactOverlay();
+  renderDraftBoxes();
+}
+
+// One drag, one box, in normalized 0-1 coordinates against the PAGE image.
+function boxFromDrag(a, b) {
+  const x = Math.max(0, Math.min(a.x, b.x));
+  const y = Math.max(0, Math.min(a.y, b.y));
+  return {
+    x,
+    y,
+    width: Math.min(1, Math.max(a.x, b.x)) - x,
+    height: Math.min(1, Math.max(a.y, b.y)) - y,
+  };
+}
+
+// A normalized box becomes one redact stroke. `width` in a stroke is a fraction
+// of the page's SMALLER edge (js/annotate.js), so the box's height has to be
+// converted through the real pixel dimensions rather than used directly.
+function strokeFromBox(box, pageWidth, pageHeight) {
+  const minEdge = Math.min(pageWidth, pageHeight) || 1;
+  const heightPx = box.height * pageHeight;
+  const stroke = createStroke(TOOLS.REDACT, { width: heightPx / minEdge });
+
+  // Inset by half the stroke height at each end so the round caps land exactly
+  // on the box's left and right edges instead of bulging past them.
+  const insetX = heightPx / 2 / (pageWidth || 1);
+  const centreY = box.y + box.height / 2;
+  const startX = box.x + insetX;
+  const endX = box.x + box.width - insetX;
+
+  if (endX <= startX) {
+    // Taller than it is wide: a single capped point covers it, and covering a
+    // little more than was asked for is the only safe direction to round in.
+    addPoint(stroke, box.x + box.width / 2, centreY);
+  } else {
+    addPoint(stroke, startX, centreY);
+    addPoint(stroke, endX, centreY);
+  }
+  return stroke;
+}
+
+async function applyRedaction() {
+  const page = selectedPage();
+  if (!page || !draftBoxes.length) return;
+
+  const count = draftBoxes.length;
+  const noun = `${count} redaction${count === 1 ? "" : "s"}`;
+  if (!window.confirm(`Apply ${noun} to page ${pages.indexOf(page) + 1}? The covered content is removed from this page's image.`)) return;
+  // The second confirm is the one that matters, and it is separate for the same
+  // reason "Delete all local data" has two: this is the step that destroys
+  // something, and it must not be reachable by a single mis-tap on the first.
+  if (
+    !window.confirm(
+      "This also deletes this page's unredacted original from this device, permanently. " +
+        "After this the redaction can't be undone. Destroy the original?"
+    )
+  )
+    return;
+
+  const boxes = draftBoxes;
+  await withBusy("Applying redaction...", async () => {
+    const strokes = boxes.map((box) => strokeFromBox(box, page.width, page.height));
+    const merged = [...(page.annotations || []), ...strokes];
+
+    // Burn first, destroy second. rebuildPage still needs the original to
+    // re-derive from, and if the burn throws, the page is unchanged and its
+    // original is still there - which is the right way round to fail.
+    await rebuildPage(page, { annotations: merged });
+    await destroyPageOriginal(page.id);
+
+    currentDoc = await getDocument(currentDoc.id);
+    await renderScanDoc();
+    onDocumentChanged?.(currentDoc);
+  });
+
+  // Leaving draft mode is also what removes the Undo control from the DOM's
+  // reach - see the undo story in this section's header.
+  setRedactMode(false);
+  hapticMedium();
 }
 
 // ---- Page operations ----
@@ -559,6 +749,7 @@ export async function openScanDoc(doc, { onChanged } = {}) {
 }
 
 export async function closeScanDoc() {
+  setRedactMode(false);
   releasePageUrls();
   currentDoc = null;
   pages = [];
@@ -589,6 +780,11 @@ export function initScanDoc({ onAddPage } = {}) {
     paperSize: document.getElementById("scan-paper-size"),
     searchable: document.getElementById("scan-searchable"),
     exportStatus: document.getElementById("scan-export-status"),
+    redactPanel: document.getElementById("scan-redact-panel"),
+    redactOverlay: document.getElementById("scan-redact-overlay"),
+    redactCount: document.getElementById("scan-redact-count"),
+    redactUndo: document.getElementById("scan-redact-undo"),
+    redactApply: document.getElementById("scan-redact-apply"),
   };
 
   if (!elements.root) return;
@@ -616,15 +812,30 @@ export function initScanDoc({ onAddPage } = {}) {
     onDocumentChanged?.(currentDoc);
   });
 
+  // Anything that changes a page's geometry or which page is selected drops the
+  // draft first. Boxes are stored as fractions of the page image, so a rotate or
+  // a crop underneath an open draft would leave those fractions pointing at
+  // different content than the person drew over - and the overlay itself is
+  // sized from the old dimensions. Dropping an unapplied draft costs a redraw;
+  // keeping one costs a redaction landing in the wrong place.
+  const DROPS_REDACT_DRAFT = new Set([
+    "rotate-left", "rotate-right", "crop", "filter-all", "delete-page",
+    "add-page", "move-left", "move-right",
+  ]);
+
   elements.root.addEventListener("click", async (event) => {
     const filterButton = event.target.closest("[data-filter]");
     if (filterButton) {
+      if (redactMode) setRedactMode(false);
       await setFilter(filterButton.dataset.filter);
       return;
     }
 
     const thumb = event.target.closest("[data-page]");
     if (thumb) {
+      // A draft belongs to the page it was drawn on. Carrying it to another
+      // page would place boxes by coordinate over content nobody chose.
+      if (redactMode) setRedactMode(false);
       selectedPageId = thumb.dataset.page;
       await renderStrip();
       await renderPreview();
@@ -633,6 +844,8 @@ export function initScanDoc({ onAddPage } = {}) {
 
     const action = event.target.closest("[data-scan-action]")?.dataset.scanAction;
     if (!action) return;
+
+    if (redactMode && DROPS_REDACT_DRAFT.has(action)) setRedactMode(false);
 
     switch (action) {
       case "add-page":
@@ -649,6 +862,19 @@ export function initScanDoc({ onAddPage } = {}) {
         break;
       case "delete-page":
         await deleteSelected();
+        break;
+      case "redact":
+        if (selectedPage()) setRedactMode(!redactMode);
+        break;
+      case "redact-undo":
+        draftBoxes.pop();
+        renderDraftBoxes();
+        break;
+      case "redact-apply":
+        await applyRedaction();
+        break;
+      case "redact-cancel":
+        setRedactMode(false);
         break;
       case "move-left":
         await commitOrder(movePage(selectedPageId, -1));
@@ -680,6 +906,60 @@ export function initScanDoc({ onAddPage } = {}) {
       default:
         break;
     }
+  });
+
+  // Redaction drag. Pointer events rather than mouse events, so a finger on a
+  // phone draws a box the same way a mouse does; setPointerCapture keeps the
+  // drag alive when it leaves the overlay, which is exactly what happens when
+  // someone redacts right up to the edge of a page.
+  elements.redactOverlay?.addEventListener("pointerdown", (event) => {
+    if (!redactMode) return;
+    const page = selectedPage();
+    if (!page) return;
+    event.preventDefault();
+    const rect = previewImageRect(page);
+    dragStart = {
+      x: (event.clientX - rect.clientLeft) / (rect.width || 1),
+      y: (event.clientY - rect.clientTop) / (rect.height || 1),
+    };
+    elements.redactOverlay.setPointerCapture?.(event.pointerId);
+  });
+
+  elements.redactOverlay?.addEventListener("pointermove", (event) => {
+    if (!redactMode || !dragStart) return;
+    const page = selectedPage();
+    if (!page) return;
+    const rect = previewImageRect(page);
+    const current = {
+      x: (event.clientX - rect.clientLeft) / (rect.width || 1),
+      y: (event.clientY - rect.clientTop) / (rect.height || 1),
+    };
+    // The in-progress box is the last entry, replaced on every move rather than
+    // appended, so a drag produces one box and not one per pointer sample.
+    const live = boxFromDrag(dragStart, current);
+    if (dragStart.committed) draftBoxes.pop();
+    draftBoxes.push(live);
+    dragStart.committed = true;
+    renderDraftBoxes();
+  });
+
+  const endRedactDrag = () => {
+    if (!dragStart) return;
+    // A tap with no movement leaves an empty box behind, which would burn as a
+    // dot nobody asked for.
+    const last = draftBoxes[draftBoxes.length - 1];
+    if (dragStart.committed && last && (last.width <= 0.005 || last.height <= 0.005)) draftBoxes.pop();
+    dragStart = null;
+    renderDraftBoxes();
+  };
+  elements.redactOverlay?.addEventListener("pointerup", endRedactDrag);
+  elements.redactOverlay?.addEventListener("pointercancel", endRedactDrag);
+
+  // The overlay is sized from the preview's live box, so it has to be resized
+  // when that box changes - otherwise boxes drawn before a rotation land in the
+  // wrong place after it.
+  window.addEventListener("resize", () => {
+    if (redactMode) positionRedactOverlay();
   });
 
   // Pointer drag reorder.

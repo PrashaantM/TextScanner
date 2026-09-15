@@ -653,10 +653,11 @@ function quantizeInkSize(px) {
 // the cache goes with it.
 //
 // What re-resolving does NOT cover is the same stack resolving to a different
-// FACE - a webfont arriving after the first measurement. Until W13 that could
-// not happen: this app declared no @font-face and loaded no font resource, so
-// every family in the stack was either present on the platform at load or
-// never. W13 added exactly one @font-face (the condensed replacement font,
+// FACE - a webfont arriving after the first measurement. Until the condensed-
+// source detector this could not happen: the app declared no @font-face and
+// loaded no font resource, so every family in the stack was either present on
+// the platform at load or never. It added exactly one @font-face (the
+// condensed replacement font,
 // see style.css and detectCondensedSource) - but every caller that applies
 // its class (renderImageFormatView) does so only after confirming
 // document.fonts.check() is already true, so by the time this function can
@@ -984,7 +985,7 @@ export function clearImageFormatView() {
   // leaving a stale class here between Reset and the next scan is cosmetically
   // inert (nothing is rendered in between) rather than wrong - cleared anyway
   // so this function resets every per-scan flag it's responsible for, not all
-  // but one of them (W13).
+  // but one of them (the condensed-source flag).
   imageFormatView.classList.remove("condensed-source");
   resetEditorObjects();
   state.imageFormatLines = [];
@@ -1277,7 +1278,7 @@ function medianSurroundingLuma(imageData, naturalWidth, naturalHeight, left, top
 
 // Otsu's method: the threshold maximizing between-class variance, over a
 // 256-bin luminance histogram. Shared by sampleInkAppearance's ink/background
-// split below and detectCondensedSource's binarization (W13) - one
+// split below and detectCondensedSource's binarization - one
 // implementation, not two copies of the same algorithm.
 function otsuThreshold(histogram, total) {
   let sum = 0;
@@ -1397,7 +1398,7 @@ function sampleInkAppearance(imageData, naturalWidth, naturalHeight, x0, y0, x1,
   };
 }
 
-// ---- Condensed-source-text detection (W13) ----
+// ---- Condensed-source-text detection ----
 //
 // A replacement word is set in the app's own font, not the photo's - the
 // font matcher that doesn't exist yet (see fontSizePctForInk's header). On an
@@ -1610,7 +1611,8 @@ export function refreshModifiedStatesFor(objects) {
 // produced by ocrEngine.js (already corrected back into original-image coordinates
 // by preprocess.js when preprocessing changed geometry).
 
-// Async since W13 - see the await below - but that await is only ever
+// Async since the condensed-source detector landed - see the await below - but
+// that await is only ever
 // reached for a scan detectCondensedSource fires on, which is the rare case;
 // every other call runs to completion synchronously the moment it's invoked,
 // same as before. All three callers (js/main.js's scan handler, and
@@ -1634,7 +1636,8 @@ export async function renderImageFormatView(previewImg, ocrWords, naturalWidth, 
 
   const pixels = readImagePixels(previewImg, naturalWidth, naturalHeight);
 
-  // W13: decided once, before any word below is sized, so every word sizes
+  // The condensed-source decision: made once, before any word below is sized,
+  // so every word sizes
   // against whatever wordFontFamily() ends up resolving to - the same
   // function inkFitPxAtScale (preview) and buildResultCanvas (export) both
   // read, so this is one decision feeding both surfaces, not two that could

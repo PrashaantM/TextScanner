@@ -1,4 +1,4 @@
-# Condensed-source-text detection: the investigation behind W13
+# Condensed-source-text detection: the investigation behind the detector
 
 Two research sessions, neither touching application code, that led to
 `js/editorObjects.js`'s `detectCondensedSource` and the condensed replacement
@@ -96,7 +96,7 @@ negatives support, not "this generalizes," which nothing here can.
 Same Docker container, same Liberation Sans, `test/replacement-size.js`
 "as-scanned" median height fill:
 
-| Image | Before W13 | After W13 | Delta |
+| Image | Before the detector | After it | Delta |
 |---|---|---|---|
 | complexPic1 (condensed - detector fires) | 0.552 | 0.705 | **+0.153 (+28%)** |
 | complexPic2 (ordinary - detector does not fire) | 0.948 | 0.948 | unchanged |

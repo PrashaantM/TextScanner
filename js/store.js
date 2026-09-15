@@ -281,6 +281,71 @@ export async function removeBlob(key) {
   await remove(STORE_BLOBS, key);
 }
 
+// ---- Destroyed-blob tombstones ----
+//
+// A tombstone is the record that a blob was deliberately DESTROYED, as opposed
+// to merely deleted. Deleting a page removes its bytes because nothing needs
+// them any more; destroying a redacted page's original removes bytes that the
+// person using the app asked never to exist here again (js/annotate.js). Those
+// are different promises, and only the second one has to survive.
+//
+// It has to survive because of restore. js/backup.js's importer adds any blob
+// whose key it does not already hold - that is exactly what makes restoring a
+// backup work - and a backup taken BEFORE a destruction still contains the
+// destroyed original. Without a tombstone, restoring it writes those bytes
+// straight back into this device's blob store, where nothing displays them and
+// nothing will ever delete them, because the page record that used to point at
+// them no longer does. A destruction that a later restore silently undoes is
+// not a destruction.
+//
+// Only the KEY is kept: an opaque random id (see newId), with no title, no
+// document, no date-of-capture and nothing derived from the image. The list is
+// small - one short string per destroyed original.
+//
+// NOTE, found while adding this and deliberately not changed here: clearAll()
+// below does not include STORE_SETTINGS in its transaction, so "Delete all
+// local data" leaves this list behind. For the tombstone that is the safe
+// direction to be wrong in - the guarantee outlives the wipe - and after a wipe
+// there is no page left for a restore to attach resurrected bytes to anyway.
+// It is still a gap between that button's copy and what it clears, and it
+// belongs to that button rather than to this feature.
+export const SETTING_DESTROYED_BLOBS = "destroyedBlobKeys";
+
+export async function getDestroyedBlobKeys() {
+  const stored = await getSetting(SETTING_DESTROYED_BLOBS, []);
+  return new Set(Array.isArray(stored) ? stored : []);
+}
+
+// Records the tombstone and returns the full set. Call this BEFORE removeBlob:
+// a crash between the two leaves bytes that are tombstoned but still present,
+// which the next destruction pass can finish and which import already refuses -
+// whereas the other order leaves bytes that are gone but resurrectable.
+export async function tombstoneBlob(key) {
+  if (!key) return await getDestroyedBlobKeys();
+  const keys = await getDestroyedBlobKeys();
+  if (!keys.has(key)) {
+    keys.add(key);
+    await setSetting(SETTING_DESTROYED_BLOBS, [...keys]);
+  }
+  return keys;
+}
+
+// Merges tombstones carried in from a backup file. A backup taken AFTER a
+// destruction carries that destruction's tombstone, so restoring it onto a
+// second device honours the destruction there too.
+export async function mergeDestroyedBlobKeys(incoming) {
+  const keys = await getDestroyedBlobKeys();
+  let added = 0;
+  for (const key of incoming || []) {
+    if (typeof key === "string" && key && !keys.has(key)) {
+      keys.add(key);
+      added += 1;
+    }
+  }
+  if (added) await setSetting(SETTING_DESTROYED_BLOBS, [...keys]);
+  return keys;
+}
+
 // Object URLs created here are tracked so a view teardown can release them all
 // at once. An untracked createObjectURL on a 4 MB photo holds that 4 MB until
 // the page unloads, and a library scrolled through a few times leaks tens of

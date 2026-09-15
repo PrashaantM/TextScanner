@@ -1,7 +1,7 @@
 # Vendored Roboto Condensed
 
 The replacement font used when `js/editorObjects.js`'s `detectCondensedSource`
-decides a scan's recognized text reads as condensed (W13) - see that
+decides a scan's recognized text reads as condensed - see that
 function's header comment for the measured evidence behind the feature, and
 `test/research/condensed-source-detection.md` for the full investigation this
 was built on.

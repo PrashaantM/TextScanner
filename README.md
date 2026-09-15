@@ -50,7 +50,7 @@ What this doesn't claim: better raw recognition accuracy than those tools on har
 - **Six page filters** — auto enhance, magic colour, greyscale, soft and hard black & white, original — applied per page or to the whole document at once. Filters always work from the original capture, so switching between them never compounds and never degrades the page.
 - **Multi-page documents** with drag reordering (and Alt+arrow keys, so it works with a screen reader), rotation, and per-page or whole-document OCR.
 - **Export to searchable PDF.** The recognized text is laid invisibly over the page image, so the file looks like a scan and its text can still be searched, selected and copied. Also exports plain images or plain text.
-- **Signatures and markup** — pen, highlighter and redaction, stored as vectors so they can be undone, and burned into the pixels only at export. Redaction genuinely destroys what it covers in the exported file rather than laying a removable box over it.
+- **Signatures and markup** — pen and highlighter are stored as vectors so they can be undone, and burned into the pixels only at export. **Redaction is the exception, deliberately:** applying one burns the boxes in *and* deletes that page's unredacted original from the device, behind two confirmations. It can't be undone afterwards, and restoring an older backup won't bring the original back either. That is what makes the black box a redaction rather than a sticker.
 
 ### Notes
 
@@ -140,7 +140,8 @@ Scanned documents
   js/cropView.js      Four-corner adjustment with a magnifier
   js/edgeDetect.js    Automatic page-boundary detection
   js/scanFilters.js   The six page filters
-  js/annotate.js      Pen, highlighter and redaction, stored as vectors
+  js/annotate.js      Pen, highlighter and redaction (see its header on
+                      why redaction alone is not undoable)
   js/pdf.js           Hand-written PDF writer with an invisible OCR text layer
 
 Recognition

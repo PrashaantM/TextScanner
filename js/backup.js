@@ -27,11 +27,26 @@
 // that "Delete all local data" used to have (js/store.js's localStorage
 // inventory, added when clearAll stopped leaving the key behind) - just with a
 // wider blast radius, because this file is meant to travel. So the export walks
-// the four document stores and nothing else: no settings, no credentials, no
-// theme. test/backup-roundtrip.js asserts that with a canary key, by searching
-// the serialized text for it.
+// the four document stores and nothing else: no credentials, no theme.
+// test/backup-roundtrip.js asserts that with a canary key, by searching the
+// serialized text for it.
+//
+// The one thing outside those four stores that IS in the file is
+// `destroyedBlobKeys` - the list of originals a redaction destroyed (see
+// js/store.js). It is in here for the opposite reason the key is not: it exists
+// to stop this file putting bytes BACK that someone deleted on purpose, and a
+// list of opaque ids that name nothing present is the smallest thing that can
+// carry that promise to another device.
 
-import { STORES, getAll, put, putBlob, getBlob } from "./store.js";
+import {
+  STORES,
+  getAll,
+  put,
+  putBlob,
+  getBlob,
+  getDestroyedBlobKeys,
+  mergeDestroyedBlobKeys,
+} from "./store.js";
 import { getAllDocuments, getFolders } from "./documents.js";
 
 // Bumped only for a change that an older importer could not read correctly.
@@ -101,6 +116,12 @@ export async function exportLibrary({ onProgress } = {}) {
     pages,
     folders,
     blobs,
+    // Destroyed-original tombstones (js/store.js). Carried so that a backup
+    // made AFTER a redaction destroyed a page's original honours that
+    // destruction wherever it is restored, including a device that has never
+    // seen the page before. It is a list of opaque blob ids and nothing else -
+    // the bytes they name are not in this file, which is the point.
+    destroyedBlobKeys: [...(await getDestroyedBlobKeys())],
   };
 }
 
@@ -127,7 +148,22 @@ export async function importLibrary(backup, { onProgress } = {}) {
   const existingPages = new Set((await getAll(STORES.PAGES)).map((p) => p.id));
   const existingFolders = new Set((await getFolders()).map((f) => f.id));
 
+  // Tombstones from this device and from the file, merged before anything is
+  // written. A backup taken BEFORE a redaction destroyed a page's original
+  // still CONTAINS that original, and the importer's whole job is to add blobs
+  // it does not already hold - so without this, restoring an old backup writes
+  // the destroyed bytes straight back. This device's own tombstones catch that
+  // case; the file's tombstones carry a destruction made here onto a device
+  // that has never seen this page.
+  //
+  // What this cannot do, stated rather than glossed: the backup FILE itself
+  // still holds the unredacted bytes, and a file is not something the app can
+  // reach. Destroying an original destroys it on this device, not inside copies
+  // that were already made.
+  const destroyed = await mergeDestroyedBlobKeys(backup.destroyedBlobKeys);
+
   const added = { documents: 0, pages: 0, folders: 0, blobs: 0 };
+  let refused = 0;
 
   // Blobs first. A page record that lands before its image would, if the import
   // were interrupted, leave a document pointing at bytes that do not exist -
@@ -137,6 +173,12 @@ export async function importLibrary(backup, { onProgress } = {}) {
   let done = 0;
   for (const entry of backup.blobs || []) {
     if (!entry?.key || typeof entry.data !== "string") continue;
+    if (destroyed.has(entry.key)) {
+      refused += 1;
+      done += 1;
+      onProgress?.(done, (backup.blobs || []).length);
+      continue;
+    }
     if (!(await getBlob(entry.key))) {
       await putBlob(base64ToBlob(entry.data, entry.type), entry.key);
       added.blobs += 1;
@@ -152,6 +194,14 @@ export async function importLibrary(backup, { onProgress } = {}) {
   }
   for (const page of backup.pages || []) {
     if (!page?.id || existingPages.has(page.id)) continue;
+    // A page record restored onto a device that never held this page would
+    // otherwise arrive still pointing at the destroyed original, and every
+    // filter, rotate and crop re-derives from `originalBlobKey` - which would
+    // then decode nothing and report the page as unreadable. Point it at its
+    // own (redacted) image, exactly as destroyPageOriginal does.
+    if (page.originalBlobKey && destroyed.has(page.originalBlobKey)) {
+      page = { ...page, originalBlobKey: page.blobKey, originalDestroyedAt: page.originalDestroyedAt || Date.now() };
+    }
     await put(STORES.PAGES, page);
     added.pages += 1;
   }
@@ -161,6 +211,7 @@ export async function importLibrary(backup, { onProgress } = {}) {
     added.documents += 1;
   }
 
+  added.refusedDestroyed = refused;
   return added;
 }
 

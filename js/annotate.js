@@ -16,7 +16,9 @@
 // thumbnail and a 4000px export.
 //
 // Redaction is the one tool that is NOT merely cosmetic, and it is treated
-// differently on purpose - see REDACT below.
+// differently on purpose - see REDACT below. In particular the first bullet
+// above ("a stroke can be undone") stops applying to a redact stroke the moment
+// it is applied, because applying one destroys the page's original.
 
 export const TOOLS = {
   PEN: "pen",
@@ -151,10 +153,24 @@ export function renderAnnotations(ctx, strokes, width, height) {
 // the exported JPEG carries no stroke data, what leaves the app has the
 // underlying content genuinely destroyed.
 //
-// The caveat, stated plainly because it matters: the ORIGINAL page image is
-// still in local storage (`originalBlobKey`), by design, so the redaction can be
-// undone by the person who made it. It is removed from what is exported and
-// shared, not from the device.
+// AND THE ORIGINAL GOES TOO. This used to say the opposite - that the untouched
+// capture stayed in local storage under `originalBlobKey` so the person who drew
+// the redaction could undo it, and that redaction was removed from what is
+// exported rather than from the device. That was a real position, and it is the
+// wrong one: a page whose unredacted source is one tap from being re-derived has
+// not been redacted, it has been annotated, and the "redacted" badge on it was
+// telling the truth about the export and a lie about the phone.
+//
+// So applying a redaction now destroys that page's original on the device, in
+// the same action, behind a confirmation - js/documents.js's
+// destroyPageOriginal, called from js/scanDoc.js's applyRedaction. Undo for a
+// redaction exists right up to the moment that confirmation is accepted, and
+// not one step past it.
+//
+// What is still true and worth keeping in mind: this composites into the pixels
+// at rebuild time, so it is the burn that removes the content from the image.
+// Destroying the original is what stops the content being rebuilt FROM
+// somewhere else.
 export function burnAnnotations(sourceCanvas, strokes) {
   const canvas = document.createElement("canvas");
   canvas.width = sourceCanvas.width;

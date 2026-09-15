@@ -241,8 +241,9 @@ export function buildResultCanvas() {
     const text = obj.el.textContent;
     if (!text) return;
     const fontPx = exportFontPx(obj, text, canvas.width);
-    // wordFontFamily(), not a second hardcoded copy of the stack: W13 made the
-    // family conditional (condensed source text draws in a narrower font -
+    // wordFontFamily(), not a second hardcoded copy of the stack: the
+    // condensed-source detector made the family conditional (condensed source
+    // text draws in a narrower font -
     // see editorObjects.js's detectCondensedSource), and reading the same
     // live resolution the preview and the sizing solve already use is what
     // keeps the export canvas from silently drawing in the wrong one.

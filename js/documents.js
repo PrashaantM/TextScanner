@@ -33,6 +33,7 @@ import {
   getAllByIndex,
   putBlob,
   removeBlob,
+  tombstoneBlob,
 } from "./store.js";
 
 export const DOC_TYPES = { NOTE: "note", SCAN: "scan" };
@@ -135,6 +136,11 @@ export function createPageRecord({ docId, blobKey, order = 0 }) {
     text: "",
     // Freehand annotation strokes (signatures, markup) - see js/annotate.js.
     annotations: [],
+    // Set by destroyPageOriginal() when a redaction is applied: the timestamp
+    // past which this page's unredacted original no longer exists on this
+    // device, and `originalBlobKey` above points at the redacted image instead.
+    // Null on every page that has never been redacted.
+    originalDestroyedAt: null,
     width: 0,
     height: 0,
     createdAt: Date.now(),
@@ -178,6 +184,45 @@ export async function updatePage(id, changes) {
   await put(STORES.PAGES, updated);
   // A page's text is part of its document's search index.
   if ("text" in changes || "words" in changes) await reindexDocument(existing.docId);
+  return updated;
+}
+
+// Destroys a page's unredacted original, permanently, on this device.
+//
+// Called only from the redaction path (js/scanDoc.js). Every OTHER way a page
+// loses its original - deletePage, purgeDocument - is removing bytes nothing
+// needs any more. This one is removing bytes the person using the app asked
+// never to exist here again, which is a different promise and the reason this
+// is its own function with its own name rather than a `removeBlob` call inline.
+//
+// AFTERWARDS, `originalBlobKey` points at the page's own redacted image. That
+// is deliberate rather than leaving it null: js/scanDoc.js's rebuildPage reads
+// `originalBlobKey || blobKey` and re-derives the page from it on every filter,
+// rotate and crop, so pointing it at the redacted image keeps all three working
+// and makes it structurally impossible for any of them to reproduce what was
+// covered. The stated cost is that those operations now compound on an already
+// processed image for this page - see the note in js/scanDoc.js's header.
+//
+// The three steps are ordered so that whichever one is the last to run before a
+// crash leaves a coherent device: the record stops pointing at the original
+// first (so nothing tries to decode bytes that are about to go), the tombstone
+// is written second (so a restore can never put them back), and only then are
+// the bytes removed.
+export async function destroyPageOriginal(pageId) {
+  const page = await getPage(pageId);
+  if (!page) return null;
+
+  const originalKey = page.originalBlobKey;
+  const updated = await updatePage(pageId, {
+    originalBlobKey: page.blobKey,
+    originalDestroyedAt: Date.now(),
+  });
+
+  if (originalKey && originalKey !== page.blobKey) {
+    await tombstoneBlob(originalKey);
+    await removeBlob(originalKey);
+  }
+
   return updated;
 }
 

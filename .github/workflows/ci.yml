@@ -140,6 +140,17 @@ jobs:
       # Includes "Delete all local data", the only unrecoverable action in the
       # app, which nothing automated had ever pressed.
       - run: node test/destructive-actions.js
+      # Redaction, on the device rather than in the export. burnAnnotations()
+      # has always composited the black boxes into the exported pixels, so every
+      # existing assertion about redaction passed - while the untouched capture
+      # stayed in IndexedDB under originalBlobKey, which rebuildPage re-derives
+      # the page FROM on every filter, rotate and crop. Applying a redaction now
+      # destroys that original, and this gate checks it by reading STORES.BLOBS
+      # directly: an in-memory `destroyed: true` can be set while the bytes are
+      # still there, which is the exact failure it exists to catch. Also drives
+      # the restore path, because a backup taken BEFORE a destruction still
+      # contains the original and the importer's job is to add blobs it lacks.
+      - run: node test/redaction-destroys-original.js
       # All three radial call sites, at both sides of the 600px breakpoint.
       # interaction-layer.js covers call sites 1 and 2 and never touches call
       # site 3 (#theme-btn) - the one the interaction spec's own rollout order

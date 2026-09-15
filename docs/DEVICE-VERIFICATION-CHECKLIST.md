@@ -180,6 +180,8 @@ The CI half asserts HEIC fails **safely** where there is no codec: a categorized
 - [ ] Export images; confirm all pages arrive rather than only the first (browsers throttle rapid downloads — the app spaces them, and this is where that is proven)
 - [ ] Sign a page with the pen tool using a finger. Does the stroke smoothing feel right?
 - [ ] **Redact something, export, and reopen the export.** Confirm the redacted content is genuinely gone from the exported file, not just covered
+- [ ] **Then confirm it is gone from the device too.** After applying the redaction, change that page's filter and rotate it. The covered content must not reappear — those operations re-derive the page from `originalBlobKey`, and applying the redaction is what repoints it at the redacted image (`test/redaction-destroys-original.js` gates this in CI; this is the on-device half)
+- [ ] **Back up before redacting, redact, then restore that backup.** The original must not come back. The backup file itself still holds it — that is expected and unavoidable — but the app must refuse to write it back
 
 ---
 

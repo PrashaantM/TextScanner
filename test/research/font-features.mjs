@@ -1,7 +1,7 @@
 // font-features.mjs: a research script, NOT part of the app or the CI suite
 // (nothing in .github/workflows/ci.yml runs this) - preserved here, rather
 // than only in a chat transcript, so the numbers behind js/editorObjects.js's
-// detectCondensedSource (W13) are auditable and rerunnable, not just
+// detectCondensedSource are auditable and rerunnable, not just
 // asserted. See condensed-source-detection.md in this directory for the
 // write-up; font-features-raw.json is this script's own output, committed
 // alongside it, from the run that write-up quotes.

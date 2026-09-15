@@ -149,7 +149,8 @@
   box-sizing: border-box;
 }
 
-/* W13: vendored, not loaded from a CDN - same reasoning as vendor/tesseract/
+/* The condensed replacement font: vendored, not loaded from a CDN - same
+   reasoning as vendor/tesseract/
    (see that README): no third-party host in the CSP, no request the browser
    can be starved of by a network hiccup mid-scan. Roboto Condensed, OFL-
    licensed, subset to Latin + common punctuation; see
@@ -1274,7 +1275,8 @@ kbd {
   touch-action: pinch-zoom;
 }
 
-/* W13: applied by js/editorObjects.js's detectCondensedSource, once per scan,
+/* The condensed-source class: applied by js/editorObjects.js's
+   detectCondensedSource, once per scan,
    when the recognized text's own glyph shapes read as condensed relative to
    ordinary body text. Swaps the replacement word font to a genuinely narrower
    face instead of the app's regular-width default, so a word sized to fit a
@@ -2350,6 +2352,56 @@ kbd {
      preview. The letterboxing is the honest representation. */
   min-height: 48vh;
   background: center / contain no-repeat;
+}
+
+/* Redaction drafting. No transition or animation anywhere in this block, and
+   that is deliberate twice over: a box must appear exactly where the finger is
+   with no easing between, and test/motion-contract.js's rule (every duration
+   comes from a --motion-* token) has nothing to catch here because there are no
+   durations. */
+.redact-overlay {
+  position: absolute;
+  /* left/top/width/height are set by js/scanDoc.js from the page image's own
+     `contain` rect - see positionRedactOverlay(). */
+  cursor: crosshair;
+  touch-action: none; /* or the browser pans the page instead of drawing a box */
+  z-index: 2;
+}
+
+.redact-box {
+  position: absolute;
+  background: #000;
+  /* Matches the round caps js/annotate.js burns in, so the preview and the
+     resulting pixels are the same shape rather than nearly the same shape. */
+  border-radius: 9999px;
+}
+
+.redact-panel {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 0.75rem 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+.redact-panel__hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.redact-panel__count {
+  margin: 0 0 0.6rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.redact-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .page-preview__empty {
