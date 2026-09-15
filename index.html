@@ -621,7 +621,28 @@
               <button data-scan-action="recognize" class="btn btn--secondary btn--small" type="button" data-needs-pages>Recognize text</button>
               <button data-scan-action="recognize-all" class="btn btn--secondary btn--small" type="button" data-needs-pages>Recognize all pages</button>
               <button data-scan-action="copy-text" class="btn btn--secondary btn--small" type="button" data-needs-pages>Copy text</button>
+              <button data-scan-action="pii-scan" class="btn btn--secondary btn--small" type="button" data-needs-pages>Find PII</button>
               <span id="scan-export-status" class="scan-doc__status" role="status"></span>
+            </div>
+
+            <!-- The PII candidate picker. Selecting candidates here and pressing
+                 "Redact selected" hands them straight to the SAME redaction
+                 draft/apply flow a hand-drawn box uses (js/scanDoc.js's
+                 redactSelectedPii) - this panel only ever decides WHICH boxes,
+                 never applies one itself. See js/piiDetect.js for what "PII"
+                 means here and its stated limits. -->
+            <div id="scan-pii-panel" class="pii-panel hidden" role="group" aria-label="PII candidates">
+              <p class="pii-panel__hint">
+                Format-shaped matches only (SSN, credit card numbers, email addresses, common phone formats) -
+                not a guarantee every real one on this page is found, or that everything found is really PII.
+                Review the list before redacting.
+              </p>
+              <p id="scan-pii-summary" class="pii-panel__summary" role="status" aria-live="polite"></p>
+              <ul id="scan-pii-list" class="pii-panel__list"></ul>
+              <div class="pii-panel__actions">
+                <button id="scan-pii-redact-selected" data-scan-action="pii-redact-selected" class="btn btn--primary btn--small" type="button" disabled>Redact selected</button>
+                <button data-scan-action="pii-cancel" class="btn btn--ghost btn--small" type="button">Cancel</button>
+              </div>
             </div>
 
             <div class="scan-doc__export">

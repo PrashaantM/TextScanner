@@ -51,6 +51,7 @@ What this doesn't claim: better raw recognition accuracy than those tools on har
 - **Multi-page documents** with drag reordering (and Alt+arrow keys, so it works with a screen reader), rotation, and per-page or whole-document OCR.
 - **Export to searchable PDF.** The recognized text is laid invisibly over the page image, so the file looks like a scan and its text can still be searched, selected and copied. Also exports plain images or plain text.
 - **Signatures and markup** — pen and highlighter are stored as vectors so they can be undone, and burned into the pixels only at export. **Redaction is the exception, deliberately:** applying one burns the boxes in *and* deletes that page's unredacted original from the device, behind two confirmations. It can't be undone afterwards, and restoring an older backup won't bring the original back either. That is what makes the black box a redaction rather than a sticker.
+- **Find PII**, over a page's recognized text (after "Recognize text" has run): format-shaped SSNs, Luhn-validated credit card numbers, email addresses, and US/international-format phone numbers. Not a guarantee every real one is found or that every match is really PII — it's a candidate list to review, not an auto-redactor. Selecting candidates and pressing "Redact selected" feeds them through the exact same redaction flow above; there's no separate, second way PII gets removed.
 
 ### Notes
 
@@ -142,6 +143,9 @@ Scanned documents
   js/scanFilters.js   The six page filters
   js/annotate.js      Pen, highlighter and redaction (see its header on
                       why redaction alone is not undoable)
+  js/piiDetect.js     Finds PII-shaped text in a page's OCR words and bridges
+                      a match into a redaction box (see its header on why
+                      this, not the separate OCR/image-format editor)
   js/pdf.js           Hand-written PDF writer with an invisible OCR text layer
 
 Recognition

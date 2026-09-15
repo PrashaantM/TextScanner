@@ -60,6 +60,7 @@ import {
 import { warpPerspective } from "./perspective.js";
 import { isFullFrame } from "./edgeDetect.js";
 import { burnAnnotations, hasRedaction, createStroke, addPoint, TOOLS } from "./annotate.js";
+import { detectPiiInWords, bboxToNormalizedBox } from "./piiDetect.js";
 import { buildPdf, blobToUint8Array, PAPER_SIZES } from "./pdf.js";
 import { recognizeImage } from "./recognize.js";
 import { showView, VIEWS } from "./views.js";
@@ -84,6 +85,18 @@ let busy = false;
 let redactMode = false;
 let draftBoxes = [];
 let dragStart = null;
+
+// ---- PII scan state ----
+//
+// A separate draft-before-picker step, upstream of the redaction draft above:
+// `piiCandidates` holds what detectPiiInWords found on the CURRENT page the
+// last time "Find PII" was pressed, and `piiSelected` holds which of them are
+// checked in that list right now. Neither has touched a page or a stroke -
+// "Redact selected" is the one place this state turns into `draftBoxes`, at
+// which point control passes entirely to the existing redaction draft/apply
+// code above. There is deliberately no separate apply path here.
+let piiCandidates = [];
+let piiSelected = new Set();
 
 // ---- Image helpers ----
 
@@ -384,14 +397,18 @@ function renderDraftBoxes() {
   }
 }
 
-function setRedactMode(on) {
+function setRedactMode(on, seedBoxes = []) {
   redactMode = on;
-  draftBoxes = [];
+  draftBoxes = on ? [...seedBoxes] : [];
   dragStart = null;
   elements.redactPanel?.classList.toggle("hidden", !on);
   elements.redactOverlay?.classList.toggle("hidden", !on);
   if (on) positionRedactOverlay();
   renderDraftBoxes();
+  // Mutually exclusive with the PII picker: both draw into the same overlay
+  // and the same draftBoxes array, so leaving one open under the other would
+  // mean a click meant for one panel lands on the other's control instead.
+  closePiiPanel();
 }
 
 // One drag, one box, in normalized 0-1 coordinates against the PAGE image.
@@ -470,6 +487,90 @@ async function applyRedaction() {
   // reach - see the undo story in this section's header.
   setRedactMode(false);
   hapticMedium();
+}
+
+// ---- PII scan ----
+//
+// The bridge described in js/piiDetect.js's header, made concrete: run the
+// detector over the selected page's `page.words`, let the person pick which
+// candidates to act on, then hand the selected set to the SAME draft/apply
+// machinery a hand-drawn box already goes through. Nothing below burns a
+// pixel or touches storage - that still only happens in applyRedaction.
+
+function closePiiPanel() {
+  piiCandidates = [];
+  piiSelected = new Set();
+  elements.piiPanel?.classList.add("hidden");
+}
+
+function renderPiiList() {
+  if (!elements.piiList) return;
+
+  elements.piiList.innerHTML = piiCandidates
+    .map(
+      (c, index) => `
+      <li class="pii-candidate">
+        <label>
+          <input type="checkbox" data-pii-index="${index}" ${piiSelected.has(index) ? "checked" : ""} />
+          <span class="pii-candidate__kind">${escapeHtml(c.label)}</span>
+          <span class="pii-candidate__text">${escapeHtml(c.maskedText)}</span>
+        </label>
+      </li>`
+    )
+    .join("");
+
+  if (elements.piiSummary) {
+    elements.piiSummary.textContent = piiCandidates.length
+      ? `${piiCandidates.length} candidate${piiCandidates.length === 1 ? "" : "s"} found - ` +
+        `${piiSelected.size} selected.`
+      : "No PII-shaped text found on this page.";
+  }
+  if (elements.piiRedactSelected) elements.piiRedactSelected.disabled = piiSelected.size === 0;
+}
+
+// Guarded the same way recognizeSelected's OWN callers are: this reads
+// page.words, which only exists once "Recognize text" has run on this page.
+async function runPiiScan() {
+  const page = selectedPage();
+  if (!page) return;
+
+  if (redactMode) setRedactMode(false); // drop any unrelated hand-drawn draft first
+
+  if (!page.words?.length) {
+    window.alert('Run "Recognize text" on this page first - PII is found in its recognized words.');
+    return;
+  }
+
+  piiCandidates = detectPiiInWords(page.words);
+  // Pre-selected: the point of this panel is to catch things, and unchecking
+  // a false positive is a lighter action than having to check every real one
+  // individually on a page that might carry several.
+  piiSelected = new Set(piiCandidates.map((_, i) => i));
+  elements.piiPanel?.classList.toggle("hidden", false);
+  renderPiiList();
+}
+
+function togglePiiCandidate(index) {
+  if (piiSelected.has(index)) piiSelected.delete(index);
+  else piiSelected.add(index);
+  renderPiiList();
+}
+
+// Converts the SELECTED candidates into normalized boxes (js/piiDetect.js's
+// bboxToNormalizedBox - the one real coordinate conversion in this feature)
+// and opens the existing redaction draft pre-populated with them. From this
+// point on it is exactly the hand-drawn flow: adjustable via Undo, cancellable,
+// and only ever committed through applyRedaction's two confirms.
+function redactSelectedPii() {
+  const page = selectedPage();
+  if (!page || !piiSelected.size) return;
+
+  const boxes = piiCandidates
+    .filter((_, i) => piiSelected.has(i))
+    .map((c) => bboxToNormalizedBox(c.bbox, page.width, page.height))
+    .filter(Boolean);
+
+  setRedactMode(true, boxes);
 }
 
 // ---- Page operations ----
@@ -749,7 +850,7 @@ export async function openScanDoc(doc, { onChanged } = {}) {
 }
 
 export async function closeScanDoc() {
-  setRedactMode(false);
+  setRedactMode(false); // also closes the PII panel - see its own end
   releasePageUrls();
   currentDoc = null;
   pages = [];
@@ -785,6 +886,10 @@ export function initScanDoc({ onAddPage } = {}) {
     redactCount: document.getElementById("scan-redact-count"),
     redactUndo: document.getElementById("scan-redact-undo"),
     redactApply: document.getElementById("scan-redact-apply"),
+    piiPanel: document.getElementById("scan-pii-panel"),
+    piiSummary: document.getElementById("scan-pii-summary"),
+    piiList: document.getElementById("scan-pii-list"),
+    piiRedactSelected: document.getElementById("scan-pii-redact-selected"),
   };
 
   if (!elements.root) return;
@@ -827,6 +932,7 @@ export function initScanDoc({ onAddPage } = {}) {
     const filterButton = event.target.closest("[data-filter]");
     if (filterButton) {
       if (redactMode) setRedactMode(false);
+      closePiiPanel();
       await setFilter(filterButton.dataset.filter);
       return;
     }
@@ -836,6 +942,7 @@ export function initScanDoc({ onAddPage } = {}) {
       // A draft belongs to the page it was drawn on. Carrying it to another
       // page would place boxes by coordinate over content nobody chose.
       if (redactMode) setRedactMode(false);
+      closePiiPanel();
       selectedPageId = thumb.dataset.page;
       await renderStrip();
       await renderPreview();
@@ -846,6 +953,7 @@ export function initScanDoc({ onAddPage } = {}) {
     if (!action) return;
 
     if (redactMode && DROPS_REDACT_DRAFT.has(action)) setRedactMode(false);
+    if (piiCandidates.length && DROPS_REDACT_DRAFT.has(action)) closePiiPanel();
 
     switch (action) {
       case "add-page":
@@ -875,6 +983,15 @@ export function initScanDoc({ onAddPage } = {}) {
         break;
       case "redact-cancel":
         setRedactMode(false);
+        break;
+      case "pii-scan":
+        await runPiiScan();
+        break;
+      case "pii-redact-selected":
+        redactSelectedPii();
+        break;
+      case "pii-cancel":
+        closePiiPanel();
         break;
       case "move-left":
         await commitOrder(movePage(selectedPageId, -1));
@@ -906,6 +1023,16 @@ export function initScanDoc({ onAddPage } = {}) {
       default:
         break;
     }
+  });
+
+  // PII candidate checkboxes. `change`, not `click`: a label wrapping the input
+  // means clicking the label also fires a synthetic click on the input before
+  // the browser has updated `.checked`, so reading `.checked` in a click
+  // handler would see the PREVIOUS state.
+  elements.piiList?.addEventListener("change", (event) => {
+    const checkbox = event.target.closest("[data-pii-index]");
+    if (!checkbox) return;
+    togglePiiCandidate(Number(checkbox.dataset.piiIndex));
   });
 
   // Redaction drag. Pointer events rather than mouse events, so a finger on a

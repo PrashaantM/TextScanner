@@ -182,6 +182,7 @@ The CI half asserts HEIC fails **safely** where there is no codec: a categorized
 - [ ] **Redact something, export, and reopen the export.** Confirm the redacted content is genuinely gone from the exported file, not just covered
 - [ ] **Then confirm it is gone from the device too.** After applying the redaction, change that page's filter and rotate it. The covered content must not reappear — those operations re-derive the page from `originalBlobKey`, and applying the redaction is what repoints it at the redacted image (`test/redaction-destroys-original.js` gates this in CI; this is the on-device half)
 - [ ] **Back up before redacting, redact, then restore that backup.** The original must not come back. The backup file itself still holds it — that is expected and unavoidable — but the app must refuse to write it back
+- [ ] **Recognize text on a page with a real SSN/card/email/phone in it, then "Find PII."** CI's `test/pii-redaction.js` only exercises this against Tesseract (the web engine); this device runs ML Kit instead, whose word boxes can carry a rotated `frame` alongside the axis-aligned `bbox` js/piiDetect.js actually uses (see its header) — confirm a candidate found on tilted text still redacts the right area, not a rotated sliver of it
 
 ---
 

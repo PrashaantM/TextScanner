@@ -476,7 +476,21 @@ async function engineCanDecodeSource(previewImg) {
 // UI-agnostic and leaves rendering the progress bar to the caller.
 export async function recognizeImage(previewImg, naturalWidth, naturalHeight, onProgress) {
   const PSM = { ...FALLBACK_PSM, ...((window.Tesseract && window.Tesseract.PSM) || {}) };
-  const worker = await window.Tesseract.createWorker("eng", 1, { ...tesseractAssetPaths(), logger: onProgress });
+  // `logger` defaults to a no-op, never to the caller's `onProgress` directly.
+  // js/scanDoc.js's two call sites pass `null` deliberately - a scan document
+  // page has its own busy indicator (withBusy) rather than a live progress
+  // percentage - and tesseract.min.js's worker dispatcher calls `logger` on
+  // every progress tick with no null-check of its own, throwing "b is not a
+  // function" from inside its minified onmessage handler on EVERY tick. That
+  // is a real, uncaught page error, not cosmetic: found because
+  // test/pii-redaction.js is the first gate to click the real scan-doc
+  // "Recognize text" button with a pageerror listener attached - main.js's own
+  // call (VIEWS.SCAN) always passes a real function, so this path had simply
+  // never been exercised with error-checking on before.
+  const worker = await window.Tesseract.createWorker("eng", 1, {
+    ...tesseractAssetPaths(),
+    logger: onProgress || (() => {}),
+  });
 
   const runPass = async (source, width, height, psm, preprocessed) => {
     await worker.setParameters({ tessedit_pageseg_mode: psm });

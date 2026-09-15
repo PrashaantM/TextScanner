@@ -40,7 +40,7 @@ Checked today rather than carried forward from `HANDOFF.md`:
 | 60 unit tests pass | `node --test test/unit/*.test.js` — 60 pass, 0 fail |
 | The newest browser gate passes | `node test/interaction-layer.js` — all 24 checks green |
 | Last CI run on `main` green | run `34673998815`, 3m30s |
-| 46 modules, 15,284 lines in `js/` | `wc -l js/*.js` |
+| 47 modules, 15,725 lines in `js/` | `wc -l js/*.js` |
 | Tracked repo 8.87 MiB; `vendor/tesseract` is 11 MB of it on disk | `git count-objects -vH`, `du` |
 
 **Jekyll is not eating anything.** Its default excludes cover `vendor/bundle`,
@@ -63,10 +63,17 @@ looping every `getElementById("…")` literal against the markup — zero missin
 | `e181738` | 71 | `coherence-gate-hint` |
 | `a511ac0` | 72 | `footer-version` (W12) |
 
-Treat **72** as the invariant from here on. `index.html` carries 160 ids in total;
-the other 88 are resolved locally by `app.js`, `library.js`, `scanDoc.js` etc. and
+Treat **72** as the invariant from here on. `index.html` carries 164 ids in total;
+the other 92 are resolved locally by `app.js`, `library.js`, `scanDoc.js` etc. and
 are *not* the protected contract — though `add-to-doc-btn` and `save-note-btn`
 (queried directly in `js/main.js:1141-1142`) behave like it in practice.
+
+**`EXPECTED_ID_COUNT` did not move for the PII-detection work either, for the
+same reason as the redaction ids above.** "Find PII" added five ids
+(`scan-pii-panel`, `scan-pii-summary`, `scan-pii-list`, `scan-pii-redact-selected`,
+and the button carrying `data-scan-action="pii-scan"` needs none of its own) -
+all resolved by `js/scanDoc.js`, not `js/dom.js`. The total moved 160 → 164;
+the protected 72 did not.
 
 **`EXPECTED_ID_COUNT` did not move for the redaction work, and that is correct.**
 The six ids that commit added (`scan-redact-panel`, `scan-redact-overlay`,
@@ -78,7 +85,7 @@ have meant hoisting a scan-doc-local control into `js/dom.js` purely to make a
 number change, which is the opposite of what that gate is for. The figure that
 moved is the total: 154 → 160.
 
-### The 27 CI gates, and which ones a change can actually break
+### The 28 CI gates, and which ones a change can actually break
 
 `.github/workflows/ci.yml` runs gate 1 immediately (it needs nothing), gates
 2 and 3 right after (also nothing - see their own comments), then `npm ci` +
@@ -111,17 +118,32 @@ file actually runs them:
 | 22 | `interaction-layer.js` | Yes |
 | 23 | `destructive-actions.js` | Yes, through the real dialog-gated controls |
 | 24 | `redaction-destroys-original.js` — **added by the redaction change** | Yes — the real Redact button, a real drag, and both confirms; asserts against `STORES.BLOBS` directly |
-| 25 | `radial-call-sites.js` | Yes |
-| 26 | `inpaint-fidelity.js` | No — imports `/js/inpaint.js` and drives the algorithm directly |
-| 27 | `backup-roundtrip.js` | Partly - mostly imports `/js/store.js`, `/js/documents.js` and `/js/backup.js` directly, but "Delete all local data" goes through the real `#settings-delete-all` button |
+| 25 | `pii-redaction.js` — **added by the PII-detection change** | Yes — the real "Find PII"/"Redact selected" buttons, plus one real OCR pass on the corpus and two on synthetic-but-real-OCR fixtures |
+| 26 | `radial-call-sites.js` | Yes |
+| 27 | `inpaint-fidelity.js` | No — imports `/js/inpaint.js` and drives the algorithm directly |
+| 28 | `backup-roundtrip.js` | Partly - mostly imports `/js/store.js`, `/js/documents.js` and `/js/backup.js` directly, but "Delete all local data" goes through the real `#settings-delete-all` button |
 
-This table drifts every time a gate is added, and it has now moved four
-times in four sessions - **recount `.github/workflows/ci.yml`'s `test:` job
+This table drifts every time a gate is added, and it has now moved five
+times in five sessions - **recount `.github/workflows/ci.yml`'s `test:` job
 directly before trusting this number again**, rather than carrying this one
-forward. The 27 above was counted that way
+forward. The 28 above was counted that way
 (`awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml | grep -c
-'^      - run: node'`), not by adding one to the 26 that was here. See this
+'^      - run: node'`), not by adding one to the 27 that was here. See this
 section's standing rule at the top of §0.
+
+**What gate 25 is protecting.** PII detection runs over `page.words` (a scan
+document page's real OCR result), not `state.editorObjects` (the separate,
+disconnected OCR/image-format editor in `js/main.js`'s VIEWS.SCAN) - the two
+were checked, not assumed, to have no existing bridge between them at all
+(`js/piiDetect.js`'s header has the full reasoning). A detected candidate's
+OCR bbox and a hand-drawn redaction box already share the same coordinate
+space because `rebuildPage` bakes crop/rotation/filter into a page's pixels
+before anything OCRs them - so the bridge is one division, not a transform -
+and the gate proves that against a page that has actually been rotated, using
+an independent pixel-darkness scan as ground truth rather than checking the
+code against its own output. Selected candidates are converted to boxes and
+handed to the EXISTING `applyRedaction` draft/confirm/destroy path (gate 24);
+this gate does not re-prove destruction, only that the bridge reaches it.
 
 **What gate 24 is protecting, since it is a contract change rather than a new
 feature.** Redaction used to keep the page's untouched original in IndexedDB
@@ -418,7 +440,7 @@ exit=1
 
 Both restorations returned to green with a clean `git diff`.
 
-**Scope, deliberately narrow.** `js/dom.js` only. `index.html` carries 160 ids;
+**Scope, deliberately narrow.** `js/dom.js` only. `index.html` carries 164 ids;
 widening this to all of them trades a precise contract for a noisy one. The gate's
 header names `add-to-doc-btn` and `save-note-btn` (`js/main.js:1141-1142`) as
 honourable mentions — `main.js` queries them directly and treats them like the

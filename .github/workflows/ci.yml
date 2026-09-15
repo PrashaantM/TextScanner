@@ -151,6 +151,21 @@ jobs:
       # the restore path, because a backup taken BEFORE a destruction still
       # contains the original and the importer's job is to add blobs it lacks.
       - run: node test/redaction-destroys-original.js
+      # PII detection over a scan-doc page's real OCR words (page.words), the
+      # bridge that turns a detected candidate's bbox into a redaction box in
+      # the page's own normalized coordinate space, and the one-tap flow that
+      # hands selected candidates to the SAME redact/destroy path gate 24
+      # already covers - no second, parallel redaction mechanism. Detection
+      # accuracy is checked against the real 11-image benchmark corpus first
+      # (one image, complexPic3, has real PII-shaped ground truth; the gate
+      # states plainly that today's OCR quality on it is too poor to find it -
+      # a real, stated negative result, not a bug) and then against synthetic
+      # text run through the real OCR engine (labeled as synthetic, not
+      # corpus evidence). The coordinate bridge is checked on a page that has
+      # actually been rotated, against an INDEPENDENT ground truth computed by
+      # a plain pixel-darkness scan - not merely the code checked against
+      # itself.
+      - run: node test/pii-redaction.js
       # All three radial call sites, at both sides of the 600px breakpoint.
       # interaction-layer.js covers call sites 1 and 2 and never touches call
       # site 3 (#theme-btn) - the one the interaction spec's own rollout order
