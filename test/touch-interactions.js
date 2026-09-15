@@ -17,9 +17,17 @@
 // which appears next to resize-handle on selection, rather than from the
 // word's own body - a tap always edits/selects; move-handle is what drags.
 // Marquee is a press-and-hold-then-drag starting on empty canvas rather than
-// a button-armed mode, and (also per §2.3) the background image is no longer
-// a draggable object anywhere, so marquee is reachable in Full image mode
-// now too, not only Image format - both are checked below.
+// a button-armed mode.
+//
+// The background image (obj-bg) is a real selectable/moveable object too,
+// the same as it was before this redesign - §2.3 was never about it, and an
+// earlier revision of this branch removed it by mistake (a real regression,
+// not a planned decision; restored). It's selected the same way a word is -
+// tap it, then drag from the same move-handle/resize-handle pair - rather
+// than the old direct-body drag. Checked below alongside marquee, since the
+// two interact: a press on the photo goes to selecting/dragging it, not to
+// marquee, so marquee's reachability in Full image mode is checked rather
+// than assumed either way.
 //
 // One thing that looks like a failure and is not, learned while writing this:
 //   - Targets must be scrolled into the viewport first. A tap at y=1064 in an
@@ -128,9 +136,26 @@ await page.click("#mode-full-btn");
 await page.evaluate(async () => {
   const { state } = await import("/js/state.js");
   window.__state = state;
-  document.getElementById("image-format-view").scrollIntoView({ block: "start" });
 });
-await page.waitForTimeout(300);
+// scrollIntoView({block:"start"}) alone can leave the view's own top edge a
+// few px above the viewport (font/image reflow after the call), which is
+// close enough to 0 that it doesn't matter for a WORD's handles but matters
+// a great deal for the background image's move-handle: obj-bg sits at
+// x:0,y:0, so its move-handle sits exactly at the container's top-left
+// corner - the one spot the sticky app bar can still be covering after a
+// naive scroll. Scrolling with real clearance past the app bar's own bottom
+// edge is what section 4 below needs to actually reach that handle.
+async function scrollSurfaceIntoView() {
+  await page.evaluate(() => {
+    const view = document.getElementById("image-format-view");
+    const appBar = document.getElementById("app-bar");
+    const r = view.getBoundingClientRect();
+    const chromeBottom = appBar ? appBar.getBoundingClientRect().bottom : 0;
+    window.scrollBy(0, r.top - chromeBottom - 20);
+  });
+  await page.waitForTimeout(300);
+}
+await scrollSurfaceIntoView();
 
 // ---- 1. Touch: tap a word to select it (a tap always edits/selects now -
 // UI-REDESIGN-PLAN.md §2.3), then drag it via move-handle, which appears at
@@ -184,6 +209,13 @@ if (handle.w < 24 || handle.h < 24) failures.push(`resize handle hit target is $
 // "empty", the real touch landed on a word anyway), so this checks the thing
 // a touch actually has to avoid instead of trusting a second hit-test API to
 // agree with the first.
+//
+// In Full image mode specifically, "clear of every word" is no longer the
+// same thing as "empty canvas": obj-bg is full-bleed, so every such point
+// sits on the (now selectable) photo. That's intentional here, not a gap in
+// this helper - section 4 below relies on exactly that to reach the image,
+// and the marquee section right after this one relies on it to check where a
+// press actually goes now.
 async function findEmptyPoint() {
   return page.evaluate(() => {
     const view = document.getElementById("image-format-view");
@@ -214,11 +246,33 @@ async function findEmptyPoint() {
 }
 
 // ---- 3. Marquee by touch: press-and-hold on empty canvas, then drag.
-// Checked in both Image format AND Full image mode now - UI-REDESIGN-PLAN.md
-// §2.3 removed the background image as a draggable object, which is
-// specifically what used to make Full image's surface have nowhere for a
-// marquee to start from. ----
-async function marqueeByTouch(modeBtnId, label) {
+//
+// Deliberately runs BEFORE section 4 (background image drag/resize) below,
+// not after: section 4 moves and shrinks-or-grows obj-bg away from its
+// default full-bleed x:0,y:0,w:100,h:100, which opens up real empty canvas
+// even in Full image mode. Run in that order, a "clear of every word" point
+// here would sometimes land on genuinely empty canvas and sometimes on the
+// image depending on where section 4 last left it - a flake this file
+// exists to avoid, not reproduce. Running marquee first, against the
+// pristine full-bleed image every fresh Full-image-mode session actually
+// starts with, is what makes the result below deterministic.
+//
+// Image format mode still has real empty canvas around/between words, so
+// marquee is checked there as a straightforward success case.
+//
+// Full image mode is different now that obj-bg is selectable again (section
+// 4 below): the background photo is full-bleed, so there is no point on
+// that surface that is not the photo - the same press that would start a
+// marquee lands on the image instead and selects/drags IT, exactly like
+// every pre-redesign build. Confirmed empirically (CDP touch, not reasoned
+// out on paper): a press-hold-then-drag on a "clear of every word" point in
+// Full image mode selects obj-bg (selectedCount 1, is-selected true,
+// marqueeMode stays false) and the drag falls through to the page's own
+// scroll, rather than growing a selection past 1. So this mode's case below
+// asserts that non-reachability directly instead of the old
+// selectedCount > 1 success check, which described a marquee that only
+// existed because the image had been (mistakenly) made unselectable. ----
+async function marqueeByTouch(modeBtnId, label, { expectMarquee } = { expectMarquee: true }) {
   await page.click(modeBtnId);
   await page.evaluate(async () => {
     // clearSelection(), not a raw Set.clear() - the raw Set never hides
@@ -238,16 +292,43 @@ async function marqueeByTouch(modeBtnId, label) {
   const y1 = Math.min(start.y + 300, (await page.evaluate(() => innerHeight)) - 8);
   await touchPressHoldDrag({ x: start.x, y: start.y }, { x: start.right - 8, y: y1 }, { holdMs: 500, steps: 14 });
   await page.waitForTimeout(200);
-  const selectedCount = await page.evaluate(() => window.__state.selectedObjectIds.size);
+  const result = await page.evaluate(() => ({
+    selectedCount: window.__state.selectedObjectIds.size,
+    selected: [...window.__state.selectedObjectIds],
+    marqueeMode: window.__state.marqueeMode,
+  }));
   console.log(`3. MARQUEE BY TOUCH (${label})`);
-  console.log("   start point:", start, "| objects selected:", selectedCount, selectedCount > 1 ? "(ok)" : "- FAIL");
-  if (selectedCount <= 1) failures.push(`touch marquee in ${label} selected ${selectedCount} objects`);
+  console.log("   start point:", start, "| result:", result);
+  if (expectMarquee) {
+    console.log("   ->", result.selectedCount > 1 ? "MARQUEE SELECTED MULTIPLE (ok)" : "NOT SELECTED - FAIL");
+    if (result.selectedCount <= 1) failures.push(`touch marquee in ${label} selected ${result.selectedCount} objects`);
+  } else {
+    // The press landed on the now-selectable background image instead of
+    // starting a marquee: exactly one object selected (obj-bg), and
+    // marqueeMode never armed.
+    const isBgOnly = result.selectedCount === 1 && result.selected[0] === "obj-bg";
+    console.log("   ->", isBgOnly && !result.marqueeMode ? "SELECTED THE IMAGE, NOT MARQUEE (ok)" : "UNEXPECTED - FAIL");
+    if (!isBgOnly) failures.push(`touch press-hold-drag in ${label} was expected to select only obj-bg, got ${JSON.stringify(result.selected)}`);
+    if (result.marqueeMode) failures.push(`touch press-hold-drag in ${label} armed marqueeMode even though the press landed on the background image`);
+  }
 }
 await marqueeByTouch("#mode-image-btn", "Image format mode");
-await marqueeByTouch("#mode-full-btn", "Full image mode");
+// The background image absorbs every press here now (restored below the
+// dispatcher's objEl branch - see section 4 further down for the direct
+// tap-select/move/resize coverage), so this is a not-reachable-there check,
+// matching the pre-redesign app - see the comment above marqueeByTouch for
+// how that was confirmed.
+await marqueeByTouch("#mode-full-btn", "Full image mode", { expectMarquee: false });
 
 // ---- 3b. A quick drag (below the 420ms hold threshold) keeps scrolling/
-// panning exactly as it does today, rather than arming a marquee ----
+// panning exactly as it does today, rather than arming a marquee.
+//
+// In Full image mode the touch point findEmptyPoint returns is the
+// background image (the marquee case just above), so the quick press
+// legitimately selects obj-bg here - that's correct, not a regression. What
+// this check actually guards is narrower now: the press must not escalate
+// into a marquee (marqueeMode/multi-select), and the drag must still scroll
+// the page rather than the touch being consumed some other way. ----
 await page.evaluate(async () => {
   const { clearSelection } = await import("/js/editorObjects.js");
   clearSelection();
@@ -260,13 +341,103 @@ if (!scrollStart) failures.push("quick-drag-scrolls check: could not find an emp
 else await touchDrag({ x: scrollStart.x, y: scrollStart.y }, { x: scrollStart.x, y: scrollStart.y - 340 }, 10);
 await page.waitForTimeout(200);
 const scrollAfter = await page.evaluate(() => window.scrollY);
-const selectedAfterQuickDrag = await page.evaluate(() => window.__state.selectedObjectIds.size);
+const afterQuickDrag = await page.evaluate(() => ({
+  selectedCount: window.__state.selectedObjectIds.size,
+  selected: [...window.__state.selectedObjectIds],
+  marqueeMode: window.__state.marqueeMode,
+}));
 console.log("3b. QUICK DRAG STILL SCROLLS (Full image mode)");
-console.log("   scrollY:", scrollBefore, "->", scrollAfter, "| objects selected:", selectedAfterQuickDrag);
+console.log("   scrollY:", scrollBefore, "->", scrollAfter, "| result:", afterQuickDrag);
 if (scrollAfter === scrollBefore) failures.push("a quick drag on empty canvas did not scroll the page - the marquee hold may be intercepting quick drags too");
-if (selectedAfterQuickDrag > 0) failures.push("a quick drag on empty canvas armed a marquee (selected something) instead of just scrolling");
+if (afterQuickDrag.marqueeMode) failures.push("a quick drag on empty canvas armed marqueeMode instead of just scrolling");
+if (afterQuickDrag.selectedCount > 1) failures.push(`a quick drag on empty canvas selected ${afterQuickDrag.selectedCount} objects (marquee), not just the one object under the touch`);
 
-console.log("4. UNDO after touch gestures:", (await page.$eval("#undo-btn", (el) => el.disabled)) ? "DISABLED - gestures did not register" : "enabled (ok)");
+// ---- 4. Background image: tap-select, then move-handle drag and
+// resize-handle resize - the same mechanism as a word (§2.3's move-handle/
+// resize-handle pair), not the old direct-body drag. obj-bg
+// (js/editorObjects.js's renderImageFormatView) is a real selectable/
+// moveable object in Full image mode, matching the README's "moving and
+// resizing the text and the image itself, freely and independently." An
+// earlier revision of this branch made it permanently unselectable by
+// mistake - a real regression, not a planned decision; restored here, and
+// covered directly rather than taken on faith.
+//
+// Runs last, after the marquee checks above: moving/resizing obj-bg away
+// from its default full-bleed coverage opens up real empty canvas even in
+// Full image mode, which would change what "clear of every word" means for
+// section 3's marquee check if this ran first. See the comment there.
+// Already in Full image mode here (section 3's Full-image marquee case and
+// section 3b both leave it there), so no mode switch is needed. ----
+await page.evaluate(async () => {
+  const { clearSelection } = await import("/js/editorObjects.js");
+  clearSelection();
+});
+await scrollSurfaceIntoView();
+// obj-bg is (still, at this point) full-bleed (x:0,y:0,w:100,h:100), so any
+// point clear of every word necessarily lands on the image - findEmptyPoint
+// is reused as-is for that reason, not because it was changed to target the
+// image.
+const bgPoint = await findEmptyPoint();
+console.log("4. BACKGROUND IMAGE TAP-SELECT + MOVE-HANDLE DRAG + RESIZE-HANDLE");
+if (!bgPoint) {
+  failures.push("background image tap-select: no point on the image surface was clear of every word to tap");
+} else {
+  await tap(bgPoint);
+  await page.waitForTimeout(150);
+  const bgSelection = await page.evaluate(() => ({
+    ids: [...window.__state.selectedObjectIds],
+    outlined: document.getElementById("image-format-bg").classList.contains("is-selected"),
+  }));
+  console.log("   selected after tap:", bgSelection.ids, "| is-selected class:", bgSelection.outlined);
+  if (bgSelection.ids.length !== 1 || bgSelection.ids[0] !== "obj-bg") failures.push(`tapping the background image selected ${JSON.stringify(bgSelection.ids)} instead of just obj-bg`);
+  if (!bgSelection.outlined) failures.push("background image did not get the is-selected outline after tap-select");
+
+  const readBg = () => page.evaluate(() => {
+    const o = window.__state.editorObjects.find((x) => x.id === "obj-bg");
+    return { x: +o.x.toFixed(3), y: +o.y.toFixed(3), w: +o.w.toFixed(3), h: +o.h.toFixed(3) };
+  });
+  // obj-bg's full-bleed position puts its handles at the CONTAINER's own
+  // corners, which - unlike a typical word away from the edges - can sit
+  // below a container taller than the viewport even after
+  // scrollSurfaceIntoView (which only guarantees the container's TOP edge
+  // clears the app bar). scrollIntoView on each handle itself, right before
+  // dragging it, is what actually gets it on-screen; relying on the one
+  // upfront scroll intermittently missed it here.
+  const bgBeforeMove = await readBg();
+  await page.evaluate(() => document.getElementById("move-handle").scrollIntoView({ block: "center" }));
+  await page.waitForTimeout(200);
+  const bgMoveHandle = await page.evaluate(() => {
+    const el = document.getElementById("move-handle");
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, visible: getComputedStyle(el).display !== "none" };
+  });
+  if (!bgMoveHandle.visible) failures.push("move-handle did not appear after tap-selecting the background image");
+  await touchDrag(bgMoveHandle, { x: bgMoveHandle.x + 55, y: bgMoveHandle.y + 70 });
+  await page.waitForTimeout(150);
+  const bgAfterMove = await readBg();
+  console.log("   position:", `${bgBeforeMove.x},${bgBeforeMove.y}`, "->", `${bgAfterMove.x},${bgAfterMove.y}`);
+  if (bgAfterMove.x === bgBeforeMove.x && bgAfterMove.y === bgBeforeMove.y) failures.push("touch drag from move-handle did not move the background image");
+
+  await page.evaluate(() => document.getElementById("resize-handle").scrollIntoView({ block: "center" }));
+  await page.waitForTimeout(200);
+  const bgResizeHandle = await page.evaluate(() => {
+    const el = document.getElementById("resize-handle");
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, visible: getComputedStyle(el).display !== "none" };
+  });
+  if (!bgResizeHandle.visible) failures.push("resize-handle did not appear while the background image was selected");
+  await touchDrag(bgResizeHandle, { x: bgResizeHandle.x + 40, y: bgResizeHandle.y + 40 });
+  await page.waitForTimeout(150);
+  const bgAfterResize = await readBg();
+  console.log("   size:", `${bgAfterMove.w}x${bgAfterMove.h}`, "->", `${bgAfterResize.w}x${bgAfterResize.h}`);
+  if (bgAfterResize.w === bgAfterMove.w && bgAfterResize.h === bgAfterMove.h) failures.push("touch drag on the resize handle did not resize the background image");
+}
+await page.evaluate(async () => {
+  const { clearSelection } = await import("/js/editorObjects.js");
+  clearSelection();
+});
+
+console.log("5. UNDO after touch gestures:", (await page.$eval("#undo-btn", (el) => el.disabled)) ? "DISABLED - gestures did not register" : "enabled (ok)");
 console.log("ERRORS:", errors.length ? errors : "(none)");
 if (errors.length) failures.push(`${errors.length} page error(s)`);
 await browser.close();
