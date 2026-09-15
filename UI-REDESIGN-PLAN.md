@@ -7,6 +7,31 @@ enough evidence to decide and would rather say so than guess quietly. Nothing
 in this document changes any code — no edits were made this session, by
 request, because another session is mid-flight on a separate change.
 
+---
+
+**Implementation status, 2026-09-15: §2 (all five control resolutions) and
+§3/§4 (design tokens, home-screen visual pass) are built** — the control
+merges, the handle-based move/marquee gestures from §2.3's prototype
+resolution, the sci-fi token system, and the library's glass/glow/mono visual
+pass. All 29 gates in the local suite (the 28 per-push CI gates plus a new
+`test/paste-placement.js`) pass, including real-touch coverage
+(`test/touch-interactions.js`, via CDP's `Input.dispatchTouchEvent` — genuine
+trusted touch input, not a synthesized approximation) for select-via-tap,
+drag-via-move-handle, resize-via-handle, press-and-hold marquee in both Image
+format and Full image mode, and quick-drag-still-scrolls.
+
+**One thing is not done: the real-device pass §2.3 itself requires before
+this ships.** No physical iOS device was reachable this session (the paired
+device showed `unavailable` via `xcrun devicectl` throughout) - specifically,
+confirm on a real device that a quick tap still edits with no perceptible
+delay, and that a full press-hold-drag-release completes reliably across
+several trials on both move-handle and empty canvas. The automated coverage
+above is strong (genuine touch events, not simulated ones) but is Chromium's
+touch pipeline, not WKWebView's - and it is not a substitute for the literal
+check §2.3 asks for. Do that pass before treating this as shippable; if it
+contradicts what's built, §2.3's own fallback (keep `selectMultiBtn` as an
+explicit toggle, ship only the Move conversion, or neither) is still live.
+
 ## 0. Scope and how this was built
 
 The task named three "real" views. The app's own markup (`index.html`'s

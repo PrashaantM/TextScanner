@@ -40,7 +40,7 @@ Checked today rather than carried forward from `HANDOFF.md`:
 | 60 unit tests pass | `node --test test/unit/*.test.js` — 60 pass, 0 fail |
 | The newest browser gate passes | `node test/interaction-layer.js` — all 24 checks green |
 | Last CI run on `main` green | run `34673998815`, 3m30s |
-| 47 modules, 15,725 lines in `js/` | `wc -l js/*.js` |
+| 47 modules, 15,929 lines in `js/` | `wc -l js/*.js` |
 | Tracked repo 8.87 MiB; `vendor/tesseract` is 11 MB of it on disk | `git count-objects -vH`, `du` |
 
 **Jekyll is not eating anything.** Its default excludes cover `vendor/bundle`,
@@ -51,10 +51,10 @@ empirically by the 200s above, so no `.nojekyll` is needed.
 `js/`, gzipped per-file, multiplexed on one connection. Don't add a bundler; the
 no-build-step property is worth more than the milliseconds.
 
-### The "68 DOM ids" number is stale — it is **72**
+### The "72 DOM ids" number is stale — it is **71**
 
-`js/dom.js` resolves 72 ids today, and all 72 exist in `index.html` (verified by
-looping every `getElementById("…")` literal against the markup — zero missing).
+`js/dom.js` resolves 71 ids today, and all 71 exist in `index.html` (verified by
+`node test/dom-contract.js`, not by eye).
 
 | Commit | ids in `dom.js` | What moved |
 |---|---|---|
@@ -62,11 +62,14 @@ looping every `getElementById("…")` literal against the markup — zero missin
 | `8d37a35` | 70 | `clean-up-text-btn`, `view-on-photo-btn` |
 | `e181738` | 71 | `coherence-gate-hint` |
 | `a511ac0` | 72 | `footer-version` (W12) |
+| (this session, uncommitted at time of writing) | 71 | UI-REDESIGN-PLAN.md §2.1-§2.5: removed `download-image-btn`, `clean-up-text-btn`, `view-on-photo-btn`, `select-multi-btn`, `editor-mode-btn` (merged into other controls or converted to gestures); added `paste-btn`, `download-menu`, `download-menu-backdrop`, `move-handle`. Net −1. |
 
-Treat **72** as the invariant from here on. `index.html` carries 164 ids in total;
-the other 92 are resolved locally by `app.js`, `library.js`, `scanDoc.js` etc. and
-are *not* the protected contract — though `add-to-doc-btn` and `save-note-btn`
-(queried directly in `js/main.js:1141-1142`) behave like it in practice.
+Treat **71** as the invariant from here on — the same digit as `e181738`, by
+coincidence of arithmetic, not because nothing changed since then. `index.html`
+carries 163 ids in total; the other 92 are resolved locally by `app.js`,
+`library.js`, `scanDoc.js` etc. and are *not* the protected contract — though
+`add-to-doc-btn` and `save-note-btn` (queried directly in
+`js/main.js:1141-1142`) behave like it in practice.
 
 **`EXPECTED_ID_COUNT` did not move for the PII-detection work either, for the
 same reason as the redaction ids above.** "Find PII" added five ids

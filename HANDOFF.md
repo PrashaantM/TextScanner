@@ -44,6 +44,13 @@ benchmark is **+0.00pts** — recognition was not touched.
 > document noticing. `test/dom-contract.js` runs first in CI and pins the
 > number, so the contract can no longer drift away from the prose describing it.
 > See `ANALYSIS.md` §8.2 and `WEB-COMPLETION-PLAN.md` §W3.
+>
+> **Updated 2026-09-15: 71 again, but not the same 71.** It moved to 72
+> (`a511ac0`, W12) and back down: the UI redesign (UI-REDESIGN-PLAN.md
+> §2.1-§2.5) removed five ids (merged controls, gestured-away mode toggles)
+> and added four (`paste-btn`, `download-menu`, `download-menu-backdrop`,
+> `move-handle`). `EXPECTED_ID_COUNT` in `test/dom-contract.js` moved with it,
+> in the same commit, per this section's own standing rule.
 
 `ANALYSIS.md` §8 is the addendum covering this, including the four bugs found
 while building it. `js/app.js` is the shell; `js/main.js` still owns the scan

@@ -450,6 +450,20 @@ all.
 > so the next change to the contract is a deliberate edit rather than a number
 > three documents quietly disagree with.
 
+> **Update, 2026-09-15.** The number moved again, past 72 this time (this
+> section's own last update stopped at 71; `a511ac0`, W12's footer-version
+> id, took it to 72 after that). The UI redesign (UI-REDESIGN-PLAN.md
+> §2.1-§2.5) removed `download-image-btn`, `clean-up-text-btn`,
+> `view-on-photo-btn`, `select-multi-btn` and `editor-mode-btn` outright
+> (merged into other controls or converted to gestures) and added
+> `paste-btn`, `download-menu`, `download-menu-backdrop` and `move-handle`.
+> Net -1, landing back on 71 - the same digit as an earlier commit, by
+> coincidence of arithmetic, not because nothing changed since then.
+> **`js/dom.js` now resolves 71 ids.** `EXPECTED_ID_COUNT` in
+> `test/dom-contract.js` was updated in the same commit as the markup, per
+> that file's own header, and `node test/dom-contract.js` confirms the count
+> and that no removed id is still referenced anywhere it would matter.
+
 Two tests needed one line each: `render-fidelity.js` and `web-tier-smoke.js`
 drive the editor directly rather than through `loadFile`, so they now switch to
 the scan view first. Without it the editor's container is `display: none` and
