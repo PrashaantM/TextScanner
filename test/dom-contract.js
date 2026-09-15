@@ -45,7 +45,7 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 // The one number that encodes the contract. Changing an id count is a real
 // change to the app's public interface, so it should be an explicit edit here
 // in the same commit, not a silently-absorbed drift. See the header.
-const EXPECTED_ID_COUNT = 71;
+const EXPECTED_ID_COUNT = 72;
 
 // Matches `document.getElementById("some-id")` as it is written in js/dom.js -
 // every one of the 71 uses a double-quoted literal. A computed id would not

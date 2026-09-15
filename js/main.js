@@ -55,6 +55,7 @@ import {
   translateTier,
   translateStatus,
   footerEngine,
+  footerVersion,
   ttsControls,
   ttsPlayBtn,
   ttsStopBtn,
@@ -62,7 +63,7 @@ import {
   diagnosticsIncludeImage,
   diagnosticsStatus,
 } from "./dom.js";
-import { state, MAX_FILE_BYTES, MAX_IMAGE_PIXELS } from "./state.js";
+import { state, MAX_FILE_BYTES, MAX_IMAGE_PIXELS, APP_VERSION } from "./state.js";
 // editor.js was split into three modules (Phase 5); main.js imports from each
 // directly rather than through a barrel, so which concern a call belongs to is
 // visible at the import site.
@@ -161,6 +162,7 @@ if (confidenceNote && !engineProvidesConfidence()) show(confidenceNote);
 // and the old hardcoded "Tesseract.js" was simply false in the shipped app, so
 // it's filled in from the dispatcher that actually decides.
 if (footerEngine) footerEngine.textContent = getEngineName();
+if (footerVersion) footerVersion.textContent = APP_VERSION;
 
 // Scan failures used to interpolate err.message straight into user-facing copy,
 // which produced things like "Something went wrong while scanning: Failed to

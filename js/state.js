@@ -31,6 +31,14 @@ export const FONT_SIZE_CORRECTION = 0.8;
 // worth double-checking rather than trusted outright. See ocrEngine.js.
 export const LOW_CONFIDENCE_THRESHOLD = 65;
 
+// The one place the app's version string is written. Rendered in the footer
+// (js/main.js, next to footerEngine) and included verbatim in the diagnostic
+// export (js/diagnostics.js) - both read this constant rather than each
+// carrying their own copy, so the two cannot drift the way the id/module/CI
+// counts documented in WEB-COMPLETION-PLAN.md just did. See test/site-metadata.js,
+// which gates the footer's rendered value against this.
+export const APP_VERSION = "1.0.0";
+
 export const state = {
   currentFile: null,
   currentObjectUrl: null,

@@ -41,6 +41,10 @@ jobs:
       # or from the infinite spinner that must NOT be zeroed - so the reasoning
       # lives in the script, next to each exemption.
       - run: node test/motion-contract.js
+      # The version stamp (W12), also browser-free and also seconds:
+      # js/state.js's APP_VERSION is the one source of truth, and this fails
+      # if the footer's rendered value drifts from it.
+      - run: node test/site-metadata.js
       - run: npm ci
         working-directory: test
       # playwright-core, NOT playwright. test/package.json depends on

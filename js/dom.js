@@ -89,6 +89,10 @@ export const coherenceUnavailable = document.getElementById("coherence-unavailab
 // Filled in at startup with whichever recognition engine this build actually
 // runs (see js/main.js) - Tesseract.js on the web, ML Kit inside the iOS app.
 export const footerEngine = document.getElementById("footer-engine");
+// W12: set from state.js's APP_VERSION at startup, same as footerEngine above -
+// see js/main.js. The markup also carries that value directly as a fallback for
+// no-JS/pre-load display; test/site-metadata.js gates the two against each other.
+export const footerVersion = document.getElementById("footer-version");
 
 // Translate in place (Phase 4c). See js/translate.js for the dispatch and
 // js/editorExport.js's applyTranslatedLines for how a translation is written back.

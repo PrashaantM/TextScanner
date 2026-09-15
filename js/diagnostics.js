@@ -10,7 +10,7 @@
 // window.Capacitor.Plugins, not imported from the npm packages, since nothing
 // in this app resolves bare module specifiers.
 
-import { state } from "./state.js";
+import { state, APP_VERSION } from "./state.js";
 import { getEngineName, isNativeEngine } from "./recognize.js";
 
 function fileToDataUrl(file) {
@@ -25,6 +25,7 @@ function fileToDataUrl(file) {
 export async function buildDiagnosticReport(includeImage) {
   const report = {
     timestamp: new Date().toISOString(),
+    version: APP_VERSION,
     engine: getEngineName(),
     platform: isNativeEngine() ? "native" : "web",
     lastScanError: state.lastScanError,
