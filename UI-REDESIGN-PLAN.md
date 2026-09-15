@@ -27,6 +27,12 @@ editor as a fourth thing, say so — I treated Full image's word editor as part
 of "scan" (it lives inside `view-scan`'s `result-section`) and `document` as
 "edit/annotate," which is a judgment call, not a given.
 
+**Decision: crop stays excluded.** It's a single-purpose tool, not part of
+this redesign's interaction changes (none of §2's move/select/paste/download
+resolutions touch it). It should still pick up §3's token system — colors,
+type scale, spacing — once that's built, the same as every other view; it
+just isn't getting any of the behavioral changes in §2.
+
 **Sourcing.** Per the task, I walked `index.html`, `js/dom.js`, and
 `js/scanDoc.js` directly rather than recalling them, and every row below is
 tied to a real id or `data-*` attribute I found in one of those three files.
@@ -256,6 +262,12 @@ segmented control ("Download: Text | Image") is the lower-risk alternative —
 same two clicks as today, just visually one control instead of two. I'd lean
 towards the menu version, but this is a real trade-off, not a settled call.
 
+**Decision: menu behind one button.** In Text mode, one artifact exists, so
+`Download` downloads it directly with no menu — unchanged from today's
+`download-btn`. In Image format/Full image mode, the single `Download`
+control opens a small menu with two entries, "Image" and "Text," instead of
+showing `download-btn`/`download-image-btn` side by side.
+
 ### 2.2 Copy needs a matching Paste
 
 Verified there is no clipboard-*read* action anywhere in the scan-result
@@ -284,7 +296,14 @@ mechanisms and I'm not confident which one the flaw actually points at:
 These solve different problems (correcting the whole OCR result vs. adding
 pasted text onto the image) and I don't have evidence for which one "a
 matching Paste" was asking for — possibly both, at different altitudes.
-**Flagging this as open** rather than picking one.
+
+**Decision: both, at their own altitudes.** In Text mode, a `Paste` button
+reads `navigator.clipboard.readText()` and replaces the entire result text
+outright, gated by a confirm since it discards the OCR result. In Image
+format/Full image mode, `Paste` arms a placement click — mirroring the
+existing `newTextBtn` arm-then-place pattern (§1.2) — and drops the
+clipboard's text as a new object wherever the next tap lands, rather than
+replacing anything.
 
 Scope note: `scan-doc`'s own "Copy text" (§1.3) is excluded from this — it
 copies concatenated multi-page text as a bulk-export action, closer in kind
@@ -321,15 +340,16 @@ options). I'm proposing the same vocabulary here instead of inventing a new
 one:
 
 **Move components → gesture.** Drop the toggle. A tap on a word still edits
-it (unchanged). A press-and-hold-then-drag on a word's body (not on its text
-caret — i.e., movement past a small threshold before a caret would normally
-land) picks it up and moves it; releasing drops it. The resize handle
-(`resizeHandle`, already a real `role="slider"`) appears on selection the
-moment an object is selected, not only once a separate mode button has been
-pressed — so select → resize/move/edit all become available at once, the way
-a native drawing or notes app treats an object rather than the way a "mode"
-based editor does. `editorModeBtn` itself is removed as a control (its label
-and aria-pressed state have nothing left to represent).
+it (unchanged). The resize handle (`resizeHandle`, already a real
+`role="slider"`) appears on selection the moment an object is selected, not
+only once a separate mode button has been pressed — so select →
+resize/move/edit all become available at once, the way a native drawing or
+notes app treats an object rather than the way a "mode" based editor does.
+`editorModeBtn` itself is removed as a control (its label and aria-pressed
+state have nothing left to represent). *How the drag itself is triggered —
+directly on the word's body, or from a small handle — was left open at
+proposal time and is resolved below, after prototyping: handle-based, not
+direct-on-word.*
 
 **Select multiple → gesture.** Propose a long-press-and-drag on empty canvas
 (not on a word) starting the marquee directly, mirroring the card long-press
@@ -340,13 +360,106 @@ held drag starts rubber-banding. `selectMultiBtn` is removed as a control.
 `deleteBtn`/`undoBtn`/`redoBtn` (still needed once something is selected,
 regardless of how it got selected).
 
-**What I'm not sure about:** long-press-and-drag for marquee selection
-competes with the same gesture already used to *move* a word (both start
-with a press-and-hold). The disambiguator would have to be "did the press
-start on a word, or on empty canvas" — workable, but it's a real design
-detail that needs to be tried on an actual touch device before I'd call it
-settled, not just reasoned about on paper. Flagging that as a prototype-and-verify
-item, not a decided mechanism.
+**Prototyped and resolved — handle-based drag, not direct drag on the word.**
+A throwaway prototype (two candidate mechanisms, instrumented with real
+timing/selection logging) was built and driven with genuine touch input —
+Safari's WebDriver (`safaridriver`) against a booted iOS Simulator, not a
+mouse in a desktop browser — because the whole point of this risk is
+ambiguity a mouse can't produce. The prototype and its raw logs are not part
+of this repo (throwaway, per the task); this section states the verified
+result.
+
+*What was measured.* On a `contenteditable` word span with no mitigation,
+holding a touch down reliably triggers WebKit's native long-press-to-select
+(the loupe/selection-handle UI) at **~650-660ms** after touch-down — measured
+at 648ms, 656ms, and 658ms across three clean trials, a tight, repeatable
+window. Two mitigations were tested against that window:
+
+- **`preventDefault()` on `pointerdown`/`touchstart`, alone, does not stop
+  it.** Native selection still fired at ~651-659ms in both trials with
+  `preventDefault()` called — this specific idea, named as a possibility in
+  the original task, is confirmed *not* to work on its own.
+- **Proactively toggling `contentEditable = false` once a hold-timer
+  fires, before native's own trigger, does stop it** — but only with enough
+  margin. Thresholds of 250ms, 350ms, and 420ms were each clean across two
+  trials apiece (6/6, zero native-selection interference). At 500ms — only
+  ~150ms of margin below native's ~650ms trigger — it became unreliable: one
+  of two trials still produced a native selection-API event (with garbled,
+  cross-word selected text, suggesting a corrupted selection anchor rather
+  than a clean "select this word") despite `contentEditable` already being
+  false. The margin matters, and it narrows fast.
+
+**This is why direct drag (Approach A) is not the recommended mechanism.**
+Even at a safe 420ms threshold, the one clean full gesture obtained (hold,
+then move, then release — total real time ~660ms, since the gesture's own
+duration can carry it back up toward native's trigger point) produced the
+same kind of spurious selection-API event around ~650ms, despite
+`contentEditable` having been false since ~420ms. It didn't corrupt that
+trial's outcome — the word still moved to the correct position and
+`contentEditable` was correctly restored afterward — but it shows the race
+isn't fully won by an early threshold alone, only mostly won, and that's not
+a foundation to ship a persistent app-wide gesture on.
+
+**Approach B (handle-based drag) sidesteps the race by construction, not by
+timing, and that's why it's the recommended mechanism.** A tap still selects
+a word natively (unchanged, zero custom code on that path). Moving it happens
+by dragging from a small handle that appears on selection — mirroring the
+existing resize-handle pattern — which is never text and never
+`contentEditable`, so there is no long-press-vs-native-selection race to
+manage at all: `contentEditable` only needs to toggle off for the live
+duration of an actual drag-from-handle, the same "commit once on release"
+shape `beginObjectDrag`/`beginResize` already use in
+`js/editorInteractions.js` today. In every Approach-B trial run, zero native
+selection-API events fired. Handle-drag itself was confirmed to initiate
+immediately on pointerdown (no hold delay needed, since the handle isn't
+text) and to move the word correctly while `contentEditable` was off.
+
+**Move-vs-marquee disambiguation (the risk originally named in this
+section) is resolved by construction in both approaches**, the same way the
+real dispatcher already resolves word-vs-canvas-vs-resize-handle today:
+routing is decided by what the touch actually started on
+(`e.target.closest(...)`), before any hold-timer or threshold logic runs — a
+press on a word and a press on empty canvas are never in competition for the
+same starting point, so "did the press start on a word or on empty canvas"
+was never actually a live ambiguity once implemented, only on paper.
+Marquee-on-empty-canvas and quick-drag-still-scrolls both reuse the identical
+"do nothing until the hold timer fires" code path validated above for the
+word case (no `preventDefault()`, no `touch-action` change, no capture, until
+armed) — the same pattern the app's own shipped marquee code
+(`js/editorInteractions.js:179-190`) already relies on today.
+
+**Recommended threshold: 420ms**, matching the hold-to-open threshold
+`library.js`'s card radial menu already uses (§1.1) — reusing an existing
+app convention rather than inventing a new number, and empirically clean in
+every trial at that value.
+
+**What wasn't fully verified, and why — stated plainly rather than papered
+over.** Two claims rest on lower-confidence evidence, both traced to
+limits of the *test harness*, not to either design:
+
+- **"A quick tap still edits normally."** WebDriver-synthesized short taps
+  did not reliably produce native focus/caret placement in this simulator,
+  even on Approach B's untouched-by-custom-code tap path — strong evidence
+  this is a simulator/automation limitation (long holds and hold-then-drag
+  gestures reliably *did* reach native gesture recognition, per every result
+  above) rather than a real risk. This claim is therefore supported by code
+  inspection — neither approach's JS calls `preventDefault()` or takes
+  pointer capture before a hold is confirmed — rather than by an observed
+  pass, and should get a real-device check before shipping.
+- **Full end-to-end drag and handle-drag samples are thin (one clean trial
+  each).** WebDriver action sequences that included a `pointerMove` step
+  before `pointerUp` intermittently failed to deliver the final `pointerUp`
+  to the page — a `safaridriver`/Simulator-side flakiness observed
+  identically on both approaches' drag paths, not a difference between them.
+  It capped how large a clean sample this session could gather for the drag
+  mechanics specifically, versus the tight, repeatable multi-trial sample
+  behind the native-selection-timing and threshold-safety findings above.
+
+**Fallback, if a real-device pass contradicts the above:** keep
+`selectMultiBtn` as today's explicit toggle (marquee's own risk profile is
+low and its current implementation is already fine) and convert only Move to
+the handle-based gesture — the two controls don't have to succeed or fail
+together.
 
 ### 2.4 "View on photo" and Full image merge into one control
 
@@ -624,13 +737,30 @@ scan and edit/annotate instead.
 
 ## 5. Consolidated open questions
 
-Four of the original eight items are resolved as of this revision: §2.4/§2.5
-(merge decided, skip-the-call gate moves with it), §3.5 (identified as
-Apple's public design language, not a repo document), and §4 (scoped to a
-visual pass, structural changes explicitly excluded). What's left still needs
-a real decision from you, not a default made on your behalf:
+All eight of the original items are now resolved: §2.4/§2.5 (merge decided,
+skip-the-call gate moves with it), §3.5 (identified as Apple's public design
+language, not a repo document), §4 (scoped to a visual pass, structural
+changes explicitly excluded), §0 (crop stays excluded from "edit/annotate,"
+but still picks up the token system), §2.1 (menu behind one `Download`
+button, no menu in Text mode), §2.2 (both paste mechanisms, at their own
+altitudes — whole-buffer in Text mode, positional in Image/Full modes), and
+§2.3 — the last to resolve, and the only one that needed a real prototype
+rather than reasoning on paper.
 
-1. **§0** — Does "edit/annotate" include the crop view or only the document view (note editor + scan-doc)? I assumed the latter.
-2. **§2.1** — Menu-behind-one-button, or a visually-merged two-button segmented control, for Download?
-3. **§2.2** — Whole-buffer paste (Text mode, destructive, needs a confirm) or positional paste (Image/Full modes, arm-then-place)? Or both, at different altitudes?
-4. **§2.3** — Long-press-and-drag for both "move a word" and "start a marquee" is a real gesture-disambiguation risk (same starting gesture, disambiguated only by what's under the finger). Needs a hands-on prototype before being called settled.
+**§2.3's resolution, in short:** a throwaway prototype driven by genuine
+touch input (Safari's WebDriver against a booted iOS Simulator) measured
+WebKit's native long-press-to-select firing reliably at ~650-660ms on an
+untouched `contentEditable` word, confirmed `preventDefault()` alone does not
+prevent it, and confirmed toggling `contentEditable` off at a hold threshold
+works but with a margin that narrows and gets unreliable as the threshold
+approaches that ~650ms window. That risk profile is why direct drag on a
+word's own text (Approach A) is *not* the recommended mechanism — instead,
+**handle-based drag (Approach B)** sidesteps the race by construction (the
+drag never starts on text at all, so there's nothing to race against native
+selection), at a recommended 420ms hold threshold for the separate marquee
+gesture, matching `library.js`'s existing long-press convention. Two specific
+sub-claims ("a quick tap still edits normally," and the full end-to-end drag
+mechanics) rest on a thinner evidence sample, for reasons specific to the
+test harness rather than the app — see §2.3 for the full account, including
+what to double-check on real hardware before shipping, and a fallback if a
+real-device pass contradicts the simulator result.
