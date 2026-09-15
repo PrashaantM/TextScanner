@@ -317,47 +317,45 @@
 
       <!-- OCR results, with three view modes toggled by the buttons below:
            Text (plain textarea), Image format (words laid out on a blank canvas at their
-           original position), and Full image (words overlaid on the actual image, editable
-           and, in "Move components" mode, draggable/resizable with undo/redo). -->
+           original position), and View on photo/Full image (words overlaid on the actual
+           image; select one by tapping it and move-handle/resize-handle appear for
+           dragging/resizing, with undo/redo). -->
       <section id="result-section" class="result-section flow-panel hidden">
         <div class="result-toolbar">
           <div class="result-toolbar__row">
             <h2>Extracted text</h2>
-            <div class="mode-toggle result-toolbar__row--secondary" role="group" aria-label="Result view">
+            <div class="mode-toggle" role="group" aria-label="Result view">
               <button id="mode-text-btn" class="mode-toggle__btn is-active" type="button" data-mode="text" aria-pressed="true">Text</button>
               <button id="mode-image-btn" class="mode-toggle__btn" type="button" data-mode="image" aria-pressed="false">Image format</button>
-              <button id="mode-full-btn" class="mode-toggle__btn" type="button" data-mode="full" aria-pressed="false">Full image</button>
+              <!-- Merged with the old guided "View on photo ->" CTA (UI-REDESIGN-PLAN.md
+                   §2.4): this used to be a one-line proxy (viewOnPhotoBtn -> modeFullBtn.click())
+                   sitting above the real toggle. Today the two were genuinely identical in
+                   destination, so the guided path is now just this button, restyled. -->
+              <button id="mode-full-btn" class="mode-toggle__btn mode-toggle__btn--primary" type="button" data-mode="full" aria-pressed="false">View on photo</button>
             </div>
-          </div>
-
-          <!-- Guided primary path: most people scanning a
-               poster or receipt want either the text as read, or the text cleaned
-               up - not a mental model of "raw vs filtered vs coherence". Both
-               buttons drive the real controls below via a plain .click() rather
-               than duplicating their logic, so the tier/mode that actually runs is
-               never out of step with what those controls say. -->
-          <div class="result-toolbar__row result-toolbar__guided">
-            <button id="clean-up-text-btn" class="btn btn--primary btn--small" type="button">Clean up this text</button>
-            <button id="view-on-photo-btn" class="btn btn--secondary btn--small" type="button">View on photo &rarr;</button>
-            <!-- Coherence Filter's skip-the-call gate (js/coherenceGate.js):
-                 shown instead of silently skipping or silently running, so a
-                 false positive costs one extra click rather than a feature the
-                 person wanted and didn't get. -->
-            <span id="coherence-gate-hint" class="result-toolbar__guided-hint hidden" role="status"></span>
           </div>
 
           <!-- Three-level filter (js/filter.js for Raw/Filtered Text, js/coherence.js for
                Coherence Filter), visible in all three view modes: it drives what's shown in
                the Text textarea, which words are dimmed (not removed) in Image format/Full
-               image, and what Copy/Download/TTS read. Manual/advanced - "Clean up this
-               text" above is the guided way to reach Coherence Filter. -->
-          <div class="result-toolbar__row result-toolbar__actions result-toolbar__row--secondary">
+               image, and what Copy/Download/TTS read. The third option is the guided path,
+               merged in the same way as the mode toggle above (UI-REDESIGN-PLAN.md §2.5):
+               it used to be a separate "Clean up this text" proxy button; now it's this
+               option itself, restyled, and it carries the proxy's skip-the-call gate
+               directly (js/coherenceGate.js) so every path to this filter level gets it,
+               not only the deleted guided button's path. -->
+          <div class="result-toolbar__row result-toolbar__actions">
             <span class="filter-toggle__label">Filter</span>
             <div id="filter-toggle" class="filter-toggle" role="group" aria-label="Text filter level">
               <button id="filter-raw-btn" class="filter-toggle__btn" type="button" data-level="raw" aria-pressed="false">Raw</button>
               <button id="filter-filtered-btn" class="filter-toggle__btn is-active" type="button" data-level="filtered" aria-pressed="true">Filtered Text</button>
-              <button id="filter-coherence-btn" class="filter-toggle__btn" type="button" data-level="coherence" aria-pressed="false">Coherence Filter</button>
+              <button id="filter-coherence-btn" class="filter-toggle__btn filter-toggle__btn--primary" type="button" data-level="coherence" aria-pressed="false">Clean up this text</button>
             </div>
+            <!-- Coherence Filter's skip-the-call gate (js/coherenceGate.js): shown
+                 instead of silently skipping or silently running, so a false positive
+                 costs one extra click rather than a feature the person wanted and
+                 didn't get. Now fires from filter-coherence-btn itself. -->
+            <span id="coherence-gate-hint" class="result-toolbar__guided-hint hidden" role="status"></span>
           </div>
 
           <!-- Coherence Filter (js/coherence.js): the only feature in TextScanner that
@@ -406,8 +404,29 @@
 
           <div class="result-toolbar__row result-toolbar__actions">
             <button id="copy-btn" class="btn btn--secondary" type="button">Copy</button>
-            <button id="download-btn" class="btn btn--secondary" type="button">Download .txt</button>
-            <button id="download-image-btn" class="btn btn--secondary hidden" type="button">Download image</button>
+            <!-- Paste (UI-REDESIGN-PLAN.md §2.2), at two different altitudes depending
+                 on mode. In Text mode: reads navigator.clipboard.readText() and replaces
+                 the whole result outright (destructive, gated by a confirm - see
+                 pasteBtn's click handler in js/main.js). In Image format/Full image
+                 mode: arms a placement click, mirroring newTextBtn's existing
+                 arm-then-place pattern, and drops the clipboard text as a new object
+                 wherever the next tap lands. -->
+            <button id="paste-btn" class="btn btn--secondary" type="button" aria-pressed="false">Paste</button>
+            <!-- Download (UI-REDESIGN-PLAN.md §2.1): one button, not two. In Text mode
+                 there is only one artifact (the text), so this downloads it directly,
+                 unchanged from the old download-btn. In Image format/Full image mode,
+                 where a text AND an image artifact both exist, the same button opens
+                 download-menu instead of downloading immediately - same "single entry
+                 point, disclosed choice" shape the app already uses for diagnostics
+                 export's share sheet. -->
+            <div class="download-control">
+              <button id="download-btn" class="btn btn--secondary" type="button" aria-haspopup="true" aria-expanded="false">Download</button>
+              <div id="download-menu-backdrop" class="context-menu-backdrop hidden"></div>
+              <ul id="download-menu" class="context-menu context-menu--anchored hidden" role="menu" aria-label="Download as">
+                <li><button class="context-menu__item" type="button" data-download="image">Image</button></li>
+                <li><button class="context-menu__item" type="button" data-download="text">Text</button></li>
+              </ul>
+            </div>
             <!-- Sends the recognized text into a note, which is the other half of
                  the bridge "Add as document page" opens. -->
             <button id="save-note-btn" class="btn btn--secondary" type="button">Save as note</button>

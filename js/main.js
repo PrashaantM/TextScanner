@@ -20,14 +20,14 @@ import {
   resultSection,
   resultText,
   copyBtn,
+  pasteBtn,
   downloadBtn,
-  downloadImageBtn,
+  downloadMenu,
+  downloadMenuBackdrop,
   filterButtons,
   filterCoherenceBtn,
   modeImageBtn,
   modeFullBtn,
-  cleanUpTextBtn,
-  viewOnPhotoBtn,
   coherenceGateHint,
   coherencePanel,
   coherenceKeyRow,
@@ -44,7 +44,6 @@ import {
   coherenceDisclosureOrigin,
   coherenceUnavailable,
   newTextBtn,
-  selectMultiBtn,
   confidenceNote,
   editorKeyboardHint,
   themeBtn,
@@ -90,10 +89,10 @@ import {
 } from "./editorObjects.js";
 import {
   setMode,
-  setMarqueeMode,
-  setFullEditorMode,
   setAddTextMode,
   setAddTextClickHandler,
+  setPasteArmed,
+  setPasteClickHandler,
   addUserTextObject,
 } from "./editorInteractions.js";
 import {
@@ -502,39 +501,40 @@ function applyFilterLevel(level) {
   if (ttsSupported) updateTTSButtons();
 }
 
-filterButtons.forEach((btn) => {
-  btn.addEventListener("click", () => {
-    applyFilterLevel(btn.dataset.level);
-    hapticLight();
+// Raw/Filtered Text get the generic handler; Coherence Filter (now also
+// labeled "Clean up this text" - UI-REDESIGN-PLAN.md §2.5, merged from the
+// old guided cleanUpTextBtn proxy) gets its own below, so the skip-the-call
+// gate can sit in front of applyFilterLevel("coherence") on every path that
+// reaches it, not just the deleted guided button's path.
+filterButtons
+  .filter((btn) => btn !== filterCoherenceBtn)
+  .forEach((btn) => {
+    btn.addEventListener("click", () => {
+      applyFilterLevel(btn.dataset.level);
+      hapticLight();
+    });
   });
-});
 
-// Guided primary actions: real .click() calls on the
-// controls above, not a reimplementation of what they do. "Clean up this text"
-// is a no-op if Coherence Filter is already active - clicking a filter-toggle
-// button the person is already on is exactly what applyFilterLevel already
-// treats as a no-op via setActiveButton, so nothing extra is needed here.
-//
 // Skip-the-call gate (js/coherenceGate.js): a suggestion, not a silent
 // skip. The first click on already-coherent-looking text swaps the button to
-// "Reconstruct anyway" instead of dispatching the tier; a second click - now
+// "Reconstruct anyway" instead of running the filter; a second click - now
 // past the gate - proceeds exactly as it always did. resetCoherenceGate lets
 // resetResult() below clear this back to the default label for a new scan,
 // so a "Reconstruct anyway" state can never survive onto a different image.
 let pendingCoherenceOverride = false;
 function resetCoherenceGate() {
   pendingCoherenceOverride = false;
-  if (cleanUpTextBtn) cleanUpTextBtn.textContent = "Clean up this text";
+  filterCoherenceBtn.textContent = "Clean up this text";
   hide(coherenceGateHint);
 }
 
-cleanUpTextBtn?.addEventListener("click", () => {
+filterCoherenceBtn.addEventListener("click", () => {
   const filteredText = wordsToFilteredText(state.ocrWords, "filtered");
   const alreadyCoherent = !state.coherentText && looksAlreadyCoherent(filteredText);
 
   if (alreadyCoherent && !pendingCoherenceOverride) {
     pendingCoherenceOverride = true;
-    cleanUpTextBtn.textContent = "Reconstruct anyway";
+    filterCoherenceBtn.textContent = "Reconstruct anyway";
     coherenceGateHint.textContent = "This already looks like a sentence.";
     show(coherenceGateHint);
     hapticLight();
@@ -542,18 +542,8 @@ cleanUpTextBtn?.addEventListener("click", () => {
   }
 
   resetCoherenceGate();
-  filterCoherenceBtn.click();
-});
-// "View on photo" means Full image, not Image format. It used to click
-// modeImageBtn, which is the view that lays the words out on a BLANK canvas -
-// so the one button whose label promises the photo was the one view without it.
-// That mismatch also took "Move components" away: setMode only shows
-// #editor-toolbar in "full", so the guided path landed users in a mode with no
-// way to move anything, which is exactly the "components can't be moved" report.
-// Every gate reached the editor by clicking #mode-full-btn directly and so never
-// touched this button - see test/guided-path.js.
-viewOnPhotoBtn?.addEventListener("click", () => {
-  modeFullBtn.click();
+  applyFilterLevel("coherence");
+  hapticLight();
 });
 
 // Phase 2: which tier the user has asked for. Defaults to on-device, so anyone
@@ -710,35 +700,80 @@ copyBtn.addEventListener("click", async () => {
   }
 });
 
-downloadBtn.addEventListener("click", () => {
-  const text = getActiveResultText();
-  if (!text) return;
-  const blob = new Blob([text], { type: "text/plain" });
+function downloadFile(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "textscanner-result.txt";
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
-});
+}
 
-downloadImageBtn.addEventListener("click", () => {
+function downloadResultText() {
+  const text = getActiveResultText();
+  if (!text) return;
+  downloadFile(new Blob([text], { type: "text/plain" }), "textscanner-result.txt");
+}
+
+function downloadResultImage() {
   const canvas = buildResultCanvas();
   if (!canvas) return;
   canvas.toBlob((blob) => {
     if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = state.activeMode === "full" ? "textscanner-full-image.png" : "textscanner-image-format.png";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    downloadFile(blob, state.activeMode === "full" ? "textscanner-full-image.png" : "textscanner-image-format.png");
   }, "image/png");
+}
+
+// Download (UI-REDESIGN-PLAN.md §2.1): one control, merged from the old
+// download-btn/download-image-btn pair. Text mode has one artifact (the
+// text), so this downloads it directly, unchanged from before. Image
+// format/Full image have two (text AND image), so the same button opens a
+// small menu instead of showing two buttons side by side - the same
+// "single entry point, disclosed choice" shape the diagnostics export
+// already uses for its share sheet.
+function closeDownloadMenu() {
+  if (!downloadMenu) return;
+  downloadMenu.classList.add("hidden");
+  downloadMenuBackdrop.classList.add("hidden");
+  downloadBtn.setAttribute("aria-expanded", "false");
+}
+
+function openDownloadMenu() {
+  if (!downloadMenu) return;
+  const rect = downloadBtn.getBoundingClientRect();
+  downloadMenu.style.setProperty("--menu-x", `${rect.left}px`);
+  downloadMenu.style.setProperty("--menu-y", `${rect.bottom + 4}px`);
+  downloadMenu.classList.remove("hidden");
+  downloadMenuBackdrop.classList.remove("hidden");
+  downloadBtn.setAttribute("aria-expanded", "true");
+}
+
+downloadBtn.addEventListener("click", () => {
+  if (state.activeMode === "text") {
+    downloadResultText();
+    return;
+  }
+  if (downloadMenu.classList.contains("hidden")) openDownloadMenu();
+  else closeDownloadMenu();
 });
+
+downloadMenu?.addEventListener("click", (e) => {
+  const button = e.target.closest("button[data-download]");
+  if (!button) return;
+  closeDownloadMenu();
+  if (button.dataset.download === "image") downloadResultImage();
+  else downloadResultText();
+});
+
+downloadMenuBackdrop?.addEventListener("click", closeDownloadMenu);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && downloadMenu && !downloadMenu.classList.contains("hidden")) closeDownloadMenu();
+});
+
+document.addEventListener("mode-changed", closeDownloadMenu);
 
 // ---- Inpainted patches (Phase 2) ----
 
@@ -885,12 +920,54 @@ setDeleteHandler(async (selectedObjects) => {
 
 if (newTextBtn) {
   newTextBtn.addEventListener("click", () => {
-    if (!state.fullEditorMode) setFullEditorMode(true);
     setAddTextMode(!state.addTextMode);
   });
 }
 
 setAddTextClickHandler((xPct, yPct) => addUserTextObject(xPct, yPct));
+
+// ---- Paste (UI-REDESIGN-PLAN.md §2.2) ----
+//
+// Two mechanisms, one button, chosen by mode. Text mode: reads the clipboard
+// and replaces the whole result outright - destructive, so it's gated by a
+// confirm, the same as any other action in this app that discards something
+// the OCR produced. Image format/Full image: arms a placement click exactly
+// like New text above (addUserTextObject's initialText parameter is what the
+// two share), rather than replacing anything.
+if (pasteBtn) {
+  pasteBtn.addEventListener("click", async () => {
+    if (state.activeMode === "text") {
+      let text;
+      try {
+        text = await navigator.clipboard.readText();
+      } catch {
+        return;
+      }
+      if (!text) return;
+      if (!window.confirm("Replace the extracted text with what's on your clipboard? This can't be undone.")) return;
+      resultText.value = text;
+      hapticLight();
+      return;
+    }
+
+    if (state.pasteArmed) {
+      setPasteArmed(false);
+      return;
+    }
+    let text;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      return;
+    }
+    if (!text) return;
+    pendingPasteText = text;
+    setPasteArmed(true);
+  });
+}
+
+let pendingPasteText = "";
+setPasteClickHandler((xPct, yPct) => addUserTextObject(xPct, yPct, pendingPasteText));
 
 // ---- Translate in place (Phase 4c) ----
 //
@@ -1053,20 +1130,6 @@ function updateTTSVisibility() {
   updateTTSButtons();
 }
 
-// "Select multiple" only makes sense where words have positions to rubber-band
-// across, and it must not linger armed after leaving those views - it takes
-// scrolling away from the surface while it's on.
-function updateSelectMultiVisibility() {
-  if (!selectMultiBtn) return;
-  const visible = state.activeMode === "image" || state.activeMode === "full";
-  if (visible) {
-    show(selectMultiBtn);
-  } else {
-    hide(selectMultiBtn);
-    if (state.marqueeMode) setMarqueeMode(false);
-  }
-}
-
 // The editor's keyboard bindings, shown where they're discoverable rather than
 // left to be guessed - and only in the views they apply to.
 function updateKeyboardHintVisibility() {
@@ -1076,8 +1139,6 @@ function updateKeyboardHintVisibility() {
 }
 
 document.addEventListener("mode-changed", updateKeyboardHintVisibility);
-
-document.addEventListener("mode-changed", updateSelectMultiVisibility);
 
 // ---- Theme (Phase 6) ----
 //

@@ -441,11 +441,11 @@ export async function initApp() {
     openShortcutSheet,
   });
 
-  // Steps the scan-result screen's Text -> Image format -> Full image modes
-  // via the real buttons (same "dispatch a .click() on the original control"
-  // pattern as the guided cleanUpTextBtn/viewOnPhotoBtn in js/main.js) rather
-  // than reaching into main.js's editor state directly - app.js owns the
-  // shell, main.js owns the scan flow, and this keeps that boundary one-way.
+  // Steps the scan-result screen's Text -> Image format -> View on photo modes
+  // via the real buttons (dispatching a .click() on the original control)
+  // rather than reaching into main.js's editor state directly - app.js owns
+  // the shell, main.js owns the scan flow, and this keeps that boundary
+  // one-way.
   // A no-op when the scan result isn't even showing.
   function cycleScanView(direction) {
     const resultSection = document.getElementById("result-section");

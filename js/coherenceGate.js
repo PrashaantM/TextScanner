@@ -4,7 +4,7 @@
 //
 // The one piece of the original Coherence Filter plan that hadn't shipped
 // yet - js/factCheck.js and js/coherenceRouter.js are its siblings.
-// Deliberately a suggestion surfaced in the UI (js/main.js's cleanUpTextBtn
+// Deliberately a suggestion surfaced in the UI (js/main.js's filterCoherenceBtn
 // handler), not a silent skip: a false positive here costs the user one extra
 // click, while a silent skip that's wrong costs them a feature they wanted and
 // didn't get.

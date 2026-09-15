@@ -730,6 +730,22 @@ kbd {
   color: var(--danger);
 }
 
+/* A menu anchored under a button (Download's Image/Text choice -
+   UI-REDESIGN-PLAN.md §2.1) rather than at a right-click point - same
+   .context-menu shell, positioned the same way via --menu-x/--menu-y, just
+   narrower: two short labels don't need the library context menu's 10rem. */
+.context-menu--anchored {
+  min-width: 7rem;
+}
+
+/* Wraps download-btn together with its menu/backdrop for one shared id="" +
+   positioning frame in index.html without becoming its own flex item in
+   .result-toolbar__actions - display: contents makes it invisible to that
+   row's layout, so download-btn sits exactly where a bare button would. */
+.download-control {
+  display: contents;
+}
+
 /* ---- Views ---- */
 
 #app-main {
@@ -1010,6 +1026,16 @@ kbd {
   color: var(--accent-contrast);
 }
 
+/* The merged guided CTA (UI-REDESIGN-PLAN.md §2.4: "View on photo", folded in
+   from the old separate viewOnPhotoBtn proxy). Distinguished from its two
+   peers even at rest, not only once selected - :not(.is-active) keeps this
+   from fighting the solid accent fill above once it IS the active option,
+   regardless of which rule the cascade would otherwise apply second. */
+.mode-toggle__btn--primary:not(.is-active) {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .filter-toggle__label {
   font-size: 0.8rem;
   font-weight: 500;
@@ -1042,42 +1068,23 @@ kbd {
   color: var(--accent-contrast);
 }
 
-/* De-emphasizes the raw filter/mode toggles now that "Clean up this text" and
-   "View on photo" (below) are the guided primary path for a first-time user
-   (03-REDESIGN-PLAN.md). These are the ORIGINAL controls, just visually
-   quieter - not hidden and not a copy - specifically so every CI gate that
-   drives #mode-image-btn / #filter-raw-btn / etc. directly by id keeps working
-   exactly as before. A collapsed-by-default reveal would have been truer to the
-   plan's mock, but Playwright's .click() requires an element to be visible, and
-   five of the existing gates click these buttons with no reveal step - hiding
-   them would have broken CI, not just risked it. */
-.result-toolbar__row--secondary {
-  opacity: 0.82;
-  transform: scale(0.94);
-  transform-origin: left center;
+/* The merged guided CTA (UI-REDESIGN-PLAN.md §2.5: "Clean up this text",
+   folded in from the old separate cleanUpTextBtn proxy) - see
+   .mode-toggle__btn--primary above for why :not(.is-active) is needed. */
+.filter-toggle__btn--primary:not(.is-active) {
+  color: var(--accent);
+  font-weight: 600;
 }
 
-.result-toolbar__guided {
-  gap: 0.6rem;
-}
-
-/* "Clean up this text" and "View on photo" are declared the guided PRIMARY
-   path above (`.result-toolbar__row--secondary`'s comment), with the raw mode
-   toggle deliberately de-emphasized beside them via opacity + a 0.94 scale -
-   not via font-size, which .mode-toggle__btn has carried at 0.85rem since
-   before either guided button existed (7a75e9f, three weeks earlier, for an
-   unrelated Image-format-mode toggle). These two buttons instead reuse
-   `.btn--small` (0.75rem) - the generic compact-button utility introduced
-   later still, for the Coherence panel's controls, with no comparison to the
-   toggle it would end up sitting next to. Net effect: the controls the
-   interface actively steers people toward rendered smaller (12px) than the
-   ones it visually quiets down (13.6px, scaled to ~12.8px) - the opposite of
-   the stated hierarchy. Restoring the toggle's own base size here is what
-   actually delivers that hierarchy, given the toggle is already shrunk
-   further on top of it. */
-.result-toolbar__guided .btn {
-  font-size: 0.85rem;
-}
+/* Until UI-REDESIGN-PLAN.md §2.4/§2.5, this row de-emphasized the raw
+   filter/mode toggles relative to a separate "Clean up this text"/"View on
+   photo" guided CTA sitting above them. Both guided buttons are gone now -
+   merged directly into these toggles as their primary-styled option (see
+   .mode-toggle__btn--primary / .filter-toggle__btn--primary below) - so
+   there is nothing left for this row to be secondary TO, and dimming it would
+   now fight the very primary styling it sits next to. This comment stands in
+   place of the removed .result-toolbar__row--secondary rule so the "why" is
+   findable rather than the class just quietly vanishing. */
 
 .result-toolbar__guided-hint {
   flex-basis: 100%;
