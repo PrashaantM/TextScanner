@@ -13,9 +13,20 @@
 // uses CDP Input.dispatchTouchEvent, which makes the browser produce genuine,
 // trusted touch input.
 //
-// UI-REDESIGN-PLAN.md §2.3: dragging a word now happens from move-handle,
-// which appears next to resize-handle on selection, rather than from the
-// word's own body - a tap always edits/selects; move-handle is what drags.
+// UI-REDESIGN-PLAN.md §2.3 first replaced direct-body dragging with
+// move-handle/resize-handle, and a tap both selected and edited a word in one
+// motion. That second part is no longer true, and saying so plainly matters
+// more than leaving the old claim to rot: Phase 1 of the interaction-model
+// rewrite deliberately replaced it. A single tap now ONLY selects - text
+// stays non-editable (no caret, no keyboard) until a double tap enters edit
+// mode. Dragging, meanwhile, no longer needs move-handle exclusively: once a
+// word is already selected, a further press-and-drag on its own body moves it
+// too (move-handle still works, and is still what sections 1 and 4 below
+// use, since it's the mechanism that exists regardless of selection state).
+// Section 6 near the end of this file is what actually covers the new
+// select/edit split and body-drag - added rather than folded into the
+// sections below, so the original tap-selects-then-drags-from-handle flow
+// stays intact as its own coverage.
 // Marquee is a press-and-hold-then-drag starting on empty canvas rather than
 // a button-armed mode.
 //
@@ -126,6 +137,23 @@ const readTarget = () => page.evaluate(() => {
   const o = window.__state.editorObjects.find((x) => x.id === window.__target);
   return { x: +o.x.toFixed(3), y: +o.y.toFixed(3), w: +o.w.toFixed(3), font: +o.fontSizePct.toFixed(3) };
 });
+// Same as readTarget, but by explicit id rather than window.__target - section
+// 6 picks its own word independent of whichever one earlier sections left in
+// that slot.
+const readTarget2 = (id) =>
+  page.evaluate((oid) => {
+    const o = window.__state.editorObjects.find((x) => x.id === oid);
+    return { x: +o.x.toFixed(3), y: +o.y.toFixed(3) };
+  }, id);
+// Two genuine taps close enough together for the browser's own touch-to-click
+// synthesis to combine them into a real dblclick, the same as a finger would
+// on a real device - not a synthesized dblclick event, which would test
+// nothing about whether real touch input reaches the new edit-mode handler.
+async function doubleTap(p) {
+  await tap(p);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  await tap(p);
+}
 
 await page.goto(`http://localhost:${PORT}/index.html`);
 await page.setInputFiles("#file-input", join(ROOT, "test/images/complexPic5.jpeg"));
@@ -157,9 +185,10 @@ async function scrollSurfaceIntoView() {
 }
 await scrollSurfaceIntoView();
 
-// ---- 1. Touch: tap a word to select it (a tap always edits/selects now -
-// UI-REDESIGN-PLAN.md §2.3), then drag it via move-handle, which appears at
-// the selection's corner rather than dragging the word's own body ----
+// ---- 1. Touch: tap a word to select it (selects only, per Phase 1 - see
+// section 6 for the edit-mode/body-drag coverage), then drag it via
+// move-handle, which appears at the selection's corner and still works
+// regardless of whether the drag could also have started on the body ----
 const target = await pickVisibleWord();
 await tap(target);
 await page.waitForTimeout(150);
@@ -438,6 +467,85 @@ await page.evaluate(async () => {
 });
 
 console.log("5. UNDO after touch gestures:", (await page.$eval("#undo-btn", (el) => el.disabled)) ? "DISABLED - gestures did not register" : "enabled (ok)");
+
+// ---- 6. Phase 1: single tap selects only (never edits); a double tap
+// enters edit mode; dragging works from the word's own body once it's
+// already selected, not only from move-handle; color stays the matched
+// colour (never black/the theme default) through both states.
+//
+// Runs last and picks its own word: everything above already dragged/
+// resized/selected other objects, and this section's own body-drag moves
+// obj-bg's sibling word regardless of what state sections 1-5 left behind, as
+// long as it starts from a clean selection. ----
+await page.evaluate(async () => {
+  const { clearSelection } = await import("/js/editorObjects.js");
+  clearSelection();
+});
+await scrollSurfaceIntoView();
+const target6 = await pickVisibleWord();
+console.log("6. PHASE 1: SELECT/EDIT SPLIT + BODY DRAG + COLOR");
+if (!target6) {
+  failures.push("Phase 1 select/edit check: no visible word to target");
+} else {
+  const expectedColor = await page.evaluate(
+    (id) => window.__state.editorObjects.find((o) => o.id === id)?.textColor,
+    target6.id
+  );
+
+  // Single tap: selects, does not edit.
+  await tap(target6);
+  await page.waitForTimeout(150);
+  const afterSingleTap = await page.evaluate((id) => {
+    const o = window.__state.editorObjects.find((x) => x.id === id);
+    return {
+      editingObjectId: window.__state.editingObjectId,
+      selected: window.__state.selectedObjectIds.has(id),
+      contentEditable: o.el.contentEditable,
+      color: getComputedStyle(o.el).color,
+    };
+  }, target6.id);
+  console.log("   after single tap:", afterSingleTap, "| expected color:", expectedColor);
+  if (!afterSingleTap.selected) failures.push("Phase 1: single tap did not select the word");
+  if (afterSingleTap.editingObjectId === target6.id || afterSingleTap.contentEditable === "true") {
+    failures.push("Phase 1: single tap entered edit mode - it must only select");
+  }
+  if (expectedColor && afterSingleTap.color !== expectedColor) {
+    failures.push(`Phase 1: word color after single-tap selection is ${afterSingleTap.color}, expected the matched colour ${expectedColor}`);
+  }
+
+  // Drag from the word's own body (not move-handle) now that it's selected.
+  const beforeBodyDrag = await readTarget2(target6.id);
+  await touchDrag(target6, { x: target6.x + 35, y: target6.y + 25 });
+  await page.waitForTimeout(150);
+  const afterBodyDrag = await readTarget2(target6.id);
+  console.log("   body-drag:", beforeBodyDrag, "->", afterBodyDrag);
+  if (beforeBodyDrag.x === afterBodyDrag.x && beforeBodyDrag.y === afterBodyDrag.y) {
+    failures.push("Phase 1: dragging from the selected word's own body did not move it");
+  }
+
+  // Double tap: enters edit mode, color still correct.
+  await doubleTap(target6);
+  await page.waitForTimeout(150);
+  const afterDoubleTap = await page.evaluate((id) => {
+    const o = window.__state.editorObjects.find((x) => x.id === id);
+    return {
+      editingObjectId: window.__state.editingObjectId,
+      contentEditable: o.el.contentEditable,
+      focused: document.activeElement === o.el,
+      color: getComputedStyle(o.el).color,
+    };
+  }, target6.id);
+  console.log("   after double tap:", afterDoubleTap);
+  if (afterDoubleTap.editingObjectId !== target6.id || afterDoubleTap.contentEditable !== "true" || !afterDoubleTap.focused) {
+    failures.push("Phase 1: double tap did not enter edit mode");
+  }
+  if (expectedColor && afterDoubleTap.color !== expectedColor) {
+    failures.push(`Phase 1: word color while editing (post double-tap) is ${afterDoubleTap.color}, expected the matched colour ${expectedColor}`);
+  }
+
+  await page.evaluate(() => document.activeElement?.blur());
+}
+
 console.log("ERRORS:", errors.length ? errors : "(none)");
 if (errors.length) failures.push(`${errors.length} page error(s)`);
 await browser.close();

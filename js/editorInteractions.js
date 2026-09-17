@@ -1,11 +1,14 @@
-// editorInteractions.js: everything the user does to the editor with a pointer
-// or a mode button - view switching, add-text/paste-placement mode, and the
-// select/drag/resize/marquee gestures themselves. Move-components and Select
-// multiple are no longer separate persistent modes (UI-REDESIGN-PLAN.md §2.3):
-// a tap always edits a word, dragging its move-handle (which appears on
-// selection next to resize-handle) moves the selection, and a press-and-hold-
-// then-drag starting on empty canvas starts a marquee - both transient
-// gestures, not modes you explicitly step into and out of.
+// editorInteractions.js: everything the user does to the editor with a pointer,
+// keyboard or mode button - view switching, paste-placement mode, copy/paste
+// (Phase 2), and the select/edit/drag/resize/marquee gestures themselves.
+// Move-components and Select multiple are not separate persistent modes
+// (UI-REDESIGN-PLAN.md §2.3): dragging a word's move-handle (which appears on
+// selection next to resize-handle) or its own body once selected (Phase 1b)
+// moves the selection, and a press-and-hold-then-drag starting on empty canvas
+// starts a marquee - both transient gestures, not modes you explicitly step
+// into and out of. A single click/tap selects a word without editing it; a
+// double click/tap edits it (Phase 1a) - New text, the one persistent
+// placement mode this file used to also own, was deleted in Phase 3.
 //
 // One of three files that used to be a single 1,400-line editor.js. Depends on
 // editorObjects.js (it acts on objects; objects know nothing about gestures)
@@ -30,8 +33,9 @@ import {
   imageFormatHint,
   editorToolbar,
   undoRedoGroup,
-  newTextBtn,
-  pasteBtn,
+  textClipboardMenu,
+  textClipboardMenuBackdrop,
+  filterToggleRow,
 } from "./dom.js";
 import { state } from "./state.js";
 import {
@@ -62,6 +66,7 @@ import {
   refreshModifiedStatesFor,
   refitWordFontSize,
   registerModeReset,
+  syncWordEditability,
 } from "./editorObjects.js";
 import { hapticLight } from "./haptics.js";
 
@@ -76,19 +81,18 @@ const MAX_RESIZE_SCALE = 6;
 
 const MIN_FONT_SIZE_PCT = 0.5;
 
-// Fallback geometry for a new "New text" object (computeDefaultGeometry) when
-// there's no OCR word to size it against yet.
-
-const DEFAULT_FONT_SIZE_PCT = 3;
-
-const DEFAULT_TEXT_WIDTH_PCT = 12;
-
-const DEFAULT_TEXT_HEIGHT_PCT = 4;
-
 // ---- Mode switching (Text / Image format / Full image) ----
 
 export function setMode(mode) {
   state.activeMode = mode;
+  // Full image mode is the only one with a selected/editing split (see
+  // syncWordEditability in editorObjects.js) - leaving it always exits
+  // whatever was being edited, and the sweep below re-syncs every word's
+  // contentEditable for the new mode in one pass (Image format/Text mode
+  // want every word editable again; Full mode wants none, unless one is
+  // still mid-edit, which the line above already ruled out).
+  if (mode !== "full") state.editingObjectId = null;
+  state.editorObjects.forEach(syncWordEditability);
   setActiveButton(modeButtons, (btn) => btn.dataset.mode === mode);
 
   hide(resultText);
@@ -96,12 +100,26 @@ export function setMode(mode) {
   hide(imageFormatHint);
   hide(editorToolbar);
 
+  // Phase 3: the filter set only makes sense in Text mode (it drives what
+  // the Text textarea shows; Image format/Full image have no textarea to
+  // filter, only word-dimming, which state.activeFilterLevel keeps driving
+  // regardless of this control's visibility - see main.js's filterTextHook).
+  // hide() already sets display:none, which alone removes it from the
+  // accessibility tree, tab order and hit-testing - inert is set too,
+  // redundantly, so "not just visually hidden" is unambiguous on sight.
+  if (mode === "text") {
+    show(filterToggleRow);
+    filterToggleRow.inert = false;
+  } else {
+    hide(filterToggleRow);
+    filterToggleRow.inert = true;
+  }
+
   if (mode === "text") {
     revealFlowPanel(resultText);
     // Marquee takes scrolling away from the surface while it's actively being
     // drawn; it must not survive into a view that has no marquee.
     if (state.marqueeMode) setMarqueeMode(false);
-    if (state.addTextMode) setAddTextMode(false);
     if (state.pasteArmed) setPasteArmed(false);
   } else {
     revealFlowPanel(imageFormatView);
@@ -113,7 +131,6 @@ export function setMode(mode) {
       show(undoRedoGroup);
     } else {
       hide(undoRedoGroup);
-      if (state.addTextMode) setAddTextMode(false);
       if (state.pasteArmed) setPasteArmed(false);
     }
   }
@@ -137,10 +154,6 @@ export function updateImageFormatHint() {
     imageFormatHint.textContent = "Tap anywhere on the image to paste the copied text there.";
     return;
   }
-  if (state.addTextMode) {
-    imageFormatHint.textContent = "Tap anywhere on the image to place a new text box.";
-    return;
-  }
   if (state.activeMode === "image") {
     imageFormatHint.textContent =
       "Text is positioned where it appeared in the source image. Tap a word to edit it, or press and hold empty space and drag to select several.";
@@ -151,12 +164,12 @@ export function updateImageFormatHint() {
 }
 
 // Registered with editorObjects.js so clearImageFormatView can leave any
-// in-progress marquee/add-text/paste gesture without that module importing
-// this one. See registerModeReset there for why the edge goes this way round.
+// in-progress marquee/paste gesture without that module importing this one.
+// See registerModeReset there for why the edge goes this way round.
 registerModeReset(() => {
   setMarqueeMode(false);
-  setAddTextMode(false);
   setPasteArmed(false);
+  state.editingObjectId = null;
 });
 
 // ---- Marquee (rubber-band) selection ----
@@ -181,44 +194,7 @@ export function setMarqueeMode(on) {
   updateImageFormatHint();
 }
 
-// ---- Add-text mode (Phase 4 hook; toggled by main.js's New text button) ----
-
-export function setAddTextMode(on) {
-  state.addTextMode = on;
-  if (on && state.pasteArmed) setPasteArmed(false);
-  imageFormatView.classList.toggle("add-text-mode", on);
-  if (newTextBtn) {
-    newTextBtn.textContent = on ? "Cancel" : "New text";
-    newTextBtn.setAttribute("aria-pressed", String(on));
-  }
-  updateImageFormatHint();
-}
-
-function computeDefaultGeometry() {
-  const ocrWords = state.editorObjects.filter((o) => o.type === "word" && o.origin === "ocr");
-  const median = (values, fallback) => {
-    if (!values.length) return fallback;
-    const sorted = [...values].sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-  };
-
-  const fontSizePct = median(ocrWords.map((o) => o.fontSizePct), DEFAULT_FONT_SIZE_PCT);
-  const w = DEFAULT_TEXT_WIDTH_PCT;
-  // The box height is taken from the OCR words directly rather than
-  // reconstructed from fontSizePct. It used to be
-  // `fontSizePct * naturalWidth / naturalHeight / FONT_SIZE_CORRECTION`, which
-  // worked only because fontSizePct was that constant times the bbox height, so
-  // dividing it back out recovered the height. It no longer is: the size comes
-  // from measuring the string (see fontSizePctForInk), and there is no constant
-  // left to invert. The words already carry the height this is trying to
-  // estimate, so ask them.
-  const h = median(ocrWords.map((o) => o.h), DEFAULT_TEXT_HEIGHT_PCT);
-  return { fontSizePct, w, h };
-}
-
-// ---- Paste-placement mode (UI-REDESIGN-PLAN.md §2.2; mirrors add-text mode
-// exactly, just with a pre-filled word instead of an empty one) ----
+// ---- Paste-placement mode (UI-REDESIGN-PLAN.md §2.2) ----
 
 let onSurfaceClickForPaste = null;
 
@@ -228,41 +204,173 @@ export function setPasteClickHandler(fn) {
 
 export function setPasteArmed(on) {
   state.pasteArmed = on;
-  if (on && state.addTextMode) setAddTextMode(false);
   imageFormatView.classList.toggle("paste-armed", on);
-  if (pasteBtn) {
-    // Mirrors newTextBtn's own armed-state label exactly (same arm-then-place
-    // pattern, same "Cancel" while armed) rather than leaving the only signal
-    // to aria-pressed, which nobody sighted would ever see.
-    pasteBtn.textContent = on ? "Cancel" : "Paste";
-    pasteBtn.setAttribute("aria-pressed", String(on));
-  }
+  // No button to label any more (Phase 2 - armed by Ctrl/Cmd+V or the touch
+  // clipboard menu's Paste, not a button click); updateImageFormatHint below
+  // is the only user-facing signal that placement is armed.
   updateImageFormatHint();
 }
 
-// Phase 4's "New text" tool (and its §2.2 sibling, Paste's placement click):
-// places a new origin:'user' word at the tapped point, selects it, and
-// focuses it for immediate typing. If the user taps away without typing
-// anything, the placement is silently undone instead of leaving an invisible
-// empty box in editorObjects/undo history - pre-filled Paste text counts as
-// "typed" for this purpose, since discarding pasted text the moment you tap
-// away from it would be a surprising way to lose it.
+// ---- Copy/paste (Phase 2): Ctrl/Cmd+C/V on a selected, non-editing word in
+// Full image mode, or the press-and-hold touch menu above. Text mode's own
+// Ctrl/Cmd+V (whole-result replace) is wired by main.js via
+// setTextPasteReplaceHandler below - this module owns selection state, not
+// the extracted-text buffer, so it only dispatches to a registered hook
+// rather than reading resultText itself. ----
 
-export function addUserTextObject(xPct, yPct, initialText = "") {
+function copySelectedElement() {
+  if (state.activeMode !== "full" || state.selectedObjectIds.size !== 1) return false;
+  const obj = getObjectById([...state.selectedObjectIds][0]);
+  if (!obj || obj.type !== "word") return false;
+  state.copiedElement = {
+    text: obj.el.textContent,
+    fontSizePct: obj.fontSizePct,
+    w: obj.w,
+    h: obj.h,
+    textColor: obj.textColor,
+    textBackgroundColor: obj.textBackgroundColor,
+    needsBackingBox: obj.needsBackingBox,
+    fontClass: obj.fontClass,
+    rotationDeg: obj.rotationDeg,
+  };
+  // Best-effort cross-app interop: the font/size/colour above only round-trip
+  // within this app (via state.copiedElement); the plain text is what a
+  // paste into another app would get. Never awaited/blocking - a clipboard
+  // permission prompt or a private-browsing failure must not stop the copy
+  // this app itself just recorded.
+  navigator.clipboard?.writeText(obj.el.textContent).catch(() => {});
+  return true;
+}
+
+function pasteCopiedElement() {
+  if (state.activeMode !== "full" || !state.copiedElement) return false;
+  setPasteArmed(true);
+  return true;
+}
+
+// The placement click itself is the existing arm-then-place flow
+// (setPasteClickHandler/onSurfaceClickForPaste, wired by the pointerdown
+// dispatcher below) - self-registered here since, unlike the old OS-
+// clipboard-text path, cloning no longer needs anything main.js owns.
+setPasteClickHandler((xPct, yPct) => {
+  if (state.copiedElement) addClonedTextObject(xPct, yPct, state.copiedElement);
+});
+
+function closeClipboardMenu() {
+  textClipboardMenu.classList.add("hidden");
+  textClipboardMenuBackdrop.classList.add("hidden");
+}
+
+function openClipboardMenu(x, y) {
+  // Paste is omitted, not just disabled, when nothing has been copied yet -
+  // an item that does nothing when pressed is worse than one that isn't there.
+  const pasteItem = textClipboardMenu.querySelector('[data-clipboard-action="paste"]');
+  if (pasteItem) pasteItem.closest("li").hidden = !state.copiedElement;
+  textClipboardMenu.style.setProperty("--menu-x", `${x}px`);
+  textClipboardMenu.style.setProperty("--menu-y", `${y}px`);
+  textClipboardMenu.classList.remove("hidden");
+  textClipboardMenuBackdrop.classList.remove("hidden");
+}
+
+textClipboardMenu.addEventListener("click", (e) => {
+  const button = e.target.closest("button[data-clipboard-action]");
+  if (!button) return;
+  closeClipboardMenu();
+  if (button.dataset.clipboardAction === "copy") copySelectedElement();
+  else pasteCopiedElement();
+});
+// pointerdown, not click: the long-press gesture that OPENS this menu ends in
+// its own touchend, which synthesizes a compatibility click at the original
+// press point - exactly where the now-visible, viewport-covering backdrop
+// sits. A click listener here would catch that same release and close the
+// menu the instant it opened. pointerdown only fires on a genuinely NEW
+// press, which is what "dismissed on outside tap" actually means.
+textClipboardMenuBackdrop.addEventListener("pointerdown", closeClipboardMenu);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !textClipboardMenu.classList.contains("hidden")) closeClipboardMenu();
+});
+
+let onTextPasteReplace = null;
+
+// Registered by main.js, which owns the extracted-text buffer and the
+// destructive-replace confirm dialog - this module only knows selection and
+// mode, not what Text mode's result actually contains.
+export function setTextPasteReplaceHandler(fn) {
+  onTextPasteReplace = fn;
+}
+
+// meta = event.metaKey || event.ctrlKey handles Mac/PC in one check (only
+// one of the two is ever meaningful on a given OS), so there is no separate
+// platform-sniffing branch anywhere in this handler.
+document.addEventListener("keydown", (e) => {
+  const meta = e.metaKey || e.ctrlKey;
+  const key = e.key.toLowerCase();
+  if (!meta || (key !== "c" && key !== "v")) return;
+  // A word actively being edited (Full mode's editingObjectId) or any word
+  // in Image format mode (permanently editable there) must keep doing normal
+  // in-place text-selection copy/paste - untouched, not intercepted.
+  if (document.activeElement?.isContentEditable) return;
+
+  if (state.activeMode === "text") {
+    // Ctrl/Cmd+C: no interception needed, native selection-copy on the
+    // (selectable, if read-only) textarea already works.
+    if (key === "v" && onTextPasteReplace) {
+      e.preventDefault();
+      onTextPasteReplace();
+    }
+    return;
+  }
+  if (state.activeMode !== "full") return;
+  if (key === "c") {
+    if (copySelectedElement()) e.preventDefault();
+  } else if (pasteCopiedElement()) {
+    e.preventDefault();
+  }
+});
+
+// Paste's placement click (UI-REDESIGN-PLAN.md §2.2) places a new
+// origin:'user' word at the tapped point, cloned from the copied element,
+// selects it, and focuses it for immediate editing. If the user taps away
+// without changing anything, the placement is silently undone instead of
+// leaving an invisible empty box in editorObjects/undo history - the
+// pre-filled clone text counts as "typed" for this purpose, since discarding
+// a pasted word the moment you tap away from it would be a surprising way to
+// lose it. New text, the tool this used to also serve, was deleted in Phase 3.
+
+// Shared by placeUserWord's pre-filled clone text and the dblclick edit-entry
+// handler below - both want the caret at the end, not the start.
+function placeCaretAtEnd(el) {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+// The shared placement mechanics behind addClonedTextObject below (Phase
+// 2's paste - the only caller left since New text, the other one, was
+// deleted in Phase 3): undo, selection, focus, the discard-if-never-typed-
+// into blur handler.
+function placeUserWord(xPct, yPct, { text = "", fontSizePct, w, h, textColor = null, textBackgroundColor = null, needsBackingBox = false, fontClass = "regular", rotationDeg = 0 }) {
   const preSnapshot = snapshotState();
-  const { fontSizePct, w, h } = computeDefaultGeometry();
 
   const obj = createWordObject({
-    text: initialText,
+    text,
     x: clampPosition(xPct, w),
     y: clampPosition(yPct, h),
     w,
     h,
     fontSizePct,
+    rotationDeg,
     origin: "user",
     confidence: null,
     bbox: null,
+    fontClass,
   });
+  obj.textColor = textColor;
+  obj.textBackgroundColor = textBackgroundColor;
+  obj.needsBackingBox = needsBackingBox;
   addEditorObject(obj);
   applyObjectStyle(obj);
 
@@ -271,19 +379,19 @@ export function addUserTextObject(xPct, yPct, initialText = "") {
   state.selectedObjectIds.add(obj.id);
   updateSelectionVisuals();
   refreshModifiedStates();
-  setAddTextMode(false);
   setPasteArmed(false);
 
+  // A freshly placed word goes straight into edit mode (Full image mode's
+  // selected/editing split doesn't apply here - the whole point of placing
+  // one is to type into it immediately), so syncWordEditability must see
+  // editingObjectId set before contentEditable is read via .focus() below.
+  state.editingObjectId = obj.id;
+  syncWordEditability(obj);
   obj.el.focus();
-  if (initialText) {
-    // Caret at the end of the pasted text, not the start - matches where a
+  if (text) {
+    // Caret at the end of the placed text, not the start - matches where a
     // caret lands after any other paste.
-    const range = document.createRange();
-    range.selectNodeContents(obj.el);
-    range.collapse(false);
-    const selection = window.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
+    placeCaretAtEnd(obj.el);
   }
 
   const onBlur = () => {
@@ -298,6 +406,23 @@ export function addUserTextObject(xPct, yPct, initialText = "") {
   obj.el.addEventListener("blur", onBlur);
 
   return obj;
+}
+
+// Phase 2's paste: clones the copied element's own resolved font, size and
+// colour (state.copiedElement, set by copySelectedElement below) - a pasted
+// clone should look like the thing that was copied.
+export function addClonedTextObject(xPct, yPct, cloneData) {
+  return placeUserWord(xPct, yPct, {
+    text: cloneData.text,
+    fontSizePct: cloneData.fontSizePct,
+    w: cloneData.w,
+    h: cloneData.h,
+    textColor: cloneData.textColor,
+    textBackgroundColor: cloneData.textBackgroundColor,
+    needsBackingBox: cloneData.needsBackingBox,
+    fontClass: cloneData.fontClass,
+    rotationDeg: cloneData.rotationDeg,
+  });
 }
 
 // Fully removes a user-added word (unlike deleting an OCR word, which just
@@ -350,6 +475,17 @@ imageFormatView.addEventListener("focusout", (e) => {
   if (e.target !== editingSpan) return;
   if (editingSpan.textContent !== editingOriginalText && editingPreSnapshot) {
     pushUndo(editingPreSnapshot);
+  }
+  // Full image mode: losing focus on the word that was actually in edit mode
+  // (not just selected - a merely-selected word also passes through this
+  // handler on blur, but never matches editingObjectId) exits edit mode and
+  // flips it back to non-editable, so the next plain click on it only selects.
+  if (state.activeMode === "full") {
+    const obj = getObjectByElement(editingSpan);
+    if (obj && obj.id === state.editingObjectId) {
+      state.editingObjectId = null;
+      syncWordEditability(obj);
+    }
   }
   editingSpan = null;
   editingOriginalText = null;
@@ -479,30 +615,38 @@ document.addEventListener("keydown", (e) => {
   if (state.activeMode !== "image" && state.activeMode !== "full") return;
 
   const active = document.activeElement;
-  // contentEditable is on every word all the time now (UI-REDESIGN-PLAN.md
-  // §2.3 - no more mode-wide toggle), so a focused word IS an editing caret,
-  // full stop: no separate "focused but not editing" DOM state exists for a
-  // word span the way it did while contentEditable was off during the old
-  // Move mode. Arrow keys use this to move the caret rather than nudge the
-  // selection whenever a word itself has focus - to nudge by keyboard,
-  // Tab to move-handle/resize-handle instead, neither of which is
-  // contentEditable, so this is false there and arrows reach nudgeSelection.
+  // Image format mode has no selected/editing split (every word stays
+  // contentEditable, unchanged), so a focused word there is an editing caret,
+  // full stop. Full image mode does now have that split (Phase 1: a single
+  // click/tap selects; a double click/tap edits) - this comment used to claim
+  // "no separate focused-but-not-editing DOM state exists," which was true of
+  // the model that got replaced and is not true any more: contentEditable now
+  // tracks state.editingObjectId (see syncWordEditability), not mere focus, so
+  // isContentEditable correctly tells the two states apart in both modes.
   const editingText = active && active.isContentEditable;
 
-  // Enter or Space on a focused word selects it - the keyboard equivalent of
-  // tapping it - except Space while its text is being edited, where Space
-  // must stay a literal space. Enter always selects: unlike Space, a bare
-  // newline was never meaningful input for one of these short OCR word spans,
-  // and Enter is the one key that still has to reach selection even while a
-  // word is focused-and-therefore-"editing" by the rule above - otherwise a
-  // keyboard-only user could Tab to a word but could never select it at all,
-  // since focus and "editing" are no longer distinguishable DOM states.
+  // Enter or Space on a focused-but-not-editing word selects it - the
+  // keyboard equivalent of a single tap - except Space while its text is
+  // being edited, where Space must stay a literal space. Enter on a word
+  // that's ALREADY the sole selection enters edit mode instead of redundantly
+  // re-selecting it - the keyboard equivalent of a double tap/click, so a
+  // keyboard-only user keeps a way to start typing into a Full-mode word now
+  // that contentEditable is no longer on unconditionally there.
   if (active && active.classList?.contains("image-format-word") && (e.key === "Enter" || (e.key === " " && !editingText))) {
     const obj = getObjectByElement(active);
     if (!obj) return;
     e.preventDefault();
     if (e.shiftKey) {
       toggleSelection(obj.id);
+    } else if (
+      e.key === "Enter" &&
+      state.activeMode === "full" &&
+      state.selectedObjectIds.size === 1 &&
+      state.selectedObjectIds.has(obj.id)
+    ) {
+      state.editingObjectId = obj.id;
+      syncWordEditability(obj);
+      placeCaretAtEnd(obj.el);
     } else {
       state.selectedObjectIds.clear();
       state.selectedObjectIds.add(obj.id);
@@ -596,16 +740,24 @@ function trackPointer(e, { onMove, onEnd }) {
   surface.addEventListener("pointercancel", finish);
 }
 
-// Drags the current selection - always reached from move-handle now
-// (UI-REDESIGN-PLAN.md §2.3), never from pressing a word's own body, which is
-// what lets a tap keep meaning "edit" unconditionally: the drag never starts
-// on text, so there is no race against the browser's own native long-press
-// text-selection handling to manage (the prototype phase found that race
-// real and not reliably winnable by timing alone - see the plan). Because the
-// drag starts on a plain non-editable handle instead, contentEditable only
-// has to come off the moving words for the live duration of THIS drag, not as
-// a standing mode - restored on release, same "commit once on release" shape
-// as the transform-then-commit positioning below and as beginResize's own
+// Drags the current selection - reached from move-handle, and (Phase 1b,
+// replacing an earlier restriction to move-handle only) from pressing
+// anywhere on an already-selected word or obj-bg's own body. Pressing the
+// body of something NOT yet selected still just selects it - see the
+// pointerdown dispatcher below - so this is only ever armed on a second
+// press, after selection, matching "drag from the selected state." That
+// ordering is also what keeps a plain, un-moved click on an already-selected
+// word from racing the browser's native text-selection handling: the word is
+// contentEditable="false" at rest under the Phase 1 model (see
+// syncWordEditability), so there is no text to start selecting in the first
+// place until a double click deliberately enters edit mode. contentEditable
+// still comes off the moving words for the live duration of the drag itself
+// below (irrelevant for a non-editing word, but harmless, and still needed
+// for the case where the drag interrupts an in-progress edit) - restored via
+// syncWordEditability on release rather than unconditionally, since "restore
+// to editable" is no longer correct on its own: it's only correct if the word
+// is still state.editingObjectId, same "commit once on release" shape as the
+// transform-then-commit positioning below and as beginResize's own
 // scale-then-commit.
 function beginObjectDrag(e) {
   const moving = objectsFromSelection();
@@ -656,9 +808,7 @@ function beginObjectDrag(e) {
   }
 
   function onUp() {
-    moving.forEach((o) => {
-      if (o.type === "word") o.el.contentEditable = "true";
-    });
+    moving.forEach((o) => syncWordEditability(o));
     if (moved) {
       const dxPct = (lastDx / rect.width) * 100;
       const dyPct = (lastDy / rect.height) * 100;
@@ -687,6 +837,65 @@ function beginObjectDrag(e) {
   }
 
   trackPointer(e, { onMove, onEnd: onUp });
+}
+
+// The "pending" phase of a Phase 1b body-drag on an already-selected word:
+// mirrors beginCanvasPressHold's own "adds no listener that could intercept
+// anything ... until the gesture actually escalates" rule (see that
+// function's comment). Calling beginObjectDrag directly from pointerdown
+// would call setPointerCapture immediately - and pointer capture retargets
+// the compatibility click event for that pointer to the capturing element,
+// which silently broke double click detection on a word: the second
+// pointerdown of a double click always lands in this branch (the first
+// click already selected the word), so capturing on it meant e.target for
+// the resulting dblclick was #image-format-view, never the word, and the
+// dblclick handler below's `.closest(".image-format-word")` check always
+// missed. Waiting for real movement before calling beginObjectDrag (which
+// captures internally, via trackPointer) is what keeps a plain click/double
+// click from ever triggering capture at all.
+//
+// Also races a Phase 2 long-press, touch/pen only (matching every other
+// press-and-hold gesture in this app - see beginCanvasPressHold and
+// js/radialMenu.js's own call sites, all gated the same way): whichever of
+// movement (-> drag), the hold timer (-> the copy/paste menu) or a plain
+// release (-> nothing) happens first wins: the other two never fire.
+const CLIPBOARD_MENU_HOLD_MS = 420;
+
+function beginPendingBodyDrag(e) {
+  const startX = e.clientX;
+  const startY = e.clientY;
+  const pointerId = e.pointerId;
+
+  function cleanup() {
+    imageFormatView.removeEventListener("pointermove", onPendingMove);
+    imageFormatView.removeEventListener("pointerup", onPendingUp);
+    imageFormatView.removeEventListener("pointercancel", onPendingUp);
+    clearTimeout(holdTimer);
+  }
+  function onPendingMove(ev) {
+    if (ev.pointerId !== pointerId) return;
+    if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > 3) {
+      cleanup();
+      beginObjectDrag(e);
+    }
+  }
+  function onPendingUp(ev) {
+    if (ev.pointerId !== pointerId) return;
+    cleanup();
+    // Released without moving - the word stays selected, same as a plain
+    // click on something already selected would leave it.
+  }
+  const holdTimer =
+    e.pointerType !== "mouse"
+      ? setTimeout(() => {
+          cleanup();
+          hapticLight();
+          openClipboardMenu(startX, startY);
+        }, CLIPBOARD_MENU_HOLD_MS)
+      : null;
+  imageFormatView.addEventListener("pointermove", onPendingMove);
+  imageFormatView.addEventListener("pointerup", onPendingUp);
+  imageFormatView.addEventListener("pointercancel", onPendingUp);
 }
 
 function beginResize(e) {
@@ -853,12 +1062,6 @@ function beginCanvasPressHold(e, additive) {
   }, MARQUEE_HOLD_MS);
 }
 
-let onSurfaceClickForAdd = null;
-
-export function setAddTextClickHandler(fn) {
-  onSurfaceClickForAdd = fn;
-}
-
 imageFormatView.addEventListener("pointerdown", (e) => {
   // Left button only for mouse; touch and pen report button 0 too, so this
   // doesn't exclude them.
@@ -868,11 +1071,11 @@ imageFormatView.addEventListener("pointerdown", (e) => {
   // two-finger zoom yank an object across the image.
   if (!e.isPrimary) return;
 
-  // Every branch below that acts on an object (drag/resize/add-placement) calls
-  // preventDefault() to stop native text selection/drag - which has the side
-  // effect of also suppressing the browser's normal focus-blur transfer. Without
-  // this, clicking away from an actively-edited contentEditable word (e.g. a
-  // freshly-placed Phase 4 word still being typed into) would never blur it.
+  // Every branch below that acts on an object (drag/resize/paste-placement)
+  // calls preventDefault() to stop native text selection/drag - which has the
+  // side effect of also suppressing the browser's normal focus-blur transfer.
+  // Without this, clicking away from an actively-edited contentEditable word
+  // (e.g. a freshly-pasted word still being typed into) would never blur it.
   if (document.activeElement && document.activeElement !== e.target && document.activeElement.isContentEditable) {
     document.activeElement.blur();
   }
@@ -889,18 +1092,6 @@ imageFormatView.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     beginResize(e);
     return;
-  }
-
-  if (state.activeMode === "full" && state.addTextMode) {
-    const onSurface = e.target === imageFormatView || e.target === imageFormatBg;
-    if (onSurface) {
-      e.preventDefault();
-      const rect = imageFormatView.getBoundingClientRect();
-      const xPct = ((e.clientX - rect.left) / rect.width) * 100;
-      const yPct = ((e.clientY - rect.top) / rect.height) * 100;
-      if (onSurfaceClickForAdd) onSurfaceClickForAdd(xPct, yPct);
-      return;
-    }
   }
 
   if (state.activeMode === "full" && state.pasteArmed) {
@@ -933,28 +1124,44 @@ imageFormatView.addEventListener("pointerdown", (e) => {
     if (additive) {
       e.preventDefault();
       toggleSelection(obj.id);
+      return;
+    }
+
+    // Phase 1: a single click/tap SELECTS ONLY, never edits - replacing an
+    // earlier model where a tap both selected and edited a word in one motion
+    // (UI-REDESIGN-PLAN.md §2.3). Text stays non-editable at rest
+    // (syncWordEditability), so there is no caret to place and no
+    // preventDefault needed to suppress one. A double click/tap (see the
+    // dblclick handler below) is what now enters edit mode - which is also
+    // exactly why the branch below defers to beginPendingBodyDrag rather
+    // than beginObjectDrag directly: see that function's own comment for why
+    // capturing the pointer immediately here would silently break double
+    // click detection on the second click of the pair.
+    //
+    // A press on a word that is ALREADY the sole selection may be the start
+    // of a body-drag instead (Phase 1b: dragging works from anywhere on the
+    // selected element's body, not only move-handle/resize-handle) - and a
+    // plain click that lands here and never moves reads identically to
+    // reselecting the same thing.
+    if (state.activeMode === "full" && obj.type === "word" && state.selectedObjectIds.size === 1 && state.selectedObjectIds.has(obj.id)) {
+      beginPendingBodyDrag(e);
+      return;
+    }
+
+    // In Full image mode this also reveals move-handle/resize-handle
+    // immediately rather than only once a separate mode button had been
+    // pressed first (UI-REDESIGN-PLAN.md §2.3). Image format mode keeps
+    // today's behaviour for words, where a plain tap does not touch the
+    // selection at all (only shift-click/additive does) - nothing about that
+    // was part of the named flaw, and Image format has no handles to reveal
+    // anyway (its background is never shown, so obj-bg can't be reached
+    // there regardless).
+    if (state.activeMode === "full") {
+      state.selectedObjectIds.clear();
+      state.selectedObjectIds.add(obj.id);
+      updateSelectionVisuals();
     } else {
-      // A tap always selects - and for a word, also edits it (no
-      // preventDefault: the browser places a text caret normally; the
-      // background image has no text to place a caret in, so there's
-      // nothing to preserve by skipping it there either). In Full image
-      // mode this also reveals move-handle/resize-handle immediately rather
-      // than only once a separate mode button had been pressed
-      // (UI-REDESIGN-PLAN.md §2.3) - dragging the selection, whether it's a
-      // word or the photo itself, happens from those handles now, not from
-      // pressing the object's own body. Image format mode keeps today's
-      // behaviour for words, where a plain tap does not touch the selection
-      // at all (only shift-click/additive does) - nothing about that was
-      // part of the named flaw, and Image format has no handles to reveal
-      // anyway (its background is never shown, so obj-bg can't be reached
-      // there regardless).
-      if (state.activeMode === "full") {
-        state.selectedObjectIds.clear();
-        state.selectedObjectIds.add(obj.id);
-        updateSelectionVisuals();
-      } else {
-        clearSelection();
-      }
+      clearSelection();
     }
     return;
   }
@@ -969,4 +1176,24 @@ imageFormatView.addEventListener("pointerdown", (e) => {
   if (state.activeMode === "image" || state.activeMode === "full") {
     beginCanvasPressHold(e, additive);
   }
+});
+
+// Phase 1: double click/tap enters edit mode in Full image mode (a single
+// click there only selects - see the pointerdown dispatcher above). Image
+// format mode is untouched: its words stay permanently editable, so a plain
+// click there already edits, same as before this phase.
+imageFormatView.addEventListener("dblclick", (e) => {
+  if (state.activeMode !== "full") return;
+  const span = e.target.closest(".image-format-word");
+  if (!span) return;
+  const obj = getObjectByElement(span);
+  if (!obj) return;
+  e.preventDefault();
+  state.selectedObjectIds.clear();
+  state.selectedObjectIds.add(obj.id);
+  updateSelectionVisuals();
+  state.editingObjectId = obj.id;
+  syncWordEditability(obj);
+  obj.el.focus();
+  placeCaretAtEnd(obj.el);
 });

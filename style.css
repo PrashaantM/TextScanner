@@ -207,6 +207,24 @@
   --shadow-lg: 0 12px 40px rgba(16, 16, 24, 0.16);
 }
 
+/* Phase 5: prefers-reduced-transparency, applied live for the life of the
+   page - see js/reducedTransparency.js, which queries the media feature
+   fresh on every check rather than caching it (the same WebKit staleness
+   bug js/radialMenu.js already found and fixed for prefers-reduced-motion -
+   see that file's header comment). Placed after both theme blocks above so
+   it wins regardless of which is active (equal :root-level specificity,
+   later in the cascade wins) - a person who asked their OS to reduce
+   transparency gets that regardless of which color theme they also chose.
+   --surface-glass/--glass-edge resolve to each theme's own already-opaque
+   --surface/--border rather than a hardcoded color, so this stays correct
+   under light OR dark instead of only one of them. */
+:root.reduced-transparency {
+  --glass-blur: 0px;
+  --glass-saturate: 100%;
+  --surface-glass: var(--surface);
+  --glass-edge: var(--border);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -281,9 +299,13 @@ body {
   padding-top: calc(0.75rem + env(safe-area-inset-top, 0px));
   background: color-mix(in srgb, var(--surface) 86%, transparent);
   /* The blur is what keeps a sticky bar legible over scrolling content without
-     making it fully opaque and heavy. */
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
+     making it fully opaque and heavy. Phase 5 of the interaction-model
+     rewrite routed this through the shared glass tokens (--glass-blur/
+     --glass-saturate - see .library-sidebar for the template this follows)
+     instead of its own bespoke 14px/180% figures, so every glass surface in
+     the app moves together rather than three of them drifting independently. */
+  backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
+  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
   border-bottom: 1px solid var(--border);
 }
 
@@ -752,6 +774,14 @@ kbd {
   z-index: 90;
 }
 
+/* Phase 5: glass-treated, following .library-sidebar's template - a floating
+   popover is a closer match for "a pane of glass" than the structural bars
+   (.app-bar/.note-toolbar) migrated above, so this one adopts the full
+   template (background AND border), not backdrop-filter alone. Shared by
+   #download-menu, #card-context-menu and #text-clipboard-menu (Phase 2), so
+   all three pick this up at once. -webkit-backdrop-filter is required for
+   this to render at all in Safari/WKWebView, same as every other glass
+   surface in this file. */
 .context-menu {
   position: fixed;
   z-index: 95;
@@ -761,9 +791,11 @@ kbd {
   padding: 0.35rem;
   list-style: none;
   min-width: 10rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface-glass);
+  border: 1px solid var(--glass-edge);
   border-radius: var(--radius);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   box-shadow: var(--shadow-lg);
 }
 
@@ -1364,6 +1396,18 @@ kbd {
   font-family: "Roboto Condensed", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
+/* Per-word, unlike condensed-source above: js/editorObjects.js's
+   classifyWordFontClass (Phase 1d) applies this directly to individual
+   words whose own glyphs measure as uniform-width (detectMonospaceWord),
+   which can be true for one word in an otherwise ordinary-prose scan (a
+   price, a code, a serial number) - system monospace faces only, matching
+   the condensed rule's own "no bundled font files" approach. Set directly on
+   .image-format-word (not inherited from a container) so it wins regardless
+   of whether condensed-source is also active on the same scan. */
+.image-format-word.is-font-monospace {
+  font-family: "SF Mono", Menlo, Consolas, "Roboto Mono", "Courier New", monospace;
+}
+
 .image-format-bg {
   display: none;
   position: absolute;
@@ -1559,7 +1603,18 @@ kbd {
 }
 
 .image-format-view.show-bg .image-format-word.is-selected {
-  color: var(--text);
+  /* Was color: var(--text) - hardcoded to the theme's default text colour
+     instead of falling back through the matched --word-color like every
+     sibling rule above (:hover, :modified, :focus) already does. Live
+     whenever a word was selected in Full image mode, under the old model
+     (a tap both selected AND focused/edited a word in one motion, so
+     :focus's correct fallback and this rule's wrong one always applied
+     together - and this one wins: later in the cascade, equal specificity)
+     and under the new one (Phase 1's selected-but-not-editing state hits
+     this rule with nothing else to mask it). This is the "text turns black
+     on selection" bug reported in the interaction-model brief - confirmed
+     by test/guided-path.js's new Phase 1 colour assertions, not assumed. */
+  color: var(--word-color, var(--text));
   background: color-mix(in srgb, var(--accent) 30%, transparent);
   box-shadow: 0 0 0 1px var(--accent);
 }
@@ -1832,6 +1887,15 @@ kbd {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
   font-weight: 600;
+  box-shadow: var(--glow-accent);
+}
+
+/* Phase 4: a document card is being dragged over this folder - the same
+   background transition .library-nav__item:hover already uses (already
+   tokenized), not a new one, plus the same glow .is-active uses so "about to
+   accept a drop" reads as clearly distinct from merely hovered. */
+.library-nav__item.is-drop-target {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
   box-shadow: var(--glow-accent);
 }
 
@@ -2268,8 +2332,10 @@ kbd {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  /* Phase 5: routed through the shared glass tokens (--glass-blur), same
+     reasoning as .app-bar above. */
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
 }
 
 .note-toolbar__group {
@@ -2640,8 +2706,13 @@ kbd {
   justify-content: center;
   gap: 0.75rem;
   background: color-mix(in srgb, var(--surface) 82%, transparent);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+  /* Phase 5: routed through the shared glass tokens, same reasoning as
+     .app-bar/.note-toolbar above - saturate() added even though the
+     pre-token version didn't have one, since "the same glass everywhere"
+     is the point of sharing one pair of tokens rather than three sites
+     each choosing their own blur amount independently. */
+  backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
+  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
   color: var(--text);
   font-size: 0.9rem;
 }

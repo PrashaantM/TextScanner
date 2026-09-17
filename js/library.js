@@ -162,10 +162,15 @@ function cardMarkup(doc) {
     ? `<button class="doc-card__action" data-action="restore" data-id="${escapeHtml(doc.id)}" type="button">Restore</button>
        <button class="doc-card__action doc-card__action--danger" data-action="purge" data-id="${escapeHtml(doc.id)}" type="button">Delete now</button>`
     : `<button class="doc-card__action" data-action="pin" data-id="${escapeHtml(doc.id)}" type="button" aria-pressed="${!!doc.pinned}">${doc.pinned ? "Unpin" : "Pin"}</button>
+       <button class="doc-card__action" data-action="move-to-folder" data-id="${escapeHtml(doc.id)}" type="button">Move</button>
        <button class="doc-card__action doc-card__action--danger" data-action="trash" data-id="${escapeHtml(doc.id)}" type="button">Delete</button>`;
 
+  // draggable (Phase 4) only outside the trash - dropping a trashed item onto
+  // a folder is not a thing (restore first), and Recently Deleted has no
+  // folder sidebar to drop onto anyway. dragstart reads data-id off the
+  // article itself, same id every other card action already keys off.
   return `
-    <article class="doc-card${doc.pinned && !state.trash ? " is-pinned" : ""}" data-id="${escapeHtml(doc.id)}" data-type="${escapeHtml(doc.type)}">
+    <article class="doc-card${doc.pinned && !state.trash ? " is-pinned" : ""}" data-id="${escapeHtml(doc.id)}" data-type="${escapeHtml(doc.type)}"${state.trash ? "" : ' draggable="true"'}>
       <button class="doc-card__open" data-action="open" data-id="${escapeHtml(doc.id)}" type="button">
         <span class="doc-card__thumb" data-thumb="${escapeHtml(doc.thumbKey || "")}">${documentIcon(doc)}</span>
         <span class="doc-card__body">
@@ -388,6 +393,18 @@ async function handleAction(action, target) {
       hapticLight();
       return true;
     }
+
+    // Phase 4: the non-drag path to the same move the long-press radial menu
+    // and the desktop right-click menu already reach via this exact function
+    // - reused, not reimplemented. Named "move-to-folder", not "folder": that
+    // name is already the sidebar's own folder-FILTER action above, and a
+    // second case with the same label would just make the first one
+    // unreachable (see the "show-trash" case's own comment for this exact
+    // lesson already learned once). openFolderPicker does its own render
+    // once a folder is actually chosen, so there's nothing to re-render yet.
+    case "move-to-folder":
+      await openFolderPicker(id);
+      return false;
 
     case "trash": {
       // Deleting used to have no on-screen acknowledgment that anything
@@ -765,6 +782,62 @@ export function initLibrary({ onNewNote, onNewScan } = {}) {
 
     const shouldRerender = await handleAction(action, target);
     if (shouldRerender) await renderLibrary();
+  });
+
+  // ---- Drag-and-drop into folders (Phase 4) - the mouse-native complement
+  // to the "Move" button and the long-press radial menu's own "Move" item
+  // above, all three reaching the same updateDocument(id, {folderId}) rather
+  // than each carrying their own copy of it. One delegated set of listeners,
+  // same reasoning as the click dispatcher above: the list (and the sidebar's
+  // folder items) are re-rendered wholesale, so per-element listeners would
+  // need re-attaching every time.
+  //
+  // draggedDocId is the primary source read on drop, not
+  // event.dataTransfer.getData: Firefox restricts reading drag data during
+  // dragover for security, and some engines are inconsistent about it even
+  // on drop. setData is still called in dragstart because the native drag
+  // protocol requires SOME data be set for a drag to be permitted to
+  // proceed at all in every engine - getData is kept as a fallback read on
+  // drop, not the primary path.
+  let draggedDocId = null;
+
+  elements.root?.addEventListener("dragstart", (event) => {
+    const card = event.target.closest('.doc-card[draggable="true"]');
+    if (!card) return;
+    draggedDocId = card.dataset.id;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", draggedDocId);
+  });
+
+  elements.root?.addEventListener("dragover", (event) => {
+    if (!draggedDocId) return;
+    const target = event.target.closest('.library-nav__item[data-action="folder"]');
+    if (!target) return;
+    // Required: a dragover target that never calls preventDefault() is not a
+    // valid drop target at all, and the browser silently refuses the drop.
+    event.preventDefault();
+    target.classList.add("is-drop-target");
+  });
+
+  elements.root?.addEventListener("dragleave", (event) => {
+    event.target.closest('.library-nav__item[data-action="folder"]')?.classList.remove("is-drop-target");
+  });
+
+  elements.root?.addEventListener("drop", async (event) => {
+    const target = event.target.closest('.library-nav__item[data-action="folder"]');
+    if (!target) return;
+    event.preventDefault();
+    target.classList.remove("is-drop-target");
+    const docId = draggedDocId || event.dataTransfer.getData("text/plain");
+    draggedDocId = null;
+    if (!docId) return;
+    await updateDocument(docId, { folderId: target.dataset.id });
+    hapticLight();
+    await renderLibrary();
+  });
+
+  elements.root?.addEventListener("dragend", () => {
+    draggedDocId = null;
   });
 
   // Remember where the library was scrolled to, so returning from a document

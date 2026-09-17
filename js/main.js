@@ -1,8 +1,9 @@
 // main.js: application bootstrap. Wires file input (drag/drop, paste, camera,
 // sample image), the Scan text button (preprocessing + OCR via recognize.js), and
-// Copy/Download, on top of the editor surface (js/editorObjects.js and its two
-// sibling modules) that renders and manages
-// the OCR result.
+// Download, on top of the editor surface (js/editorObjects.js and its two
+// sibling modules) that renders and manages the OCR result. Copy/paste is
+// wired in js/editorInteractions.js instead (Phase 2) - this module only
+// supplies the Text-mode paste-replace hook it doesn't have direct access to.
 import {
   dropZone,
   fileInput,
@@ -19,8 +20,6 @@ import {
   statusSection,
   resultSection,
   resultText,
-  copyBtn,
-  pasteBtn,
   downloadBtn,
   downloadMenu,
   downloadMenuBackdrop,
@@ -43,7 +42,6 @@ import {
   coherenceDisclosureClaude,
   coherenceDisclosureOrigin,
   coherenceUnavailable,
-  newTextBtn,
   confidenceNote,
   editorKeyboardHint,
   themeBtn,
@@ -87,14 +85,7 @@ import {
   hide,
   revealFlowPanel,
 } from "./editorObjects.js";
-import {
-  setMode,
-  setAddTextMode,
-  setAddTextClickHandler,
-  setPasteArmed,
-  setPasteClickHandler,
-  addUserTextObject,
-} from "./editorInteractions.js";
+import { setMode, setTextPasteReplaceHandler } from "./editorInteractions.js";
 import {
   getActiveResultText,
   buildResultCanvas,
@@ -109,6 +100,9 @@ import { hapticLight, hapticMedium } from "./haptics.js";
 import { computeInpaintedPatch } from "./inpaint.js";
 import { wordsToFilteredText } from "./filter.js";
 import { getTheme, setTheme, cycleTheme, themeLabel } from "./theme.js";
+// Side-effect only (Phase 5): applies and live-updates the
+// prefers-reduced-transparency root class. No exports to pull in.
+import "./reducedTransparency.js";
 import { openRadialMenu } from "./radialMenu.js";
 // The application shell - library, documents, routing. main.js owns the scan
 // flow; app.js owns everything around it. The dependency runs one way: main.js
@@ -676,29 +670,12 @@ setFilterTextHook(() =>
   state.activeFilterLevel === "coherence" ? state.coherentText || "" : wordsToFilteredText(state.ocrWords, state.activeFilterLevel)
 );
 
-// ---- Copy / Download ----
-
-copyBtn.addEventListener("click", async () => {
-  const text = getActiveResultText();
-  if (!text) return;
-  try {
-    await navigator.clipboard.writeText(text);
-    const original = copyBtn.textContent;
-    copyBtn.textContent = "Copied!";
-    setTimeout(() => {
-      copyBtn.textContent = original;
-    }, 1500);
-  } catch {
-    const temp = document.createElement("textarea");
-    temp.value = text;
-    temp.style.position = "fixed";
-    temp.style.opacity = "0";
-    document.body.appendChild(temp);
-    temp.select();
-    document.execCommand("copy");
-    temp.remove();
-  }
-});
+// ---- Download ----
+//
+// Text mode's own Copy is gone (Phase 2 of the interaction-model rewrite)
+// with no replacement needed: #result-text is a plain (if read-only)
+// textarea, so selecting text in it and pressing Ctrl/Cmd+C already copies
+// it via the browser's native handling - nothing left for this app to do.
 
 function downloadFile(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -726,13 +703,14 @@ function downloadResultImage() {
   }, "image/png");
 }
 
-// Download (UI-REDESIGN-PLAN.md §2.1): one control, merged from the old
-// download-btn/download-image-btn pair. Text mode has one artifact (the
-// text), so this downloads it directly, unchanged from before. Image
-// format/Full image have two (text AND image), so the same button opens a
-// small menu instead of showing two buttons side by side - the same
-// "single entry point, disclosed choice" shape the diagnostics export
-// already uses for its share sheet.
+// One small corner menu (Phase 3), consolidating Download
+// (UI-REDESIGN-PLAN.md §2.1 already merged Image+Text into these two items),
+// Save as note and Add as document page. Always opens the menu now, in every
+// mode - Text mode used to skip straight to downloading the text back when
+// Download was the only thing here; now the other two items need to stay
+// reachable there too. See the markup comment in index.html for why that's
+// safe: buildResultCanvas renders a meaningful image-format snapshot
+// regardless of which mode is currently showing.
 function closeDownloadMenu() {
   if (!downloadMenu) return;
   downloadMenu.classList.add("hidden");
@@ -751,20 +729,23 @@ function openDownloadMenu() {
 }
 
 downloadBtn.addEventListener("click", () => {
-  if (state.activeMode === "text") {
-    downloadResultText();
-    return;
-  }
   if (downloadMenu.classList.contains("hidden")) openDownloadMenu();
   else closeDownloadMenu();
 });
 
 downloadMenu?.addEventListener("click", (e) => {
-  const button = e.target.closest("button[data-download]");
-  if (!button) return;
+  const downloadButton = e.target.closest("button[data-download]");
+  if (downloadButton) {
+    closeDownloadMenu();
+    if (downloadButton.dataset.download === "image") downloadResultImage();
+    else downloadResultText();
+    return;
+  }
+  const actionButton = e.target.closest("button[data-menu-action]");
+  if (!actionButton) return;
   closeDownloadMenu();
-  if (button.dataset.download === "image") downloadResultImage();
-  else downloadResultText();
+  if (actionButton.dataset.menuAction === "save-note") saveResultAsNote();
+  else addCurrentImageAsDocumentPage();
 });
 
 downloadMenuBackdrop?.addEventListener("click", closeDownloadMenu);
@@ -817,6 +798,7 @@ configureUndoHooks({
       origin: s.origin,
       confidence: null,
       bbox: null,
+      fontClass: s.fontClass,
     }),
   onRemoved: (obj) => patchCache.delete(obj.id),
 });
@@ -915,59 +897,31 @@ setDeleteHandler(async (selectedObjects) => {
   refreshModifiedStates();
 });
 
-// ---- New text (Phase 4): arms add-mode; the next click on the image surface
-// places a new user-added word there (see editorInteractions.js's addUserTextObject). ----
-
-if (newTextBtn) {
-  newTextBtn.addEventListener("click", () => {
-    setAddTextMode(!state.addTextMode);
-  });
-}
-
-setAddTextClickHandler((xPct, yPct) => addUserTextObject(xPct, yPct));
-
-// ---- Paste (UI-REDESIGN-PLAN.md §2.2) ----
+// ---- Text mode's Ctrl/Cmd+V (Phase 2) ----
 //
-// Two mechanisms, one button, chosen by mode. Text mode: reads the clipboard
-// and replaces the whole result outright - destructive, so it's gated by a
-// confirm, the same as any other action in this app that discards something
-// the OCR produced. Image format/Full image: arms a placement click exactly
-// like New text above (addUserTextObject's initialText parameter is what the
-// two share), rather than replacing anything.
-if (pasteBtn) {
-  pasteBtn.addEventListener("click", async () => {
-    if (state.activeMode === "text") {
-      let text;
-      try {
-        text = await navigator.clipboard.readText();
-      } catch {
-        return;
-      }
-      if (!text) return;
-      if (!window.confirm("Replace the extracted text with what's on your clipboard? This can't be undone.")) return;
-      resultText.value = text;
-      hapticLight();
-      return;
-    }
-
-    if (state.pasteArmed) {
-      setPasteArmed(false);
-      return;
-    }
-    let text;
-    try {
-      text = await navigator.clipboard.readText();
-    } catch {
-      return;
-    }
-    if (!text) return;
-    pendingPasteText = text;
-    setPasteArmed(true);
-  });
-}
-
-let pendingPasteText = "";
-setPasteClickHandler((xPct, yPct) => addUserTextObject(xPct, yPct, pendingPasteText));
+// The one capability that genuinely had no native fallback once paste-btn
+// was deleted: #result-text is readonly, so a native paste into it is
+// rejected outright, and the destructive whole-buffer replace this ran was
+// never something more than a button click could do anyway. Retriggered by
+// Ctrl/Cmd+V (js/editorInteractions.js's keydown handler, via
+// setTextPasteReplaceHandler) instead of a button click - same confirm gate,
+// same destructive-replace semantics, unchanged.
+//
+// Image format/Full image's own paste (arm a placement click, clone a
+// copied element's font/size/colour) is wired entirely inside
+// editorInteractions.js now - it no longer needs anything from this module.
+setTextPasteReplaceHandler(async () => {
+  let text;
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    return;
+  }
+  if (!text) return;
+  if (!window.confirm("Replace the extracted text with what's on your clipboard? This can't be undone.")) return;
+  resultText.value = text;
+  hapticLight();
+});
 
 // ---- Translate in place (Phase 4c) ----
 //
@@ -1250,61 +1204,61 @@ if (diagnosticsExportBtn) {
 // follows connects it to the library: a captured image can become a page in a
 // multi-page document, and recognized text can become a note.
 //
-// The two buttons are the whole bridge, and they run in opposite directions:
-// "Add as document page" sends the IMAGE into a scan document; "Save as note"
-// sends the TEXT into a note.
+// The two functions below are the whole bridge, and they run in opposite
+// directions: addCurrentImageAsDocumentPage sends the IMAGE into a scan
+// document; saveResultAsNote sends the TEXT into a note. Both used to be
+// standalone buttons; both are now items in #download-menu (Phase 3's "one
+// small corner menu" - see that menu's own wiring above), addressed by
+// data-menu-action rather than an id each, so there's no per-button element
+// to hold this file's own reference the way addToDocBtn/saveNoteBtn used to -
+// re-queried from the menu each time instead.
 
-const addToDocBtn = document.getElementById("add-to-doc-btn");
-const saveNoteBtn = document.getElementById("save-note-btn");
-
-if (addToDocBtn) {
-  addToDocBtn.addEventListener("click", async () => {
-    if (!previewImg?.naturalWidth) {
-      setStatus("Choose an image first.", "error");
-      return;
-    }
-    addToDocBtn.disabled = true;
-    try {
-      await bridge.addCurrentImageAsPage(previewImg);
-    } catch (err) {
-      console.error("Couldn't add the page:", err);
-      setStatus("Couldn't add that image as a page. Try again.", "error");
-    } finally {
-      addToDocBtn.disabled = false;
-    }
-  });
+async function addCurrentImageAsDocumentPage() {
+  const menuItem = downloadMenu?.querySelector('[data-menu-action="add-to-doc"]');
+  if (!previewImg?.naturalWidth) {
+    setStatus("Choose an image first.", "error");
+    return;
+  }
+  if (menuItem) menuItem.disabled = true;
+  try {
+    await bridge.addCurrentImageAsPage(previewImg);
+  } catch (err) {
+    console.error("Couldn't add the page:", err);
+    setStatus("Couldn't add that image as a page. Try again.", "error");
+  } finally {
+    if (menuItem) menuItem.disabled = false;
+  }
 }
 
-if (saveNoteBtn) {
-  saveNoteBtn.addEventListener("click", async () => {
-    const text = getActiveResultText();
-    if (!text || !text.trim()) {
-      setStatus("There's no text to save yet. Scan an image first.", "error");
-      return;
-    }
+async function saveResultAsNote() {
+  const menuItem = downloadMenu?.querySelector('[data-menu-action="save-note"]');
+  const text = getActiveResultText();
+  if (!text || !text.trim()) {
+    setStatus("There's no text to save yet. Scan an image first.", "error");
+    return;
+  }
 
-    // The note is created with the text already in its body rather than created
-    // empty and then typed into - so a failure leaves no empty note behind.
-    const paragraphs = text
-      .split(/\n{2,}/)
-      .map((block) => `<p>${block.split("\n").map(escapeNoteLine).join("<br>")}</p>`)
-      .join("");
+  // The note is created with the text already in its body rather than created
+  // empty and then typed into - so a failure leaves no empty note behind.
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((block) => `<p>${block.split("\n").map(escapeNoteLine).join("<br>")}</p>`)
+    .join("");
 
-    // First line makes a better default title than "Untitled note".
-    const firstLine = text.split("\n").find((line) => line.trim()) || "";
-    const title = firstLine.trim().slice(0, 60);
+  // First line makes a better default title than "Untitled note".
+  const firstLine = text.split("\n").find((line) => line.trim()) || "";
+  const title = firstLine.trim().slice(0, 60);
 
-    saveNoteBtn.disabled = true;
-    try {
-      await bridge.createAndOpenNote({ body: paragraphs, title });
-      hapticMedium();
-    } catch (err) {
-      console.error("Couldn't save the note:", err);
-      setStatus("Couldn't save that as a note.", "error");
-    } finally {
-      saveNoteBtn.disabled = false;
-    }
-  });
+  if (menuItem) menuItem.disabled = true;
+  try {
+    await bridge.createAndOpenNote({ body: paragraphs, title });
+    hapticMedium();
+  } catch (err) {
+    console.error("Couldn't save the note:", err);
+    setStatus("Couldn't save that as a note.", "error");
+  } finally {
+    if (menuItem) menuItem.disabled = false;
+  }
 }
 
 function escapeNoteLine(line) {

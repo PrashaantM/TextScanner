@@ -51,6 +51,24 @@ benchmark is **+0.00pts** — recognition was not touched.
 > and added four (`paste-btn`, `download-menu`, `download-menu-backdrop`,
 > `move-handle`). `EXPECTED_ID_COUNT` in `test/dom-contract.js` moved with it,
 > in the same commit, per this section's own standing rule.
+>
+> **Updated 2026-09-17: still 71, for the third time by coincidence, not by
+> nothing changing.** The F4 interaction-model rewrite (five phases: text
+> select/edit/drag, copy/paste, chrome reorganization, drag-and-drop into
+> folders, the liquid-glass token migration) touched ids only in Phases 2-3.
+> Phase 2 deleted `copy-btn`/`paste-btn` outright (Ctrl/Cmd+C/V and a touch
+> long-press menu trigger copy/paste now, not buttons) and added
+> `text-clipboard-menu`/`text-clipboard-menu-backdrop` for that touch menu.
+> Phase 3 deleted `new-text-btn` outright (along with the `addTextMode`
+> plumbing only it drove) and added `filter-toggle-row` (Text-mode-only
+> visibility needed one id to hide/inert as a unit) - and separately deleted
+> `add-to-doc-btn` and `save-note-btn`, which were never part of this
+> contract but were real controls in `index.html` (both actions live only
+> inside `#download-menu` now). Net effect on `js/dom.js`'s resolved count:
+> −3, +3, unchanged at 71. `index.html`'s total id count did move, 163 → 161,
+> from the two non-contract deletions - see `WEB-COMPLETION-PLAN.md`'s own id
+> table for the full per-phase breakdown. Phases 1, 4 and 5 added or removed
+> no ids at all.
 
 `ANALYSIS.md` §8 is the addendum covering this, including the four bugs found
 while building it. `js/app.js` is the shell; `js/main.js` still owns the scan

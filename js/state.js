@@ -59,10 +59,25 @@ export const state = {
   editorObjects: [],
   objectIdCounter: 0,
   selectedObjectIds: new Set(),
-  addTextMode: false,
-  // Paste's placement mode (UI-REDESIGN-PLAN.md §2.2), mirroring addTextMode
-  // exactly: armed by pasteBtn, disarmed by placing (or by leaving Full image
-  // mode).
+  // The single word currently in text-edit mode in Full image mode, or null.
+  // Full image mode now distinguishes "selected" from "editing" (a single
+  // click selects; a double click edits) - this is that distinction's only
+  // piece of state. Image format mode has no such split: its words stay
+  // permanently contentEditable, unaffected by this field. See
+  // syncWordEditability in editorInteractions.js.
+  editingObjectId: null,
+  // Phase 2: the last element copied via Ctrl/Cmd+C (or the touch clipboard
+  // menu's Copy) on a selected, non-editing word - { text, fontSizePct, w, h,
+  // textColor, textBackgroundColor, needsBackingBox, fontClass, rotationDeg },
+  // or null if nothing has been copied yet this session. Consumed by
+  // addClonedTextObject on the next placement click while pasteArmed, so a
+  // paste reproduces the source element's resolved appearance rather than
+  // building a fresh one from defaults.
+  copiedElement: null,
+  // Paste's placement mode (UI-REDESIGN-PLAN.md §2.2): armed by Ctrl/Cmd+V or
+  // the touch clipboard menu's Paste (Phase 2), disarmed by placing (or by
+  // leaving Full image mode). New text's own arm-then-place mode (which this
+  // used to mirror) no longer exists - deleted in Phase 3.
   pasteArmed: false,
   // True only for the live duration of an actual marquee drag (see
   // beginMarquee in js/editorInteractions.js) - not a standing mode. While

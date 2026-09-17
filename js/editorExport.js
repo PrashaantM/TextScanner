@@ -187,7 +187,7 @@ export function setPatchCanvasProvider(fn) {
 // carrying the size the user chose, which must not be silently overridden.
 function exportFontPx(obj, text, canvasWidth) {
   if (!obj.fontSizeLocked && obj.inkTargetPx) {
-    const fit = inkFitPxAtScale(text, obj.inkTargetPx, obj.inkTargetWpx, 1);
+    const fit = inkFitPxAtScale(text, obj.inkTargetPx, obj.inkTargetWpx, 1, obj.fontClass);
     if (fit) return fit.fitPx;
   }
   return (obj.fontSizePct / 100) * canvasWidth;
@@ -241,13 +241,14 @@ export function buildResultCanvas() {
     const text = obj.el.textContent;
     if (!text) return;
     const fontPx = exportFontPx(obj, text, canvas.width);
-    // wordFontFamily(), not a second hardcoded copy of the stack: the
-    // condensed-source detector made the family conditional (condensed source
-    // text draws in a narrower font -
-    // see editorObjects.js's detectCondensedSource), and reading the same
-    // live resolution the preview and the sizing solve already use is what
-    // keeps the export canvas from silently drawing in the wrong one.
-    ctx.font = `${fontPx}px ${wordFontFamily()}`;
+    // wordFontFamily(obj.fontClass), not a second hardcoded copy of the stack:
+    // classifyWordFontClass (editorObjects.js) decides per word between the
+    // regular stack, the condensed-source stack (condensed source text draws
+    // in a narrower font - see detectCondensedSource) and the monospace
+    // stack, and reading the same live resolution the preview and the sizing
+    // solve already use is what keeps the export canvas from silently drawing
+    // in the wrong one.
+    ctx.font = `${fontPx}px ${wordFontFamily(obj.fontClass)}`;
     const wx = (obj.x / 100) * canvas.width;
     const wy = (obj.y / 100) * canvas.height;
     ctx.textBaseline = "top";

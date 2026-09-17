@@ -440,13 +440,16 @@ await page.waitForTimeout(900);
 check("accepting removes the saved row too", (await rowCounts()).history === 0, JSON.stringify(await rowCounts()));
 check("...and the confirm said saved phrases were included", sawMessage("saved phrases"), JSON.stringify(dialogs));
 
-// ---- 11. Paste replaces the whole result text in Text mode (js/main.js,
-// UI-REDESIGN-PLAN.md §2.2) ----
+// ---- 11. Ctrl/Cmd+V replaces the whole result text in Text mode
+// (js/editorInteractions.js's keydown handler, via setTextPasteReplaceHandler
+// in js/main.js - UI-REDESIGN-PLAN.md §2.2, retriggered by Phase 2) ----
 //
-// The twelfth path, added with the Paste control - not one of the original
-// eleven this file's header describes, but exactly the kind this file exists
-// to catch: a confirm whose Cancel branch is the one every CI run before
-// destructive-actions.js existed would have silently taken.
+// The twelfth path, added with the original Paste control and carried
+// forward when that button was deleted in favour of the keyboard shortcut -
+// not one of the original eleven this file's header describes, but exactly
+// the kind this file exists to catch: a confirm whose Cancel branch is the
+// one every CI run before destructive-actions.js existed would have
+// silently taken.
 
 console.log("\nPaste (Text mode) replaces the result outright");
 await page.goto(`http://localhost:${PORT}/index.html`);
@@ -464,18 +467,18 @@ check("the sample scan produced some result text to protect", beforePaste.trim()
 await ev(() => navigator.clipboard.writeText("pasted replacement text"));
 
 answerCancel();
-await page.click("#paste-btn");
+await page.keyboard.press("ControlOrMeta+V");
 await page.waitForTimeout(400);
 const afterCancelPaste = await ev(() => document.getElementById("result-text").value);
-check("cancelling Paste leaves the result text exactly as it was", afterCancelPaste === beforePaste,
+check("cancelling Ctrl/Cmd+V leaves the result text exactly as it was", afterCancelPaste === beforePaste,
       `expected ${JSON.stringify(beforePaste)}, got ${JSON.stringify(afterCancelPaste)}`);
 check("...and it asked a confirm naming what it's about to do", sawMessage("Replace"), JSON.stringify(dialogs));
 
 answerOk();
-await page.click("#paste-btn");
+await page.keyboard.press("ControlOrMeta+V");
 await page.waitForTimeout(400);
 const afterOkPaste = await ev(() => document.getElementById("result-text").value);
-check("accepting Paste replaces the result text with the clipboard contents", afterOkPaste === "pasted replacement text",
+check("accepting replaces the result text with the clipboard contents", afterOkPaste === "pasted replacement text",
       `expected "pasted replacement text", got ${JSON.stringify(afterOkPaste)}`);
 
 // ---- 12. Delete all local data (js/app.js:512-513) ----

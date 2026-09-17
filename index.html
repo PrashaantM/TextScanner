@@ -224,6 +224,27 @@
     <button id="app-toast-action" class="app-toast__action hidden" type="button"></button>
   </div>
 
+  <!-- Phase 2: press-and-hold on a selected, non-editing word shows this near
+       the touch point - the touchscreen-convention equivalent of Ctrl/Cmd+C/V
+       on a selected element (js/editorInteractions.js). Paste is omitted (not
+       just disabled) when nothing has been copied yet. Lives outside
+       #app-main for the same reason #app-toast above does (position: fixed),
+       plus one more: #result-section is a .flow-panel, and .flow-panel's own
+       `transform: translateY(...)` (even translateY(0) once visible) makes
+       ANY ancestor carrying it a containing block for position:fixed
+       descendants - a fixed element nested inside one renders relative to
+       THAT ancestor's box, not the real viewport. Found by this menu
+       rendering off-screen (and its backdrop failing to cover/dismiss
+       correctly) once the containing image was scrolled anywhere - the same
+       trap #download-menu is nested inside #result-section and likely
+       shares, just never exercised by a test that checks exact viewport
+       position after scrolling. -->
+  <div id="text-clipboard-menu-backdrop" class="context-menu-backdrop hidden"></div>
+  <ul id="text-clipboard-menu" class="context-menu context-menu--anchored hidden" role="menu" aria-label="Copy or paste">
+    <li><button class="context-menu__item" type="button" data-clipboard-action="copy">Copy</button></li>
+    <li><button class="context-menu__item" type="button" data-clipboard-action="paste">Paste</button></li>
+  </ul>
+
   <main id="app-main">
 
     <!-- ============================================================
@@ -287,16 +308,20 @@
       <!-- Shown once a file is chosen: displays the image and lets the user trigger the
            OCR scan or go back and pick a different image.
 
-           "Add to document" is the bridge into the library: it runs edge
-           detection, offers the crop screen, and appends the result as a page -
-           which is what turns a one-shot scanner into a multi-page one. -->
+           "Add to document" (Phase 3: moved into the post-scan corner menu,
+           #download-menu - it works equally well after a scan, since it
+           acts on previewImg directly rather than on anything OCR produces,
+           and consolidating it there was more in keeping with "one small
+           corner menu" than a second entry point) is the bridge into the
+           library: it runs edge detection, offers the crop screen, and
+           appends the result as a page - which is what turns a one-shot
+           scanner into a multi-page one. -->
       <section id="preview-section" class="preview-section flow-panel hidden">
         <div class="preview-card">
           <img id="preview-img" alt="Selected image preview" />
         </div>
         <div class="preview-actions">
           <button id="scan-btn" class="btn btn--primary" type="button">Scan text</button>
-          <button id="add-to-doc-btn" class="btn btn--secondary" type="button">Add as document page</button>
           <button id="reset-btn" class="btn btn--ghost" type="button">Choose a different image</button>
         </div>
         <p id="scan-target-note" class="preview-note hidden"></p>
@@ -336,15 +361,18 @@
           </div>
 
           <!-- Three-level filter (js/filter.js for Raw/Filtered Text, js/coherence.js for
-               Coherence Filter), visible in all three view modes: it drives what's shown in
-               the Text textarea, which words are dimmed (not removed) in Image format/Full
-               image, and what Copy/Download/TTS read. The third option is the guided path,
-               merged in the same way as the mode toggle above (UI-REDESIGN-PLAN.md §2.5):
-               it used to be a separate "Clean up this text" proxy button; now it's this
-               option itself, restyled, and it carries the proxy's skip-the-call gate
-               directly (js/coherenceGate.js) so every path to this filter level gets it,
-               not only the deleted guided button's path. -->
-          <div class="result-toolbar__row result-toolbar__actions">
+               Coherence Filter). Phase 3 of the interaction-model rewrite restricted this
+               to Text mode only - js/editorInteractions.js's setMode shows it there and
+               makes it inert (not just visually hidden) in Image format/Full image, since
+               it has nothing to toggle in those views' own chrome (the level it's set to
+               still drives word-dimming and Copy/Download/TTS everywhere via state, which
+               setMode does not touch). The third option is the guided path, merged in the
+               same way as the mode toggle above (UI-REDESIGN-PLAN.md §2.5): it used to be
+               a separate "Clean up this text" proxy button; now it's this option itself,
+               restyled, and it carries the proxy's skip-the-call gate directly
+               (js/coherenceGate.js) so every path to this filter level gets it, not only
+               the deleted guided button's path. -->
+          <div id="filter-toggle-row" class="result-toolbar__row result-toolbar__actions">
             <span class="filter-toggle__label">Filter</span>
             <div id="filter-toggle" class="filter-toggle" role="group" aria-label="Text filter level">
               <button id="filter-raw-btn" class="filter-toggle__btn" type="button" data-level="raw" aria-pressed="false">Raw</button>
@@ -403,33 +431,37 @@
           </div>
 
           <div class="result-toolbar__row result-toolbar__actions">
-            <button id="copy-btn" class="btn btn--secondary" type="button">Copy</button>
-            <!-- Paste (UI-REDESIGN-PLAN.md §2.2), at two different altitudes depending
-                 on mode. In Text mode: reads navigator.clipboard.readText() and replaces
-                 the whole result outright (destructive, gated by a confirm - see
-                 pasteBtn's click handler in js/main.js). In Image format/Full image
-                 mode: arms a placement click, mirroring newTextBtn's existing
-                 arm-then-place pattern, and drops the clipboard text as a new object
-                 wherever the next tap lands. -->
-            <button id="paste-btn" class="btn btn--secondary" type="button" aria-pressed="false">Paste</button>
-            <!-- Download (UI-REDESIGN-PLAN.md §2.1): one button, not two. In Text mode
-                 there is only one artifact (the text), so this downloads it directly,
-                 unchanged from the old download-btn. In Image format/Full image mode,
-                 where a text AND an image artifact both exist, the same button opens
-                 download-menu instead of downloading immediately - same "single entry
-                 point, disclosed choice" shape the app already uses for diagnostics
-                 export's share sheet. -->
+            <!-- Copy/paste (Phase 2 of the interaction-model rewrite) no longer has
+                 dedicated buttons: Ctrl/Cmd+C/V on a selected, non-editing element
+                 (or a press-and-hold touch menu - see #text-clipboard-menu) triggers
+                 it instead, in both Text mode (whole-result copy/replace) and
+                 Image format/Full image mode (clone a copied element's font, size
+                 and colour). See js/editorInteractions.js's keydown handler. -->
+            <!-- One small corner menu (Phase 3), consolidating three things that
+                 used to be separate controls: Download (UI-REDESIGN-PLAN.md §2.1
+                 merged Image+Text into this one item pair already), Save as note
+                 (sends the recognized text into a note - the other half of the
+                 bridge Add as document page opens) and Add as document page
+                 (files the current image as a page - moved here from the pre-scan
+                 preview screen, since it works equally well after a scan and
+                 "one small corner menu" reads as one menu, not two). Always opens
+                 the menu now, in every mode - Text mode used to skip straight to
+                 downloading the text, back when Download was the only thing here;
+                 now Save as note/Add as document page need to stay reachable
+                 there too, and buildResultCanvas renders a perfectly meaningful
+                 image-format snapshot regardless of which mode is currently
+                 showing, so there's no reason left to special-case Text mode's
+                 menu contents either. -->
             <div class="download-control">
-              <button id="download-btn" class="btn btn--secondary" type="button" aria-haspopup="true" aria-expanded="false">Download</button>
+              <button id="download-btn" class="btn btn--secondary" type="button" aria-haspopup="true" aria-expanded="false">More actions</button>
               <div id="download-menu-backdrop" class="context-menu-backdrop hidden"></div>
-              <ul id="download-menu" class="context-menu context-menu--anchored hidden" role="menu" aria-label="Download as">
-                <li><button class="context-menu__item" type="button" data-download="image">Image</button></li>
-                <li><button class="context-menu__item" type="button" data-download="text">Text</button></li>
+              <ul id="download-menu" class="context-menu context-menu--anchored hidden" role="menu" aria-label="More actions">
+                <li><button class="context-menu__item" type="button" data-download="image">Download image</button></li>
+                <li><button class="context-menu__item" type="button" data-download="text">Download text</button></li>
+                <li><button class="context-menu__item" type="button" data-menu-action="save-note">Save as note</button></li>
+                <li><button class="context-menu__item" type="button" data-menu-action="add-to-doc">Add as document page</button></li>
               </ul>
             </div>
-            <!-- Sends the recognized text into a note, which is the other half of
-                 the bridge "Add as document page" opens. -->
-            <button id="save-note-btn" class="btn btn--secondary" type="button">Save as note</button>
           </div>
 
           <!-- Translate in place (Phase 4c): the differentiating feature. Every
@@ -463,15 +495,14 @@
             <button id="tts-stop-btn" class="btn btn--ghost" type="button" disabled>Stop</button>
           </div>
 
-          <!-- Only relevant to Full image mode: arms placing a new user-added text
-               box, and exposes delete, undo, and redo for the current selection.
-               "Move components" no longer lives here (UI-REDESIGN-PLAN.md §2.3) -
-               a tap on a word always edits it now, and dragging it happens from
-               move-handle, which appears on selection next to resize-handle below,
-               the moment something is selected rather than only once a mode
-               button had been pressed first. -->
+          <!-- Only relevant to Full image mode: exposes delete, undo, and redo for
+               the current selection. New text (Phase 3) and Move components
+               (UI-REDESIGN-PLAN.md §2.3) no longer live here - a click/double
+               click on a word selects/edits it (Phase 1), and dragging it happens
+               from move-handle or the selected word's own body, the moment
+               something is selected rather than only once a mode button had been
+               pressed first. -->
           <div id="editor-toolbar" class="editor-toolbar hidden">
-            <button id="new-text-btn" class="btn btn--secondary" type="button" aria-pressed="false">New text</button>
             <div id="undo-redo-group" class="undo-redo-group hidden">
               <button id="delete-btn" class="btn btn--ghost" type="button" disabled>Delete</button>
               <button id="undo-btn" class="btn btn--ghost" type="button" disabled>Undo</button>
@@ -498,10 +529,11 @@
           <!-- Appears alongside resize-handle the moment exactly one object is
                selected in Full image mode (or the selection's combined bounds, for
                several). Dragging from here moves the current selection -
-               js/editorInteractions.js's beginObjectDrag, unchanged - rather than
-               dragging the word's own body, which is what let a tap-to-edit and a
-               press-and-hold-to-move share one gesture with no mode button and no
-               race against the browser's own native text-selection handling. -->
+               js/editorInteractions.js's beginObjectDrag - and since Phase 1b of
+               the interaction-model rewrite, so does dragging from anywhere on an
+               already-selected word's own body; move-handle remains the one drag
+               surface that works before selection and the one obj-bg still uses
+               exclusively. -->
           <button id="move-handle" type="button" class="move-handle" aria-label="Move selected item"></button>
           <!-- Was a bare, unfocusable <div>. As a slider it has a name, a role,
                a keyboard path (arrow keys resize the selection) and a tab stop. -->

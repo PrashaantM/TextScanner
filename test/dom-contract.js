@@ -23,13 +23,17 @@
 // than a number that quietly diverges from the prose describing it.
 //
 // SCOPE, deliberately narrow. This covers js/dom.js only. index.html carries
-// 163 ids in total; the other 92 are looked up locally by app.js, library.js,
+// 161 ids in total; the other 90 are looked up locally by app.js, library.js,
 // scanDoc.js and friends, and some markup is generated at runtime. Widening
 // this to "every id anywhere" would trade a precise, meaningful contract for a
-// noisy one. Two ids are worth knowing about as honourable mentions, since
-// js/main.js queries them directly and treats them exactly like the contract:
-// add-to-doc-btn and save-note-btn (js/main.js:1141-1142). They are not
-// asserted here, because dom.js is the line this gate is drawing.
+// noisy one.
+//
+// Update, Phase 3 of the interaction-model rewrite: the two ids this section
+// used to name as "honourable mentions" outside dom.js's contract -
+// add-to-doc-btn and save-note-btn - are gone outright now, not just
+// unasserted. Both actions moved into #download-menu (see
+// test/chrome-reorganization.js), addressed by data-menu-action rather than
+// an id each, so there is nothing left in that category to name.
 //
 // No browser, no server, no dependencies: this parses both files as text, so
 // it runs in well under a second and cannot fail for any reason other than the
@@ -120,6 +124,18 @@ for (const id of markupIds) {
 }
 for (const id of duplicateMarkupIds) {
   failures.push(`index.html declares id="${id}" more than once - getElementById will silently take the first`);
+}
+
+// 5. New Text (Phase 3 deleted it outright, along with the addTextMode
+// plumbing that only it drove) does not quietly come back - a static,
+// content-based check rather than trusting no one ever re-adds a matching
+// id or export by copy-pasting a similar control.
+const newTextPattern = /new-text-btn|newTextBtn|addTextMode/;
+if (newTextPattern.test(htmlSource)) {
+  failures.push('index.html contains something matching /new-text-btn|newTextBtn|addTextMode/ - New Text was deleted in Phase 3 and should not exist anywhere');
+}
+if (newTextPattern.test(domSource)) {
+  failures.push('js/dom.js contains something matching /new-text-btn|newTextBtn|addTextMode/ - New Text was deleted in Phase 3 and should not exist anywhere');
 }
 
 console.log(`js/dom.js resolves ${resolvedIds.length} element ids (expected ${EXPECTED_ID_COUNT}).`);

@@ -21,10 +21,10 @@ export const statusSection = document.getElementById("status-section");
 
 export const resultSection = document.getElementById("result-section");
 export const resultText = document.getElementById("result-text");
-export const copyBtn = document.getElementById("copy-btn");
-// Paste (UI-REDESIGN-PLAN.md §2.2): whole-buffer replace in Text mode,
-// arm-then-place in Image format/Full image - see js/main.js.
-export const pasteBtn = document.getElementById("paste-btn");
+// Phase 2: the press-and-hold touch equivalent of Ctrl/Cmd+C/V on a
+// selected, non-editing word - see js/editorInteractions.js.
+export const textClipboardMenu = document.getElementById("text-clipboard-menu");
+export const textClipboardMenuBackdrop = document.getElementById("text-clipboard-menu-backdrop");
 // Download (UI-REDESIGN-PLAN.md §2.1): one button, merged from the old
 // download-btn/download-image-btn pair. Downloads the text directly in Text
 // mode; opens downloadMenu (Image/Text) in the two image modes, where both
@@ -45,9 +45,12 @@ export const coherenceGateHint = document.getElementById("coherence-gate-hint");
 export const imageFormatView = document.getElementById("image-format-view");
 export const imageFormatBg = document.getElementById("image-format-bg");
 export const resizeHandle = document.getElementById("resize-handle");
-// Appears alongside resizeHandle on selection (Full image only); dragging
-// from here moves the current selection (UI-REDESIGN-PLAN.md §2.3's
-// handle-based move gesture) rather than dragging a word's own body.
+// Appears alongside resizeHandle on selection (Full image only). Dragging
+// from here moves the current selection; since Phase 1b of the interaction-
+// model rewrite, dragging from anywhere on an already-selected word's own
+// body does too (js/editorInteractions.js) - move-handle remains the one
+// drag surface that works before the object is selected at all, and the one
+// obj-bg (the background image) still uses exclusively.
 export const moveHandle = document.getElementById("move-handle");
 export const marqueeBox = document.getElementById("marquee-box");
 export const imageFormatHint = document.getElementById("image-format-hint");
@@ -60,12 +63,14 @@ export const selectionStatus = document.getElementById("selection-status");
 export const editorKeyboardHint = document.getElementById("editor-keyboard-hint");
 export const themeBtn = document.getElementById("theme-btn");
 export const editorToolbar = document.getElementById("editor-toolbar");
-export const newTextBtn = document.getElementById("new-text-btn");
 export const deleteBtn = document.getElementById("delete-btn");
 export const undoRedoGroup = document.getElementById("undo-redo-group");
 export const undoBtn = document.getElementById("undo-btn");
 export const redoBtn = document.getElementById("redo-btn");
 
+// Phase 3: shown only in Text mode, and made inert (not just hidden) outside
+// it - see js/editorInteractions.js's setMode.
+export const filterToggleRow = document.getElementById("filter-toggle-row");
 export const filterRawBtn = document.getElementById("filter-raw-btn");
 export const filterFilteredBtn = document.getElementById("filter-filtered-btn");
 export const filterCoherenceBtn = document.getElementById("filter-coherence-btn");

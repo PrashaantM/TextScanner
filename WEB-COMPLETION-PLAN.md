@@ -62,14 +62,17 @@ no-build-step property is worth more than the milliseconds.
 | `8d37a35` | 70 | `clean-up-text-btn`, `view-on-photo-btn` |
 | `e181738` | 71 | `coherence-gate-hint` |
 | `a511ac0` | 72 | `footer-version` (W12) |
-| (this session, uncommitted at time of writing) | 71 | UI-REDESIGN-PLAN.md §2.1-§2.5: removed `download-image-btn`, `clean-up-text-btn`, `view-on-photo-btn`, `select-multi-btn`, `editor-mode-btn` (merged into other controls or converted to gestures); added `paste-btn`, `download-menu`, `download-menu-backdrop`, `move-handle`. Net −1. |
+| UI-REDESIGN-PLAN.md §2.1-§2.5 | 71 | removed `download-image-btn`, `clean-up-text-btn`, `view-on-photo-btn`, `select-multi-btn`, `editor-mode-btn` (merged into other controls or converted to gestures); added `paste-btn`, `download-menu`, `download-menu-backdrop`, `move-handle`. Net −1. |
+| F4 interaction-model rewrite (this session), Phases 1-3 | 71 | Phase 2 removed `copy-btn`, `paste-btn` (deleted outright - Ctrl/Cmd+C/V and a touch long-press menu trigger copy/paste now) and added `text-clipboard-menu`, `text-clipboard-menu-backdrop` (the touch menu's own markup). Phase 3 removed `new-text-btn` (deleted outright, along with the addTextMode plumbing only it drove) and added `filter-toggle-row` (Text-mode-only visibility needed an id to hide/inert as a unit). Net −3, +3 = 0, landing back on 71 again - a third coincidence of arithmetic, not a third instance of nothing changing. Phases 4 and 5 added/removed no ids at all (drag-and-drop and the glass-token migration are both markup-id-neutral). |
 
-Treat **71** as the invariant from here on — the same digit as `e181738`, by
-coincidence of arithmetic, not because nothing changed since then. `index.html`
-carries 163 ids in total; the other 92 are resolved locally by `app.js`,
-`library.js`, `scanDoc.js` etc. and are *not* the protected contract — though
-`add-to-doc-btn` and `save-note-btn` (queried directly in
-`js/main.js:1141-1142`) behave like it in practice.
+Treat **71** as the invariant from here on. `index.html` carries **161** ids in
+total (163 before this session's Phase 3, which additionally deleted
+`add-to-doc-btn` and `save-note-btn` outright rather than moving them - both
+actions live only inside `#download-menu` now, addressed by `data-menu-action`
+rather than an id each, so neither is a "behaves like the contract in
+practice" honourable mention any more the way this section used to describe
+them). The other 90 are resolved locally by `app.js`, `library.js`,
+`scanDoc.js` etc. and are not the protected contract.
 
 **`EXPECTED_ID_COUNT` did not move for the PII-detection work either, for the
 same reason as the redaction ids above.** "Find PII" added five ids

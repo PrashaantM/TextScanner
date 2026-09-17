@@ -1,17 +1,24 @@
-// paste-placement.js: Paste's arm-then-place mechanism in Image format/Full
-// image mode (UI-REDESIGN-PLAN.md §2.2) - arms on click, places the
-// clipboard's text as a new object at the next tap, and can be cancelled.
+// paste-placement.js: Phase 2's copy/paste - Ctrl/Cmd+C on a selected,
+// non-editing word records its resolved font/size/colour; Ctrl/Cmd+V arms a
+// placement click (the SAME arm-then-place flow Paste's old button drove,
+// unchanged - UI-REDESIGN-PLAN.md §2.2), which clones that word exactly
+// rather than building a fresh default-styled one.
 //
-// WHY THIS EXISTS. This mirrors newTextBtn's own arm-then-place pattern
-// exactly (same addUserTextObject call, just pre-filled) - and that pattern
-// had no direct browser-driven coverage anywhere in this suite before this
-// file, in either its original (New text) or new (Paste) form. Both go
-// through addUserTextObject in js/editorInteractions.js, so this is also the
-// first real coverage of that shared code path, not just of what's new here.
+// WHY THIS EXISTS. Originally covered copy-btn/paste-btn, which are gone -
+// deleted along with the whole idea of "paste whatever plain text is on the
+// OS clipboard as a new default-styled box." What replaced it needed real
+// coverage of three things nothing else in this suite checks: that Ctrl/
+// Cmd+C/V actually reproduces a copied word's exact appearance (not just its
+// text), that the same shortcut inside an actively-edited word is left
+// alone for the browser's own native copy/paste, and that a touch long-press
+// on a selected word reaches the same copy/paste through a small menu
+// instead of a keyboard shortcut. The underlying placement mechanism
+// (addUserTextObject/addClonedTextObject in js/editorInteractions.js) is
+// otherwise unchanged from what this file already exercised.
 //
 // Usage: node test/paste-placement.js   (exits non-zero if anything regressed)
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, skipUnlessChromium } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -91,23 +98,41 @@ const findEmptyPoint = () =>
     return null;
   });
 
-// ---- 1. Arming Paste sets aria-pressed and flips the label to Cancel,
-// mirroring newTextBtn exactly ----
-await page.evaluate(() => navigator.clipboard.writeText("pasted word"));
-const beforeArm = await page.evaluate(() => document.getElementById("paste-btn").textContent.trim());
-check('Paste starts labeled "Paste"', beforeArm === "Paste", `got "${beforeArm}"`);
+// ---- 1. The buttons are gone from the DOM ----
+const buttonsGone = await page.evaluate(() => !document.getElementById("copy-btn") && !document.getElementById("paste-btn"));
+check("copy-btn and paste-btn are gone from the DOM", buttonsGone);
 
-await page.click("#paste-btn");
-await page.waitForTimeout(200);
-const armed = await page.evaluate(() => ({
-  label: document.getElementById("paste-btn").textContent.trim(),
-  pressed: document.getElementById("paste-btn").getAttribute("aria-pressed"),
-}));
-check('arming Paste flips the label to "Cancel"', armed.label === "Cancel", `got "${armed.label}"`);
-check("...and sets aria-pressed", armed.pressed === "true", `got "${armed.pressed}"`);
+// ---- 2. Ctrl/Cmd+C on a selected, non-editing word records its exact
+// resolved font/size/colour; Ctrl/Cmd+V arms placement (the same click-to-
+// place-or-cancel flow as before), and the clone reproduces all of it, not
+// just the text ----
+const source = await page.evaluate(async () => {
+  const { state } = await import("/js/state.js");
+  const w = state.editorObjects.find((o) => o.type === "word" && o.el.textContent.trim());
+  w.el.scrollIntoView({ block: "center" });
+  const r = w.el.getBoundingClientRect();
+  return { id: w.id, x: r.left + r.width / 2, y: r.top + r.height / 2, text: w.el.textContent, fontSizePct: w.fontSizePct, textColor: w.textColor, fontClass: w.fontClass };
+});
 
-// ---- 2. Tapping the surface while armed places the clipboard text as a new
-// object, selected, at the tapped point ----
+await page.mouse.click(source.x, source.y); // single click: select only
+await page.waitForTimeout(150);
+await page.keyboard.press("ControlOrMeta+C");
+await page.waitForTimeout(150);
+const copiedElement = await page.evaluate(async () => (await import("/js/state.js")).state.copiedElement);
+check(
+  "Ctrl/Cmd+C on a selected word records its text, size, colour and font class",
+  copiedElement?.text === source.text &&
+    copiedElement?.fontSizePct === source.fontSizePct &&
+    copiedElement?.textColor === source.textColor &&
+    copiedElement?.fontClass === source.fontClass,
+  JSON.stringify({ source, copiedElement })
+);
+
+await page.keyboard.press("ControlOrMeta+V");
+await page.waitForTimeout(150);
+const armedViaKeyboard = await page.evaluate(async () => (await import("/js/state.js")).state.pasteArmed);
+check("Ctrl/Cmd+V arms placement", armedViaKeyboard === true, `got ${armedViaKeyboard}`);
+
 const before = await objectCount();
 const tapPoint = await findEmptyPoint();
 if (!tapPoint) {
@@ -121,16 +146,20 @@ const placed = await page.evaluate(async () => {
   const { state } = await import("/js/state.js");
   const id = [...state.selectedObjectIds][0];
   const obj = state.editorObjects.find((o) => o.id === id);
-  return obj ? { text: obj.el.textContent, origin: obj.origin, x: obj.x, y: obj.y } : null;
+  return obj ? { text: obj.el.textContent, origin: obj.origin, fontSizePct: obj.fontSizePct, textColor: obj.textColor, fontClass: obj.fontClass } : null;
 });
 const after = await objectCount();
 
 check("placing added exactly one new object", after === before + 1, `${before} -> ${after}`);
-check("...pre-filled with the clipboard's text", placed?.text === "pasted word", JSON.stringify(placed));
-check("...as a user-origin object, not OCR", placed?.origin === "user", JSON.stringify(placed));
+check("...as a user-origin clone of the copied word", placed?.origin === "user", JSON.stringify(placed));
+check(
+  "...reproducing the copied word's exact text, size, colour and font class",
+  placed?.text === source.text && placed?.fontSizePct === source.fontSizePct && placed?.textColor === source.textColor && placed?.fontClass === source.fontClass,
+  JSON.stringify({ source, placed })
+);
 
-const disarmed = await page.evaluate(() => document.getElementById("paste-btn").textContent.trim());
-check("placing disarms Paste (label back to normal)", disarmed === "Paste", `got "${disarmed}"`);
+const disarmedAfterPlace = await page.evaluate(async () => (await import("/js/state.js")).state.pasteArmed);
+check("placing disarms paste mode", disarmedAfterPlace === false, `got ${disarmedAfterPlace}`);
 
 // Tapping away from the freshly-placed (non-empty) word must not undo the
 // placement - only an EMPTY placed word gets silently removed on blur.
@@ -141,35 +170,101 @@ await page.waitForTimeout(200);
 const survivedBlur = await objectCount();
 check("the placed word survives clicking away from it", survivedBlur === after, `${after} -> ${survivedBlur}`);
 
-// ---- 3. Arming, then clicking Paste again (not placing) cancels it with no
-// new object ----
-await page.evaluate(() => navigator.clipboard.writeText("should not appear"));
-await page.click("#paste-btn");
+// ---- 3. Ctrl/Cmd+C/V while a word is actively being edited does normal
+// in-place text-selection copy/paste instead - state.copiedElement (and
+// pasteArmed) must stay untouched ----
+await page.evaluate(async () => {
+  const { state } = await import("/js/state.js");
+  state.copiedElement = null;
+});
+const editTarget = await page.evaluate(async () => {
+  const { state } = await import("/js/state.js");
+  const w = state.editorObjects.find((o) => o.type === "word" && o.origin === "ocr" && o.el.textContent.trim());
+  w.el.scrollIntoView({ block: "center" });
+  return w.id;
+});
+const editHandle = await page.evaluateHandle(async (id) => {
+  const { state } = await import("/js/state.js");
+  return state.editorObjects.find((x) => x.id === id).el;
+}, editTarget);
+await editHandle.dblclick(); // enters edit mode (Phase 1)
 await page.waitForTimeout(150);
-await page.click("#paste-btn");
+await page.keyboard.press("ControlOrMeta+C");
+await page.keyboard.press("ControlOrMeta+V");
 await page.waitForTimeout(150);
-const cancelledLabel = await page.evaluate(() => document.getElementById("paste-btn").textContent.trim());
-const cancelledCount = await objectCount();
-check('clicking Paste again while armed cancels it (label back to "Paste")', cancelledLabel === "Paste", `got "${cancelledLabel}"`);
-check("...and no object was added", cancelledCount === survivedBlur, `${survivedBlur} -> ${cancelledCount}`);
+const duringEdit = await page.evaluate(async () => {
+  const { state } = await import("/js/state.js");
+  return { copiedElement: state.copiedElement, pasteArmed: state.pasteArmed };
+});
+check(
+  "Ctrl/Cmd+C/V while editing a word leaves state.copiedElement/pasteArmed untouched",
+  duringEdit.copiedElement === null && duringEdit.pasteArmed === false,
+  JSON.stringify(duringEdit)
+);
+await page.evaluate(() => document.activeElement?.blur());
+await page.waitForTimeout(150);
 
-// ---- 4. Arming Paste disarms New text, and vice versa - the two placement
-// tools are mutually exclusive ----
-await page.click("#new-text-btn");
-await page.waitForTimeout(150);
-const newTextArmed = await page.evaluate(() => document.getElementById("new-text-btn").textContent.trim());
-check('New text arms independently ("Cancel")', newTextArmed === "Cancel", `got "${newTextArmed}"`);
+// ---- 4. A simulated long-press on a touch viewport shows the copy/paste
+// menu near the touch point (Chromium/CDP only - see touch-interactions.js
+// for why a real trusted touch event needs the DevTools protocol rather than
+// Playwright's own synthesized touchscreen API) ----
+if (!skipUnlessChromium("needs CDP Input.dispatchTouchEvent for a genuine long-press, same as test/touch-interactions.js")) {
+  const touchContext = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 3 });
+  const touchPage = await touchContext.newPage();
+  const touchCdp = await touchContext.newCDPSession(touchPage);
+  const tap = async (p) => {
+    await touchCdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: p.x, y: p.y, id: 1 }] });
+    await touchCdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  };
+  const pressHold = async (p, ms) => {
+    await touchCdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: p.x, y: p.y, id: 1 }] });
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    await touchCdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  };
 
-await page.evaluate(() => navigator.clipboard.writeText("mutual exclusion check"));
-await page.click("#paste-btn");
-await page.waitForTimeout(150);
-const bothStates = await page.evaluate(() => ({
-  newText: document.getElementById("new-text-btn").textContent.trim(),
-  paste: document.getElementById("paste-btn").textContent.trim(),
-}));
-check("arming Paste disarms New text", bothStates.newText === "New text", JSON.stringify(bothStates));
-check("...and Paste itself is armed", bothStates.paste === "Cancel", JSON.stringify(bothStates));
-await page.click("#paste-btn"); // clean up: cancel before moving on
+  await touchPage.goto(`http://localhost:${PORT}/index.html`);
+  await touchPage.click("#nav-add");
+  await touchPage.click("#action-sheet-scan");
+  await touchPage.waitForSelector("#sample-btn", { state: "visible" });
+  await touchPage.click("#sample-btn");
+  await touchPage.waitForSelector("#preview-section:not(.hidden)");
+  await touchPage.click("#scan-btn");
+  await touchPage.waitForSelector("#result-section:not(.hidden)", { timeout: 30000 });
+  await touchPage.click("#mode-full-btn");
+  await touchPage.waitForTimeout(300);
+
+  const touchTarget = await touchPage.evaluate(async () => {
+    const { state } = await import("/js/state.js");
+    const words = state.editorObjects.filter((o) => o.type === "word" && o.el.textContent.trim());
+    for (const w of words) {
+      w.el.scrollIntoView({ block: "center" });
+      const r = w.el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      if (cx > 30 && cx < innerWidth - 30 && cy > 90 && cy < innerHeight - 120 && r.width > 60 && r.height > 20) return { x: cx, y: cy };
+    }
+    return null;
+  });
+
+  if (!touchTarget) {
+    failures.push("touch long-press menu: no suitably sized word to target");
+  } else {
+    await tap(touchTarget); // select
+    await touchPage.waitForTimeout(300);
+    await pressHold(touchTarget, 500); // long-press the now-selected word
+    await touchPage.waitForTimeout(200);
+    const menuVisible = await touchPage.evaluate(() => !document.getElementById("text-clipboard-menu").classList.contains("hidden"));
+    check("a long-press on a selected word shows the touch copy/paste menu", menuVisible);
+
+    // Dismissed on an outside tap.
+    await tap({ x: 5, y: 5 });
+    await touchPage.waitForTimeout(150);
+    const menuHiddenAfterOutsideTap = await touchPage.evaluate(() => document.getElementById("text-clipboard-menu").classList.contains("hidden"));
+    check("...and dismissed by tapping outside it", menuHiddenAfterOutsideTap);
+  }
+
+  await touchContext.close();
+}
 
 if (pageErrors.length) failures.push(`${pageErrors.length} uncaught page error(s): ${pageErrors.join("; ")}`);
 
@@ -181,4 +276,4 @@ if (failures.length) {
   for (const f of failures) console.error("  -", f);
   process.exit(1);
 }
-console.log("\nPaste's arm-then-place mechanism (and the addUserTextObject path it shares with New text) works end to end.");
+console.log("\nCtrl/Cmd+C/V clone a selected word's exact appearance, leave in-place editing untouched, and the touch long-press menu reaches the same thing.");

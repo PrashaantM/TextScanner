@@ -667,6 +667,97 @@ check("a title containing markup injects no elements", ui.injectedImages === 0 &
 check("no injected script executed", ui.pwned === false);
 check("the markup is rendered as visible text instead", ui.titleRenderedAsText === true);
 
+// ---- Drag-and-drop into folders, and the non-drag Move button (Phase 4) ----
+//
+// WHY THIS EXISTS. Pin and Delete already had real UI-click coverage nowhere
+// in this file before Phase 4 - moving a document into a folder was only
+// ever exercised as a direct updateDocument(id, {folderId}) call (see
+// "Folders" above), never through the UI a person actually uses. Two paths
+// now reach the same call: a native HTML5 drag onto a folder in the
+// sidebar, and a persistent "Move" button next to Pin/Delete on every card
+// (touch has its own third path, the long-press radial menu's "Move" item,
+// covered by test/interaction-layer.js's card-gesture section instead).
+
+console.log("\nDrag-and-drop into folders, and the Move button");
+
+const dnd = await page.evaluate(async () => {
+  const store = await import("/js/store.js");
+  const docs = await import("/js/documents.js");
+  const library = await import("/js/library.js");
+  const views = await import("/js/views.js");
+  await store.clearAll();
+
+  const folder = await docs.createFolder("Receipts");
+  const doc = await docs.createDocument({ type: docs.DOC_TYPES.NOTE, title: "Drag me" });
+  await docs.updateDocumentQuietly(doc.id, { searchText: "Drag me contents" });
+
+  views.showView("library", {}, { push: false });
+  await library.renderLibrary();
+
+  return { folderId: folder.id, docId: doc.id };
+});
+
+// A real HTML5 drag: dispatchEvent with a genuine DataTransfer (constructible
+// in Chromium page context), not page.dragTo() or a synthetic mouse
+// sequence - this is what js/library.js's dragstart/dragover/drop listeners
+// actually read (event.dataTransfer, falling back to a module-level id only
+// Firefox needs), so the simulation has to speak that protocol to prove
+// anything about the real handlers rather than about a shortcut around them.
+const dragResult = await page.evaluate(async ({ docId, folderId }) => {
+  const card = document.querySelector(`.doc-card[data-id="${docId}"]`);
+  const folderNavItem = document.querySelector(`.library-nav__item[data-action="folder"][data-id="${folderId}"]`);
+  if (!card || !folderNavItem) return { ok: false, reason: "card or folder nav item not found in the DOM" };
+
+  const dataTransfer = new DataTransfer();
+  card.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer }));
+  const dragoverEvent = new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer });
+  folderNavItem.dispatchEvent(dragoverEvent);
+  const dropTargetClassPresent = folderNavItem.classList.contains("is-drop-target");
+  folderNavItem.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
+  card.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer }));
+  return { ok: true, dropTargetClassPresent };
+}, dnd);
+
+check("dragstart/dragover/drop were dispatched against real DOM elements", dragResult.ok, dragResult.reason || "");
+check("dragover shows the drop-target affordance on the folder", dragResult.dropTargetClassPresent === true);
+await page.waitForTimeout(200);
+
+const afterDrag = await page.evaluate(async ({ docId, folderId }) => {
+  const docs = await import("/js/documents.js");
+  const all = await docs.getAllDocuments();
+  const doc = all.find((d) => d.id === docId);
+  return { folderId: doc?.folderId, expected: folderId };
+}, dnd);
+check("dropping the card on the folder set its folderId", afterDrag.folderId === afterDrag.expected, JSON.stringify(afterDrag));
+
+// The non-drag path: click the card's own "Move" button, pick a different
+// destination ("No folder") from the picker that opens, same as a real user.
+await page.evaluate(async ({ docId }) => {
+  const docs = await import("/js/documents.js");
+  await docs.updateDocument(docId, { folderId: null }); // reset, independent of the drag above
+  const library = await import("/js/library.js");
+  await library.renderLibrary();
+}, dnd);
+
+await page.click(`.doc-card[data-id="${dnd.docId}"] [data-action="move-to-folder"]`);
+await page.waitForSelector("#folder-picker:not(.hidden)", { timeout: 5000 });
+const pickerOffersTheFolder = await page.evaluate(
+  (folderId) => !!document.querySelector(`#folder-picker-list [data-folder-id="${folderId}"]`),
+  dnd.folderId
+);
+check("clicking Move opens the folder picker, offering the real folder", pickerOffersTheFolder);
+
+await page.click(`#folder-picker-list [data-folder-id="${dnd.folderId}"]`);
+await page.waitForTimeout(300);
+const afterMoveClick = await page.evaluate(async ({ docId, folderId }) => {
+  const docs = await import("/js/documents.js");
+  const all = await docs.getAllDocuments();
+  const doc = all.find((d) => d.id === docId);
+  return { folderId: doc?.folderId, expected: folderId, pickerHidden: document.getElementById("folder-picker").classList.contains("hidden") };
+}, dnd);
+check("...and choosing a folder there completes the move", afterMoveClick.folderId === afterMoveClick.expected, JSON.stringify(afterMoveClick));
+check("...and closes the picker", afterMoveClick.pickerHidden === true);
+
 // ---- Note sanitization ----
 
 console.log("\nNote sanitization");

@@ -280,14 +280,21 @@ await page2.goto(`http://localhost:${PORT}/index.html`);
 await page2.setInputFiles("#file-input", join(ROOT, "test/images/complexPic2.jpeg"));
 await page2.click("#scan-btn");
 await page2.waitForSelector("#result-section:not(.hidden)", { timeout: 120000 });
-await page2.click("#mode-full-btn");
 // Raw, deliberately. At the default "Filtered Text" level js/filter.js already
 // drops single stray glyphs - "(c)", "-", "16" - and it has always done so, for
 // reasons that predate and have nothing to do with this flag. Asking the
 // question at that level would confuse "the flag filtered it" with "the filter
 // filtered it", and the first run of this gate did exactly that. Raw excludes
 // nothing, so anything missing here is missing because of the flag.
+//
+// Clicked here, still in Text mode: Phase 3 of the interaction-model rewrite
+// made the filter set Text-mode only (inert elsewhere), so #filter-raw-btn is
+// unreachable once #mode-full-btn is clicked. The chosen level persists in
+// state.activeFilterLevel across the mode switch regardless (see
+// test/chrome-reorganization.js), which is exactly what this section needs.
 await page2.click("#filter-raw-btn");
+await page2.waitForTimeout(300);
+await page2.click("#mode-full-btn");
 await page2.waitForTimeout(300);
 const heavy = await page2.evaluate(async () => {
   const { getActiveResultText } = await import("/js/editorExport.js");

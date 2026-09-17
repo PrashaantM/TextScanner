@@ -463,6 +463,25 @@ all.
 > `test/dom-contract.js` was updated in the same commit as the markup, per
 > that file's own header, and `node test/dom-contract.js` confirms the count
 > and that no removed id is still referenced anywhere it would matter.
+>
+> **Update, 2026-09-17.** The F4 interaction-model rewrite (text
+> select/edit/drag, copy/paste, chrome reorganization, drag-and-drop into
+> folders, the liquid-glass token migration) moved ids in Phases 2 and 3
+> only. Phase 2: `copy-btn`/`paste-btn` deleted outright (Ctrl/Cmd+C/V and a
+> touch long-press menu trigger copy/paste now), `text-clipboard-menu`/
+> `text-clipboard-menu-backdrop` added for that menu. Phase 3:
+> `new-text-btn` deleted outright (with the `addTextMode` state/plumbing
+> that existed only to serve it), `filter-toggle-row` added so the filter
+> set can be hidden and made `inert` as one unit outside Text mode; separately,
+> `add-to-doc-btn` and `save-note-btn` were deleted outright too (both
+> actions now live only inside `#download-menu`, addressed by
+> `data-menu-action` rather than an id each) - these two were never part of
+> `js/dom.js`'s resolved set, so removing them didn't move the number below,
+> only `index.html`'s total. Net effect: **`js/dom.js` still resolves 71
+> ids** (−3, +3). `index.html`'s total declared id count moved **163 → 161**.
+> `EXPECTED_ID_COUNT` needed no edit, since the number it pins didn't change -
+> confirmed by `node test/dom-contract.js`, not assumed from the arithmetic
+> above balancing out. Phases 1, 4 and 5 touched no ids at all.
 
 Two tests needed one line each: `render-fidelity.js` and `web-tier-smoke.js`
 drive the editor directly rather than through `loadFile`, so they now switch to

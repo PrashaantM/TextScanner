@@ -109,8 +109,10 @@ for (const viewport of [
   }
 
   // ---- 2. A word dragged from there moves on screen, not just in the model ----
-  // Select it with a tap (always available now - no separate mode to enter),
-  // then drag from move-handle, which appears at the selection's corner.
+  // Select it with a click (a single click only selects - Phase 1 replaced
+  // the earlier model where the same click both selected and edited a word
+  // in one motion), then drag from move-handle, which appears at the
+  // selection's corner.
   if (!landed.toolbarHidden) {
     const before = await page.evaluate(async () => {
       const { state } = await import("/js/state.js");
@@ -188,6 +190,114 @@ for (const viewport of [
       if (after.transform) {
         failures.push(`${viewport.label}: the drag's compositor transform survived the release ("${after.transform}") instead of committing to left/top`);
       }
+    }
+
+    // ---- 3. Phase 1, mouse input: single click selects only (never edits);
+    // dragging works from the word's own body once selected, not only from
+    // move-handle; double click enters edit mode; colour stays the matched
+    // colour (never the theme default/black) through both states.
+    //
+    // Picks a DIFFERENT word than section 2's (window.__target, set there):
+    // section 2 already dragged that one by a fixed pixel delta, which on a
+    // short phone-width container can push its top% negative - clipped by
+    // #image-format-view's own bounds even though getBoundingClientRect()
+    // still reports the word's full, un-clipped box, so a coordinate/click
+    // computed from that box (Playwright's own or this file's) lands on
+    // whatever is behind the clip instead of the word. Not a Phase 1 bug -
+    // reusing an already near-the-edge word was the test's own mistake. ----
+    await page.evaluate(async () => {
+      const { clearSelection } = await import("/js/editorObjects.js");
+      clearSelection();
+    });
+    const target3Id = await page.evaluate(() => {
+      const words = window.__state.editorObjects.filter((o) => o.type === "word" && o.el.textContent.trim() && o.id !== window.__target);
+      for (const w of words) {
+        w.el.scrollIntoView({ block: "center" });
+        const r = w.el.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        // Generous minimum size (bigger than section 2's own 16x8): once
+        // selected, resize-handle sits right at the word's bottom-right
+        // corner, and a small word leaves too little body clear of it for
+        // this section's own body-drag/double-click to land reliably away
+        // from the handle.
+        if (cx > 30 && cx < innerWidth - 30 && cy > 90 && cy < innerHeight - 120 && r.width > 80 && r.height > 40) return w.id;
+      }
+      return null;
+    });
+
+    if (!target3Id) {
+      failures.push(`${viewport.label}: Phase 1 select/edit check - no word to target`);
+    } else {
+      const target3 = await page.evaluateHandle((id) => window.__state.editorObjects.find((x) => x.id === id).el, target3Id);
+      const expectedColor = await page.evaluate((id) => window.__state.editorObjects.find((x) => x.id === id).textColor, target3Id);
+
+      await target3.click();
+      await page.waitForTimeout(150);
+      const afterSingleClick = await page.evaluate((id) => {
+        const o = window.__state.editorObjects.find((x) => x.id === id);
+        return {
+          selected: window.__state.selectedObjectIds.has(id),
+          editingObjectId: window.__state.editingObjectId,
+          contentEditable: o.el.contentEditable,
+          color: getComputedStyle(o.el).color,
+        };
+      }, target3Id);
+      if (!afterSingleClick.selected) failures.push(`${viewport.label}: Phase 1 - single click did not select the word`);
+      if (afterSingleClick.editingObjectId === target3Id || afterSingleClick.contentEditable === "true") {
+        failures.push(`${viewport.label}: Phase 1 - single click entered edit mode, it must only select`);
+      }
+      if (expectedColor && afterSingleClick.color !== expectedColor) {
+        failures.push(`${viewport.label}: Phase 1 - colour after single-click selection is ${afterSingleClick.color}, expected ${expectedColor}`);
+      }
+
+      // Drag from the word's own body (not move-handle), now that it's
+      // selected. boundingBox() re-measures just-in-time, same reasoning as
+      // the click above. The start point is offset toward the word's
+      // top-left rather than its exact centre: resize-handle sits at the
+      // selected word's bottom-right corner (revealed the moment selection
+      // happens), and for a short/narrow word that corner can overlap the
+      // geometric centre closely enough to start a resize instead of this
+      // section's intended body-drag.
+      const beforeBodyDrag = await page.evaluate((id) => {
+        const o = window.__state.editorObjects.find((x) => x.id === id);
+        return { x: o.x, y: o.y };
+      }, target3Id);
+      const box = await target3.boundingBox();
+      const startX = box.x + box.width * 0.25;
+      const startY = box.y + box.height * 0.25;
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      for (let i = 1; i <= 8; i++) await page.mouse.move(startX + (35 * i) / 8, startY + (25 * i) / 8);
+      await page.mouse.up();
+      await page.waitForTimeout(150);
+      const afterBodyDrag = await page.evaluate((id) => {
+        const o = window.__state.editorObjects.find((x) => x.id === id);
+        return { x: o.x, y: o.y };
+      }, target3Id);
+      if (Math.abs(afterBodyDrag.x - beforeBodyDrag.x) < 0.01 && Math.abs(afterBodyDrag.y - beforeBodyDrag.y) < 0.01) {
+        failures.push(`${viewport.label}: Phase 1 - dragging from the selected word's own body did not move it`);
+      }
+
+      // Double click enters edit mode; colour is still correct there too.
+      await target3.dblclick();
+      await page.waitForTimeout(150);
+      const afterDoubleClick = await page.evaluate((id) => {
+        const o = window.__state.editorObjects.find((x) => x.id === id);
+        return {
+          editingObjectId: window.__state.editingObjectId,
+          contentEditable: o.el.contentEditable,
+          focused: document.activeElement === o.el,
+          color: getComputedStyle(o.el).color,
+        };
+      }, target3Id);
+      if (afterDoubleClick.editingObjectId !== target3Id || afterDoubleClick.contentEditable !== "true" || !afterDoubleClick.focused) {
+        failures.push(`${viewport.label}: Phase 1 - double click did not enter edit mode`);
+      }
+      if (expectedColor && afterDoubleClick.color !== expectedColor) {
+        failures.push(`${viewport.label}: Phase 1 - colour while editing (post double-click) is ${afterDoubleClick.color}, expected ${expectedColor}`);
+      }
+      await page.evaluate(() => document.activeElement?.blur());
     }
   }
 

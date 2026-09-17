@@ -652,7 +652,14 @@ for (const image of ["complexPic1.jpeg", "complexPic2.jpeg", "complexPic5.jpeg"]
       el.scrollIntoView({ block: "center" });
       return el;
     }, ids[i]);
-    await handle.click();
+    // A single click only selects a word now (Phase 1 of the interaction-
+    // model rewrite: it used to both select and edit in one motion). A
+    // single .click() here would silently select without entering edit mode
+    // - Ctrl/Cmd+A and the typed replacement below would then hit nothing,
+    // and this loop would go on measuring the word's UNCHANGED, already-
+    // correctly-sized original text, passing for the wrong reason instead of
+    // failing loudly. dblclick is what actually enters edit mode.
+    await handle.dblclick();
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.type(REPLACEMENTS[i % REPLACEMENTS.length]);
     await page.evaluate(() => document.activeElement.blur());
