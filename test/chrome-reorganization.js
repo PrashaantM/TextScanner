@@ -135,6 +135,136 @@ await page.keyboard.press("Escape");
 await page.waitForTimeout(150);
 
 // Save as note: clicking the menu item creates a note and navigates to it.
+// ---- 3. The corner menu is attached to its button, and on screen ----
+//
+// The menu used to be markup INSIDE #result-section, which is a .flow-panel -
+// and .flow-panel's `transform: translateY(...)` (it keeps translateY(0) after
+// the reveal, which is still a transform) makes that element a containing
+// block for every position:fixed descendant. So the menu, positioned from
+// downloadBtn.getBoundingClientRect() - viewport coordinates - resolved those
+// coordinates against #result-section's box instead, and opened hundreds of
+// pixels below the fold. index.html's comment on #text-clipboard-menu had
+// already named this trap and predicted #download-menu shared it.
+//
+// Checked AFTER SCROLLING, because that is the only state where the bug shows:
+// at scrollY 0 a fixed element and one captured by a containing block at the
+// top of the document agree, and a gate that never scrolls passes either way.
+await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+await page.waitForTimeout(150);
+await openCornerMenu();
+const anchored = await page.evaluate(() => {
+  const btn = document.getElementById("download-btn");
+  const menu = document.getElementById("download-menu");
+  const b = btn.getBoundingClientRect();
+  const m = menu.getBoundingClientRect();
+  return {
+    onScreen: m.top >= 0 && m.left >= 0 && m.bottom <= innerHeight && m.right <= innerWidth,
+    // Under the button if there is room, above it if there is not - either way
+    // touching it rather than floating somewhere else on the page.
+    verticalGap: Math.min(Math.abs(m.top - b.bottom), Math.abs(b.top - m.bottom)),
+    rightEdgeGap: Math.abs(m.right - b.right),
+    menu: { t: Math.round(m.top), b: Math.round(m.bottom), l: Math.round(m.left), r: Math.round(m.right) },
+    viewport: { w: innerWidth, h: innerHeight },
+  };
+});
+check("the corner menu opens fully on screen, after the page has been scrolled", anchored.onScreen, JSON.stringify(anchored));
+check("...anchored to the button rather than floating elsewhere", anchored.verticalGap <= 8, `${anchored.verticalGap.toFixed(1)}px from the button's edge`);
+check("...and right-aligned with it, since the toolbar row is right-aligned", anchored.rightEdgeGap <= 2, `${anchored.rightEdgeGap.toFixed(1)}px between the right edges`);
+await page.keyboard.press("Escape");
+
+// ---- 4. The toolbar's tool rows are right-aligned ----
+const alignment = await page.evaluate(() =>
+  [...document.querySelectorAll(".result-toolbar__actions")].map((r) => getComputedStyle(r).justifyContent)
+);
+check(
+  "the filter set and More actions sit against the right edge, not the left",
+  alignment.length > 0 && alignment.every((j) => j === "flex-end"),
+  `justify-content: ${[...new Set(alignment)].join(", ")}`
+);
+
+// ---- 5. Download text is the WHOLE text, selection or not ----
+//
+// Copy and Download shared getActiveResultText, which narrows to the selection.
+// That is right for Copy - "copy this word" has no other reading - and wrong
+// for Download, which writes a file called textscanner-result.txt: a transient
+// selection left over from editing silently turned the result into one word.
+//
+// Asked in FULL IMAGE mode, because that is the only place the question exists.
+// getActiveResultText narrows by selection only in Image format/Full image -
+// Text mode has no per-word selection to narrow to, and reads the textarea
+// through the filter instead - so posing this in Text mode would compare two
+// identical strings and pass no matter which way Download behaved.
+await page.click('.mode-toggle__btn[data-mode="full"]');
+await page.waitForTimeout(250);
+const downloadScope = await page.evaluate(async () => {
+  const { state } = await import("/js/state.js");
+  const { getActiveResultText } = await import("/js/editorExport.js");
+  const word = state.editorObjects.find((o) => o.type === "word" && o.el.textContent.trim());
+  state.selectedObjectIds.clear();
+  state.selectedObjectIds.add(word.id);
+  return {
+    selected: state.selectedObjectIds.size,
+    download: getActiveResultText({ restrictToSelection: false }),
+    copy: getActiveResultText(),
+  };
+});
+check(
+  "with a word selected, Download text still writes the whole result",
+  downloadScope.selected === 1 && downloadScope.download.split("\n").length > 1,
+  `${downloadScope.download.length} chars`
+);
+check(
+  "...while Copy still narrows to the selection",
+  downloadScope.copy.length > 0 && downloadScope.copy.length < downloadScope.download.length,
+  `copy="${downloadScope.copy}"`
+);
+
+// ---- 6. The move handle reads as a move handle ----
+//
+// It was a plain accent dot, the same size and shape as resize-handle's square
+// but round - so on a selected word showing both, the only thing separating
+// "drag me to move this" from "drag me to resize this" was a corner radius.
+// It is a four-way arrow now, drawn as a mask over an --accent background so
+// it follows the theme (a baked-in SVG fill would be the light theme's teal in
+// dark mode).
+// Selected through a real click, not by writing to state: section 5 above set
+// selectedObjectIds directly (it only needed getActiveResultText to see a
+// selection) and never told the view, so the handles were still hidden. Going
+// through the app's own path is also what puts move-handle where it belongs.
+await page.evaluate(async () => {
+  const { clearSelection } = await import("/js/editorObjects.js");
+  clearSelection();
+  const { state } = await import("/js/state.js");
+  const word = state.editorObjects.find((o) => o.type === "word" && o.el.textContent.trim() && !o.removed);
+  word.el.scrollIntoView({ block: "center" });
+});
+await page.waitForTimeout(150);
+const firstWord = await page.$("#image-format-view .image-format-word");
+await firstWord.click();
+await page.waitForTimeout(250);
+const handle = await page.evaluate(() => {
+  const el = document.getElementById("move-handle");
+  const after = getComputedStyle(el, "::after");
+  const before = getComputedStyle(el, "::before");
+  const maskOf = (cs) => cs.maskImage && cs.maskImage !== "none" ? cs.maskImage : cs.webkitMaskImage || "none";
+  return {
+    visible: getComputedStyle(el).display !== "none",
+    hit: getComputedStyle(el).width,
+    glyph: after.width,
+    mask: maskOf(after),
+    haloMask: maskOf(before),
+    // The old dot's shape, which must be gone: a circle drawn by border-radius.
+    radius: after.borderRadius,
+    glyphColor: after.backgroundColor,
+    haloColor: before.backgroundColor,
+  };
+});
+check("the move handle is shown for a selected word", handle.visible);
+check("...drawn as a masked move icon, not a border-radius dot", handle.mask.includes("svg") && handle.radius !== "50%", JSON.stringify({ radius: handle.radius, mask: handle.mask.slice(0, 40) }));
+check("...with a contrast halo behind it, so it stays readable on a photo", handle.haloMask.includes("svg") && handle.haloColor !== handle.glyphColor);
+check("...at the same visible size as before, on the same 28px hit target", handle.glyph === "11px" && handle.hit === "28px", `${handle.glyph} glyph on a ${handle.hit} target`);
+
+
 await openCornerMenu();
 await page.click('#download-menu [data-menu-action="save-note"]');
 await page.waitForTimeout(500);
@@ -174,4 +304,4 @@ if (failures.length) {
   for (const f of failures) console.error("  -", f);
   process.exit(1);
 }
-console.log("\nThe filter set is Text-mode only (and genuinely inert elsewhere), and Download/Save as note/Add as document page are all reachable from one corner menu.");
+console.log("\nThe filter set is Text-mode only (and genuinely inert elsewhere), Download/Save as note/Add as document page are all reachable from one right-aligned corner menu that opens attached to its button, Download text ignores the selection, and the move handle looks like one.");

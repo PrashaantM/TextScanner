@@ -231,6 +231,11 @@ function copySelectedElement() {
     textBackgroundColor: obj.textBackgroundColor,
     needsBackingBox: obj.needsBackingBox,
     fontClass: obj.fontClass,
+    // The other two axes of the match travel with the copy for the same reason
+    // fontClass does: "clone a copied element's font" is not honoured by a
+    // clone that comes back regular-upright when the original was bold italic.
+    fontWeight: obj.fontWeight,
+    fontItalic: obj.fontItalic,
     rotationDeg: obj.rotationDeg,
   };
   // Best-effort cross-app interop: the font/size/colour above only round-trip
@@ -352,7 +357,7 @@ function placeCaretAtEnd(el) {
 // 2's paste - the only caller left since New text, the other one, was
 // deleted in Phase 3): undo, selection, focus, the discard-if-never-typed-
 // into blur handler.
-function placeUserWord(xPct, yPct, { text = "", fontSizePct, w, h, textColor = null, textBackgroundColor = null, needsBackingBox = false, fontClass = "regular", rotationDeg = 0 }) {
+function placeUserWord(xPct, yPct, { text = "", fontSizePct, w, h, textColor = null, textBackgroundColor = null, needsBackingBox = false, fontClass = "regular", fontWeight = 400, fontItalic = false, rotationDeg = 0 }) {
   const preSnapshot = snapshotState();
 
   const obj = createWordObject({
@@ -367,6 +372,8 @@ function placeUserWord(xPct, yPct, { text = "", fontSizePct, w, h, textColor = n
     confidence: null,
     bbox: null,
     fontClass,
+    fontWeight,
+    fontItalic,
   });
   obj.textColor = textColor;
   obj.textBackgroundColor = textBackgroundColor;
@@ -421,6 +428,8 @@ export function addClonedTextObject(xPct, yPct, cloneData) {
     textBackgroundColor: cloneData.textBackgroundColor,
     needsBackingBox: cloneData.needsBackingBox,
     fontClass: cloneData.fontClass,
+    fontWeight: cloneData.fontWeight,
+    fontItalic: cloneData.fontItalic,
     rotationDeg: cloneData.rotationDeg,
   });
 }

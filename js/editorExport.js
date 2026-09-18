@@ -25,6 +25,7 @@ import {
   refitWordFontSize,
   inkFitPxAtScale,
   wordFontFamily,
+  fontShorthand,
 } from "./editorObjects.js";
 
 let filterTextHook = null;
@@ -33,15 +34,30 @@ export function setFilterTextHook(fn) {
   filterTextHook = fn;
 }
 
-export function getActiveResultText() {
+// `restrictToSelection` is what separates the two genuinely different questions
+// this function is asked, which it used to answer the same way:
+//
+//   COPY, and text-to-speech, mean "the thing I have picked out". Narrowing to
+//   the selection is the whole point - selecting a line and pressing Copy has
+//   no other sensible reading.
+//
+//   DOWNLOAD TEXT means "this scan, as a .txt". It is a file of the document,
+//   and a selection is a transient editing state that happens to exist while
+//   the user reaches for the menu - often one the menu's own click did not even
+//   clear. Honouring it wrote a one-word file named textscanner-result.txt and
+//   called it the result, silently, with nothing on screen to explain why.
+//
+// So Download passes false and always writes the whole text. Nothing else does;
+// Copy, TTS, Save as note and Add as document page keep the narrowing default.
+export function getActiveResultText({ restrictToSelection = true } = {}) {
   // Only a selection that actually includes a word should restrict the output -
   // the background image is itself a selectable/draggable object (e.g. while
   // resizing it in Full image mode), and selecting only that has nothing to do
   // with which text the user wants, so it must fall back to "no restriction"
   // rather than making Copy/Download return nothing.
-  const selectedWordObjs = state.editorObjects.filter(
-    (obj) => obj.type === "word" && state.selectedObjectIds.has(obj.id)
-  );
+  const selectedWordObjs = restrictToSelection
+    ? state.editorObjects.filter((obj) => obj.type === "word" && state.selectedObjectIds.has(obj.id))
+    : [];
   const selectedWordEls = selectedWordObjs.length ? new Set(selectedWordObjs.map((obj) => obj.el)) : null;
 
   let baseText;
@@ -187,7 +203,7 @@ export function setPatchCanvasProvider(fn) {
 // carrying the size the user chose, which must not be silently overridden.
 function exportFontPx(obj, text, canvasWidth) {
   if (!obj.fontSizeLocked && obj.inkTargetPx) {
-    const fit = inkFitPxAtScale(text, obj.inkTargetPx, obj.inkTargetWpx, 1, obj.fontClass);
+    const fit = inkFitPxAtScale(text, obj.inkTargetPx, obj.inkTargetWpx, 1, obj);
     if (fit) return fit.fitPx;
   }
   return (obj.fontSizePct / 100) * canvasWidth;
@@ -241,14 +257,16 @@ export function buildResultCanvas() {
     const text = obj.el.textContent;
     if (!text) return;
     const fontPx = exportFontPx(obj, text, canvas.width);
-    // wordFontFamily(obj.fontClass), not a second hardcoded copy of the stack:
-    // classifyWordFontClass (editorObjects.js) decides per word between the
-    // regular stack, the condensed-source stack (condensed source text draws
-    // in a narrower font - see detectCondensedSource) and the monospace
-    // stack, and reading the same live resolution the preview and the sizing
-    // solve already use is what keeps the export canvas from silently drawing
-    // in the wrong one.
-    ctx.font = `${fontPx}px ${wordFontFamily(obj.fontClass)}`;
+    // fontShorthand(obj, ...), not a second hardcoded copy of the stack, and
+    // not the family alone: classifyWordFont (editorObjects.js) decides per
+    // word between the regular stack, the condensed-source stack (condensed
+    // source text draws in a narrower font - see detectCondensedSource), the
+    // serif stack and the monospace stack, AND the weight and slant to set it
+    // in. All five come from js/fontMatch.js measuring the word's own pixels. Building the shorthand through the same function the preview and the
+    // sizing solve use is what keeps the export canvas from silently drawing a
+    // matched bold-italic word as regular upright - which is what it did when
+    // this line interpolated only the family.
+    ctx.font = fontShorthand(obj, fontPx, wordFontFamily(obj.fontClass));
     const wx = (obj.x / 100) * canvas.width;
     const wy = (obj.y / 100) * canvas.height;
     ctx.textBaseline = "top";

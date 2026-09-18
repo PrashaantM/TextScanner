@@ -36,12 +36,36 @@
 // version of this file let 0.0143px of getComputedStyle round-trip noise
 // briefly report as 17 fake P2 violations - one call site remembered to snap
 // and another didn't.
+// How wide the probe for "is there a larger size that still fits" has to be,
+// as a FRACTION of the size being probed, on top of the absolute `spanPx`.
+//
+// A tread - the run of sizes over which a face renders the same amount of ink -
+// is not a fixed number of pixels. measureText reports actualBoundingBox in
+// whole pixels, so ink height at 600px only changes when the size moves enough
+// to cross an integer, and that takes proportionally as many pixels at 600 as
+// at 60. An absolute 2px span is generous at body sizes and narrower than one
+// tread at export sizes, where a retyped word on a full-resolution canvas can
+// be solved at 300-600px - and a span narrower than the tread cannot verify P2
+// at all, so it reports "could not be verified" for words that are in fact
+// sized correctly. Scaling with the size is what makes the probe mean the same
+// thing at both ends; `spanPx` remains the floor for small sizes, where a
+// fraction of the size would be less than one grid step.
+//
+// spanPx: 0 is a SENTINEL and is left alone. Callers pass it to mean "do not
+// probe at all" - test/replacement-size.js's floor branches do, because a
+// floored word is deliberately smaller than its box allows and P2 is not a
+// question worth asking about it. Scaling that zero up into a real span turns
+// the sentinel off, and every floored word starts reporting the headroom it is
+// supposed to have.
+const SPAN_FRACTION_OF_SIZE = 0.02;
+
 export function evaluateProperty({ chosenPx, targetPx, inkAt, gridStep, spanPx }) {
   const px = Math.round(chosenPx / gridStep) * gridStep;
+  const span = spanPx > 0 ? Math.max(spanPx, px * SPAN_FRACTION_OF_SIZE) : 0;
   const ink = inkAt(px);
   let nextPx = null;
   let nextInk = null;
-  for (let p = Math.ceil((px + 1e-9) / gridStep) * gridStep; p <= px + spanPx + 1e-9; p += gridStep) {
+  for (let p = Math.ceil((px + 1e-9) / gridStep) * gridStep; p <= px + span + 1e-9; p += gridStep) {
     const v = inkAt(p);
     if (v > ink + 1e-9) {
       nextPx = p;

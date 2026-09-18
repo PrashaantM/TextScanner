@@ -223,8 +223,30 @@ const measureAll = (page) =>
       const inkH = (m.actualBoundingBoxAscent + m.actualBoundingBoxDescent) / scale;
       const inkW = m.width / scale;
       // Asked with the OCR box, not with the inkTarget* the renderer kept, so
-      // the question goes in on this gate's numbers.
-      const fit = inkFitPx(text, srcH, srcW, s.lastNaturalWidth);
+      // the question goes in on this gate's numbers - and asked IN THE FACE THE
+      // BROWSER IS ACTUALLY PAINTING, which is the same face the measurement
+      // two lines above was taken in.
+      //
+      // That second half arrived with per-word font matching (js/fontMatch.js).
+      // Before it, every word rendered at weight 400 upright and the default
+      // argument happened to be right, so the omission was invisible. Once a
+      // word can be bold or italic the two halves of this comparison come
+      // apart: bold text is materially wider and taller than regular at the
+      // same point size, so measuring rendered BOLD ink against a size solved
+      // for REGULAR reports a spill on a word that fits its box perfectly - 126
+      // of them, none real.
+      //
+      // The weight and slant come from getComputedStyle, like the measurement,
+      // rather than from the object - so the question stays "given what is on
+      // screen, is the size right?". fontClass is the one thing read off the
+      // object, because it is a name for a stack rather than a rendered value,
+      // and inkFitPx resolves it through exactly the function the renderer used
+      // (wordFontFamily); cs.fontFamily above is that same resolution's output.
+      const fit = inkFitPx(text, srcH, srcW, s.lastNaturalWidth, {
+        fontClass: o.fontClass,
+        fontWeight: parseInt(cs.fontWeight, 10) || 400,
+        fontItalic: cs.fontStyle === "italic",
+      });
       const binding = !fit ? null : fit.flooredByWidth ? "floor" : fit.widthFitPx !== null && fit.widthFitPx < fit.heightFitPx ? "width" : "height";
 
       // CSS pixels, not image pixels, because CSS pixels are the unit the
@@ -348,6 +370,29 @@ const measureExportAll = (page) =>
     const { PROPERTY_SPAN } = window.__gateConstants;
     const s = window.__state;
 
+    // The font-size out of a canvas font SHORTHAND, and the same shorthand with
+    // a different size substituted.
+    //
+    // Both used to be done by position: parseFloat(font) for the size, and
+    // replace(/^[\d.]+px/) to change it - which works only while the shorthand
+    // BEGINS with the size. Once buildResultCanvas started drawing words at
+    // their matched weight and slant (js/fontMatch.js), the canonical string it
+    // records became "italic 600 123.45px Georgia" and both assumptions broke
+    // silently and in the worst possible way: parseFloat returned the WEIGHT,
+    // 600, as the rendered size, and the anchored replace matched nothing, so
+    // the "ink at a different size" probe measured the same size every time and
+    // could never find a larger one. Every word came back as "P2 could not be
+    // verified at 600.000px" - a number that was never a size at all.
+    //
+    // Matching the first <number>px token instead is position-independent. In
+    // the canonical shorthand that token is always the font-size: everything
+    // that can precede it (style, variant, weight, stretch) is a keyword or a
+    // bare number, and the only other length that can appear is a line-height,
+    // which follows the size behind a "/".
+    const FONT_SIZE_RE = /(\d*\.?\d+)px/;
+    const fontSizeOf = (font) => parseFloat((font.match(FONT_SIZE_RE) || [])[1]);
+    const fontAtSize = (font, px) => font.replace(FONT_SIZE_RE, `${px}px`);
+
     const proto = CanvasRenderingContext2D.prototype;
     const originalFillText = proto.fillText;
     const draws = [];
@@ -387,14 +432,14 @@ const measureExportAll = (page) =>
       // draw call - not recomputed. canvas.width is natural resolution, so
       // this is directly in source-image pixels, the same unit srcH/srcW are
       // in: no scale factor belongs anywhere in this file.
-      const renderedPx = parseFloat(draw.font);
+      const renderedPx = fontSizeOf(draw.font);
       mctx.font = draw.font;
       const m = mctx.measureText(text);
       const inkH = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
       const inkW = m.width;
 
       const inkAtSize = (px, dimension) => {
-        mctx.font = draw.font.replace(/^[\d.]+px/, `${px}px`);
+        mctx.font = fontAtSize(draw.font, px);
         const q = mctx.measureText(text);
         return dimension === "height" ? q.actualBoundingBoxAscent + q.actualBoundingBoxDescent : q.width;
       };

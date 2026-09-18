@@ -43,7 +43,7 @@ Long words inflate worst and overlap their neighbours. That matches the reported
 | **4.6** Diagnostic dump persists recognized text | Medium | **FIXED BY DELETION.** `js/mlkitDebug.js` and `test/replay-dump.js` are gone; no code path now persists recognized text anywhere (§4.6) |
 | **5.4** `script: "LATIN"` non-Latin gap | Low | **ASSERTED, not fixed** — as intended. Now a tracked number with a tripwire ([`test/non-latin-limitation.js`](test/non-latin-limitation.js)) |
 | **5.4** Moving a word doesn't clean its vacated spot | Low | **FIXED** in `fc82803`, verified this pass ([`test/move-inpaint.js`](test/move-inpaint.js)) |
-| **5.4** No font-weight detection | Informational | **Unchanged** — measured, doesn't work, deliberately not shipped |
+| **5.4** No font-weight detection | Informational | **OVERTURNED 2026-09-17.** The measurement was right about *ink fraction*; the conclusion generalised it to the whole problem. [`js/fontMatch.js`](js/fontMatch.js) compares a word against a rendering of the **same string** in each candidate face rather than against an absolute threshold, which cancels both confounds and recovers weight on **99.0%** of a scored corpus ([`test/font-match.js`](test/font-match.js)) |
 
 ### New findings from this revision
 
@@ -392,7 +392,7 @@ Each investigated, each documented where it lives:
 - **`script: "LATIN"`** — now *asserted* rather than merely known, with measured CER per script and a tripwire that fires if it ever starts working ([`test/non-latin-limitation.js`](test/non-latin-limitation.js)). Vision would close it (§5.7).
 - **ML Kit telemetry** — researched, now precisely quantified (§4.5), disclosable. Not fixable without dropping the dependency.
 - **The shared-origin key exposure** — disclosed, blocked on the domain (§4.3).
-- **No font-weight detection** — measured, doesn't work, deliberately not shipped.
+- **Font matching does not identify the typeface** — and cannot, from a word-sized crop against a handful of system stacks. [`js/fontMatch.js`](js/fontMatch.js) recovers the attributes a reader notices (weight, slant, serif-ness, monospace, width class) and picks the nearest available face; a photo set in Futura comes back as the system sans at the right weight, not as Futura. Monospace (37.5%) and italic (66.3%) are deliberately tuned for precision over recall — a missed italic stays upright, while a wrongly-italicised one is glaring and lands on every word of a hand-lettered image at once. Perspective shear is indistinguishable from a slanted typeface in a word-sized crop.
 - **Non-Latin translation output can't be re-scanned on native** — disclosed at the point of use.
 - **The web build requires a BYOK Claude key** for both Coherence Filter and translation — there is no on-device model in a browser.
 - **Nothing verifies the generated trees are current** (§1.2). A stale `www/` or `ios/App/App/public/` breaks a native build while the source tree looks clean. This pass caught one by grep; nothing would have caught it automatically. A cheap gate, not yet built.

@@ -88,6 +88,24 @@ jobs:
       # own formula back at it, so it was green at 1.00x while every replacement
       # rendered at 0.58x the source word's height on all three corpus images.
       - run: node test/replacement-size.js
+      # Whether a retyped word comes back in a face that looks like the one in
+      # the photograph, scored rather than eyeballed: the page draws words in a
+      # font it chose, hands the pixels to the real matcher, and compares. This
+      # is the gate that overturned "font-weight detection: measured, doesn't
+      # work" - which was true of the ABSOLUTE signal it was measured on (ink
+      # fraction, and the stroke measurement thresholded, both ~84% at best) and
+      # not of the problem. Also pins the two axes deliberately tuned for
+      # precision over recall, so a later attempt to raise monospace or italic
+      # recall has to move a floor on purpose rather than by accident.
+      - run: node test/font-match.js
+      # The result screen's chrome: the filter set is Text-mode only and
+      # genuinely inert elsewhere, Download/Save as note/Add as document page
+      # are one right-aligned corner menu that opens ATTACHED TO ITS BUTTON
+      # (checked after scrolling - the .flow-panel transform that captured its
+      # position:fixed only shows at a non-zero scroll offset), Download text
+      # ignores a selection where Copy honours it, and the move handle is a
+      # move icon rather than a dot indistinguishable from the resize square.
+      - run: node test/chrome-reorganization.js
       # The confirm in front of deleting a region OCR probably misread as a word
       # (a logo, an icon, a decorative rule), and the affordance that says so
       # first. Confidence cannot flag these - the map pin on complexPic1 comes

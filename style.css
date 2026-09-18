@@ -43,6 +43,11 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 18px;
+  /* The four-way move arrow drawn on #move-handle. Geometry only - no fill is
+     baked in, because it is used as a MASK over an --accent background so the
+     mark follows the theme (see .move-handle::after). One declaration covers
+     both themes for exactly that reason. */
+  --move-glyph: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 1.5 15.6 6H13.2v5.2h5.2V8.8L22.5 12l-4.1 3.2v-2.4h-5.2v5.2h2.4L12 22.5 8.4 18h2.4v-5.2H5.6v2.4L1.5 12l4.1-3.2v2.4h5.2V6H8.4Z" fill="black"/></svg>');
   /* A second surface level, for cards sitting ON a surface (a page thumbnail in
      the strip, a sidebar item). Without it, nested panels all read as one flat
      plane and the hierarchy disappears. */
@@ -832,13 +837,12 @@ kbd {
   min-width: 7rem;
 }
 
-/* Wraps download-btn together with its menu/backdrop for one shared id="" +
-   positioning frame in index.html without becoming its own flex item in
-   .result-toolbar__actions - display: contents makes it invisible to that
-   row's layout, so download-btn sits exactly where a bare button would. */
-.download-control {
-  display: contents;
-}
+/* .download-control is gone: it wrapped #download-btn together with its menu
+   and backdrop, and the menu has moved out of #result-section entirely (see
+   the markup comment on #download-menu in index.html - a .flow-panel ancestor
+   was capturing its position:fixed). With nothing left to wrap, the button is
+   a plain flex item in .result-toolbar__actions, which is exactly where
+   display: contents was contriving to put it anyway. */
 
 /* ---- Views ---- */
 
@@ -1079,8 +1083,14 @@ kbd {
   gap: 0.6rem;
 }
 
+/* Right-aligned, not left. These rows carry the result's TOOLS - the filter
+   set, More actions, translate, text-to-speech - against a heading row above
+   them that is already justify-content: space-between (title left, mode toggle
+   right). Left-aligning the tools put them under the title, reading as a
+   continuation of it; against the right edge they line up under the mode
+   toggle and read as one column of controls. */
 .result-toolbar__actions {
-  justify-content: flex-start;
+  justify-content: flex-end;
 }
 
 .result-toolbar h2 {
@@ -1408,6 +1418,17 @@ kbd {
   font-family: "SF Mono", Menlo, Consolas, "Roboto Mono", "Courier New", monospace;
 }
 
+/* Per-word like is-font-monospace above, and set by the same call: js/
+   fontMatch.js's matched filter compares the word's own glyphs against this
+   stack and the regular one rendered at the same string and size, and keeps
+   whichever measures closer (see that file's header for why comparing against
+   a synthetic render beats thresholding an absolute measurement). Specificity
+   matches .is-font-monospace so the two per-word families behave the same way
+   against an inherited .condensed-source container. */
+.image-format-word.is-font-serif {
+  font-family: Georgia, "Times New Roman", Times, serif;
+}
+
 .image-format-bg {
   display: none;
   position: absolute;
@@ -1690,21 +1711,53 @@ kbd {
   outline: none;
 }
 
+/* The glyph is a mask, so a box-shadow ring would be clipped to the arrow's own
+   silhouette and mostly vanish. drop-shadow follows that silhouette instead,
+   which is what a focus ring on an icon should do anyway - it traces the mark
+   rather than boxing it. */
 .move-handle:focus-visible::after {
-  box-shadow: var(--glow-accent);
+  filter: drop-shadow(0 0 3px var(--accent)) drop-shadow(0 0 6px var(--accent));
 }
 
+/* A four-way move arrow rather than the plain dot this used to be. The dot was
+   the same size and shape as .resize-handle's square in everything but its
+   corner radius, so on an object showing both handles at once the only thing
+   telling the user which one moves and which one resizes was "round vs
+   square" - a distinction nobody reads as "drag me to move this".
+   The arrow says it outright.
+
+   Drawn as a MASK over `background: var(--accent)` rather than as an <img> or
+   an SVG data URI with baked-in fill, because the accent colour is a theme
+   token: an SVG carrying `fill="#0091b3"` would still be the light theme's
+   teal on a dark background. The mask is pure geometry and the colour comes
+   from CSS, so both themes get it right by construction.
+
+   Same 11px visible footprint as before (and as .resize-handle's square) - the
+   affordance got clearer, not bigger. ::before is the contrast halo, playing
+   exactly the role the old dot's 1.5px --accent-contrast border played: it is
+   what keeps the mark readable when it lands on a photograph the same colour
+   as the accent. */
+.move-handle::before,
 .move-handle::after {
   content: "";
   position: absolute;
   top: 50%;
   left: 50%;
+  transform: translate(-50%, -50%);
+  -webkit-mask: var(--move-glyph) center / contain no-repeat;
+  mask: var(--move-glyph) center / contain no-repeat;
+}
+
+.move-handle::before {
+  width: 15px;
+  height: 15px;
+  background: var(--accent-contrast);
+}
+
+.move-handle::after {
   width: 11px;
   height: 11px;
-  transform: translate(-50%, -50%);
   background: var(--accent);
-  border: 1.5px solid var(--accent-contrast);
-  border-radius: 50%;
 }
 
 .marquee-box {

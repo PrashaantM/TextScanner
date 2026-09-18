@@ -37,17 +37,24 @@ Checked today rather than carried forward from `HANDOFF.md`:
 | Live, HTTPS enforced, built from `main` at `/` by **legacy Jekyll**, no CNAME, `custom_404: false` | `gh api repos/PrashaantM/TextScanner/pages` |
 | Every runtime asset resolves on the live origin | `curl` for `/`, `/js/main.js`, `/js/radialMenu.js`, `/style.css`, `/vendor/tesseract/tesseract.min.js`, `/vendor/tesseract/worker.min.js`, `/vendor/tesseract/tessdata/eng.traineddata.gz`, `/vendor/tesseract/core/tesseract-core-{simd-,}lstm.wasm.js` — all 200 |
 | Served over HTTP/2, gzipped, `cache-control: max-age=600` | `curl -I` on `/js/main.js`: 47 KB → 15.6 KB on the wire |
-| 60 unit tests pass | `node --test test/unit/*.test.js` — 60 pass, 0 fail |
-| The newest browser gate passes | `node test/interaction-layer.js` — all 24 checks green |
+| 81 unit tests pass | `node --test test/unit/*.test.js` — 81 pass, 0 fail |
+| The newest browser gate passes | `node test/font-match.js` — all 7 checks green |
 | Last CI run on `main` green | run `34673998815`, 3m30s |
-| 47 modules, 15,983 lines in `js/` | `wc -l js/*.js` |
+| 49 modules, 17,394 lines in `js/` | `wc -l js/*.js` |
 | Tracked repo 8.87 MiB; `vendor/tesseract` is 11 MB of it on disk | `git count-objects -vH`, `du` |
 
 **Jekyll is not eating anything.** Its default excludes cover `vendor/bundle`,
 `vendor/cache`, `vendor/gems`, `vendor/ruby` — not `vendor/tesseract`. Confirmed
 empirically by the 200s above, so no `.nojekyll` is needed.
 
-**46 unbundled ES modules over HTTP/2 is not a load problem.** 584 KB raw across
+> **The module and line counts above were stale when this line was added, which
+> is what the standing rule exists to prevent.** They read 47/15,983 while the
+> tree held 48/16,419: the F4 interaction-model commit added
+> `js/reducedTransparency.js` and did not bring this section with it. Corrected
+> to 49/17,394 in the same commit that added `js/fontMatch.js` — the rule
+> applied, one commit late for the module before it.
+
+**48 unbundled ES modules over HTTP/2 is not a load problem.** 584 KB raw across
 `js/`, gzipped per-file, multiplexed on one connection. Don't add a bundler; the
 no-build-step property is worth more than the milliseconds.
 

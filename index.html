@@ -239,6 +239,29 @@
        trap #download-menu is nested inside #result-section and likely
        shares, just never exercised by a test that checks exact viewport
        position after scrolling. -->
+  <!-- "More actions" (Download image/text, Save as note, Add as document page).
+       Its button is in the result toolbar; the menu itself lives out here, and
+       that separation is load-bearing rather than tidy. It used to sit next to
+       its button inside #result-section, which is a .flow-panel - and
+       .flow-panel's own `transform: translateY(...)` (even translateY(0), once
+       the reveal has finished) makes that element a containing block for every
+       position:fixed descendant. A fixed menu nested inside one is positioned
+       against THAT box rather than the viewport, so setting its top from the
+       button's getBoundingClientRect() - a viewport coordinate - pushed it down
+       the page by however far #result-section had been scrolled, which is the
+       "options show up at the bottom of the screen, out of view" report. Its
+       backdrop was mis-scoped by the same rule: `inset: 0` covered the panel,
+       not the screen, so clicking anywhere outside the panel failed to dismiss.
+       The comment on #text-clipboard-menu below called this trap out by name
+       and predicted this element shared it; it did. -->
+  <div id="download-menu-backdrop" class="context-menu-backdrop hidden"></div>
+  <ul id="download-menu" class="context-menu context-menu--anchored hidden" role="menu" aria-label="More actions">
+    <li><button class="context-menu__item" type="button" data-download="image">Download image</button></li>
+    <li><button class="context-menu__item" type="button" data-download="text">Download text</button></li>
+    <li><button class="context-menu__item" type="button" data-menu-action="save-note">Save as note</button></li>
+    <li><button class="context-menu__item" type="button" data-menu-action="add-to-doc">Add as document page</button></li>
+  </ul>
+
   <div id="text-clipboard-menu-backdrop" class="context-menu-backdrop hidden"></div>
   <ul id="text-clipboard-menu" class="context-menu context-menu--anchored hidden" role="menu" aria-label="Copy or paste">
     <li><button class="context-menu__item" type="button" data-clipboard-action="copy">Copy</button></li>
@@ -452,16 +475,12 @@
                  image-format snapshot regardless of which mode is currently
                  showing, so there's no reason left to special-case Text mode's
                  menu contents either. -->
-            <div class="download-control">
-              <button id="download-btn" class="btn btn--secondary" type="button" aria-haspopup="true" aria-expanded="false">More actions</button>
-              <div id="download-menu-backdrop" class="context-menu-backdrop hidden"></div>
-              <ul id="download-menu" class="context-menu context-menu--anchored hidden" role="menu" aria-label="More actions">
-                <li><button class="context-menu__item" type="button" data-download="image">Download image</button></li>
-                <li><button class="context-menu__item" type="button" data-download="text">Download text</button></li>
-                <li><button class="context-menu__item" type="button" data-menu-action="save-note">Save as note</button></li>
-                <li><button class="context-menu__item" type="button" data-menu-action="add-to-doc">Add as document page</button></li>
-              </ul>
-            </div>
+            <!-- The button stays here; its menu does NOT - see the #download-menu
+                 markup near #text-clipboard-menu, outside #app-main, for why
+                 (this element is inside #result-section, which is a .flow-panel,
+                 and .flow-panel's transform makes it a containing block for
+                 position:fixed descendants). -->
+            <button id="download-btn" class="btn btn--secondary" type="button" aria-haspopup="true" aria-expanded="false">More actions</button>
           </div>
 
           <!-- Translate in place (Phase 4c): the differentiating feature. Every

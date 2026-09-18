@@ -175,6 +175,21 @@ Two commits, one per part, plus one for a CI fix that could not wait.
    and the privacy manifest's understatement of ML Kit's declared collection
    (six categories described as two).
 
+> **Updated 2026-09-17: one of these negative results was overturned, and how it
+> was overturned is the transferable part.** "Font-weight detection: measured,
+> doesn't work" was carried here and in `js/editorObjects.js` for three
+> revisions. The measurement behind it was real — ink fraction cannot separate
+> weight 500 from weight 700, because ink coverage is dominated by the typeface
+> and by which letters a word contains. What did not follow is *therefore it is
+> impossible*: both confounds are properties of comparing a word against an
+> **absolute** number. `js/fontMatch.js` compares it against a rendering of the
+> **same string** in each candidate face, which cancels both exactly, and
+> recovers weight on **99.0%** of a synthetic corpus where the same stroke
+> measurement thresholded absolutely manages 84.1%. The lesson is not "try
+> harder"; it is that a negative result about one *signal* was written down as a
+> negative result about the *problem*, and nothing re-read it for three
+> revisions.
+
 ## 4. Two things the audit caught that nothing else would have
 
 **The CI gate was not gating.** Phase 3 step 2 required proving the workflow
@@ -279,9 +294,17 @@ drafted and ready to paste.
   `ios/App/App/public/` breaks a native build while the source tree looks clean.
   This pass caught one by grep after deleting `mlkitDebug.js`; nothing would have
   caught it automatically. A cheap gate, not yet built.
-- No font-weight detection (measured, doesn't work). Non-Latin translation output
-  can't be re-scanned on native. The web build needs a BYOK Claude key for both
-  Coherence Filter and translation.
+- Non-Latin translation output can't be re-scanned on native. The web build
+  needs a BYOK Claude key for both Coherence Filter and translation.
+- **Font matching does not identify the typeface**, and cannot. `js/fontMatch.js`
+  recovers a word's weight, slant, serif-ness, monospace-ness and width class and
+  picks the closest face from four system stacks; a photo set in Futura comes back
+  as the system sans at the right weight, not as Futura. Two axes are deliberately
+  low-recall (monospace 37.5%, italic 66.3%) because their false positives are
+  glaring and land on every word of an image at once — see that file's header.
+  A photograph taken at an angle shears its text, and sheared upright type is
+  pixel-for-pixel a slanted typeface; nothing recoverable from a word-sized crop
+  separates the two.
 
 ## 6. Where things live
 

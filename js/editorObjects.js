@@ -33,6 +33,7 @@ import {
 import { state, MAX_UNDO_STEPS, FONT_SIZE_CORRECTION, LOW_CONFIDENCE_THRESHOLD } from "./state.js";
 import { largestFittingSize, INK_GRID_STEP_PX } from "./inkFit.js";
 import { wordPasses } from "./filter.js";
+import { otsuThreshold, glyphComponents, matchWordFont, clearProbeCache } from "./fontMatch.js";
 
 // ---- Object lookup ----
 //
@@ -345,6 +346,11 @@ export function snapshotState() {
     // clone-paste can create a non-"regular" user word; an OCR word is never
     // recreated this way (deleting one clears its text in place instead).
     fontClass: obj.fontClass,
+    // Carried for the same reason fontClass is: a word recreated wholesale by
+    // Undo (js/main.js's createFromSnapshot) otherwise comes back in the app's
+    // default face regardless of what it was matched to.
+    fontWeight: obj.fontWeight,
+    fontItalic: obj.fontItalic,
     removed: !!obj.removed,
     text: obj.type === "word" ? obj.el.textContent : undefined,
   }));
@@ -401,6 +407,8 @@ export function restoreSnapshot(snapshot) {
     if (s.fontSizeLocked != null) obj.fontSizeLocked = s.fontSizeLocked;
     if (s.rotationDeg != null) obj.rotationDeg = s.rotationDeg;
     if (s.fontClass != null) obj.fontClass = s.fontClass;
+    if (s.fontWeight != null) obj.fontWeight = s.fontWeight;
+    if (s.fontItalic != null) obj.fontItalic = s.fontItalic;
     if (obj.type === "word" && s.text != null && obj.el.textContent !== s.text) {
       obj.el.textContent = s.text;
     }
@@ -735,16 +743,24 @@ function quantizeInkSize(px) {
 // per-word signal (detectMonospaceWord below), so it has no container to
 // inherit from and is resolved off a small persistent hidden probe instead.
 const inkFontFamilyByClass = new Map();
-let monospaceProbe = null;
+const familyProbes = new Map();
 
-function resolveMonospaceFamily() {
-  if (!monospaceProbe) {
-    monospaceProbe = document.createElement("span");
-    monospaceProbe.className = "image-format-word is-font-monospace";
-    monospaceProbe.style.cssText = "position:fixed; left:-9999px; top:-9999px; visibility:hidden; pointer-events:none;";
-    document.body.appendChild(monospaceProbe);
+// "monospace" and "serif" are genuinely per-word classes (fontMatch.js decides
+// them from the word's own glyphs), so neither has a container to inherit from
+// the way "regular"/"condensed" inherit #image-format-view's own stack. Each
+// resolves off a small persistent hidden span carrying its real CSS class, so
+// the family measured here is by construction the family style.css paints -
+// not a second copy of the stack string that has to be kept in sync by hand.
+function resolveProbeFamily(className, fallback) {
+  let probe = familyProbes.get(className);
+  if (!probe) {
+    probe = document.createElement("span");
+    probe.className = `image-format-word ${className}`;
+    probe.style.cssText = "position:fixed; left:-9999px; top:-9999px; visibility:hidden; pointer-events:none;";
+    document.body.appendChild(probe);
+    familyProbes.set(className, probe);
   }
-  return getComputedStyle(monospaceProbe).fontFamily || "monospace";
+  return getComputedStyle(probe).fontFamily || fallback;
 }
 
 // Exported for buildResultCanvas (editorExport.js), which used to carry a
@@ -754,8 +770,10 @@ function resolveMonospaceFamily() {
 // whatever face the preview actually resolved to (condensed or not) by
 // construction, not by two authors remembering to keep two strings in sync.
 export function wordFontFamily(fontClass = "regular") {
-  const family =
-    fontClass === "monospace" ? resolveMonospaceFamily() : getComputedStyle(imageFormatView).fontFamily || "sans-serif";
+  let family;
+  if (fontClass === "monospace") family = resolveProbeFamily("is-font-monospace", "monospace");
+  else if (fontClass === "serif") family = resolveProbeFamily("is-font-serif", "serif");
+  else family = getComputedStyle(imageFormatView).fontFamily || "sans-serif";
   if (family !== inkFontFamilyByClass.get(fontClass)) {
     inkPerEmCache.clear();
     inkFontFamilyByClass.set(fontClass, family);
@@ -825,22 +843,52 @@ function inkRenderScale(naturalWidth) {
 // Nulls when it cannot be measured. `family` is passed in by callers that have
 // already resolved it, so sizing one word costs one getComputedStyle rather
 // than one per measurement pass.
-export function inkMetricsPerEm(text, fontPx = INK_REF_FONT_PX, family = null, fontClass = "regular") {
+// Every sizing entry point below takes a FONT DESCRIPTOR rather than a bare
+// family class, because a word's size can no longer be solved without knowing
+// its weight and slant: bold text is materially wider than regular at the same
+// point size, so sizing a bold word against a regular measurement overshoots
+// its box and it collides with its neighbours - the exact failure mode
+// inkFitPx's header describes for the condensed case.
+//
+// A plain string is still accepted and read as "this class, regular, upright",
+// which keeps every pre-existing caller (and test/replacement-size.js, which
+// calls inkFitPx with no font argument at all) measuring what it always did.
+function fontSpecOf(font) {
+  if (!font) return { fontClass: "regular", fontWeight: 400, fontItalic: false };
+  if (typeof font === "string") return { fontClass: font, fontWeight: 400, fontItalic: false };
+  return {
+    fontClass: font.fontClass || "regular",
+    fontWeight: font.fontWeight || 400,
+    fontItalic: !!font.fontItalic,
+  };
+}
+
+// The CSS shorthand a descriptor renders as, used for both the measuring
+// canvas here and the export canvas in editorExport.js - one function, so the
+// preview and the PNG cannot disagree about what "bold italic serif" means.
+export function fontShorthand(font, px, family) {
+  const spec = fontSpecOf(font);
+  return `${spec.fontItalic ? "italic " : ""}${spec.fontWeight} ${px}px ${family || wordFontFamily(spec.fontClass)}`;
+}
+
+export function inkMetricsPerEm(text, fontPx = INK_REF_FONT_PX, family = null, font = "regular") {
+  const spec = fontSpecOf(font);
   // Resolved before the cache lookup and never after: wordFontFamily() is what
   // notices the stack changing and empties the cache, so a lookup that ran
   // first could return a figure measured against the stack that just went away.
-  const resolved = family || wordFontFamily(fontClass);
+  const resolved = family || wordFontFamily(spec.fontClass);
   const px = quantizeInkSize(fontPx);
   if (!px) return null;
-  // fontClass is part of the key (Phase 1d): the same text at the same size
-  // now genuinely measures differently depending on which per-word font it
-  // renders in, which was never true when the whole scan shared one family.
-  const key = `${fontClass} ${px} ${text}`;
+  // The whole descriptor is part of the key, not just the class: the same text
+  // at the same size measures differently in each of family, weight and slant,
+  // and keying on only one of the three would serve a regular measurement for
+  // a bold word.
+  const key = `${spec.fontClass} ${spec.fontWeight} ${spec.fontItalic ? "i" : "u"} ${px} ${text}`;
   if (inkPerEmCache.has(key)) return inkPerEmCache.get(key);
   let metrics = null;
   const ctx = inkMeasureContext();
   if (ctx) {
-    ctx.font = `${px}px ${resolved}`;
+    ctx.font = fontShorthand(spec, px, resolved);
     const m = ctx.measureText(text);
     const ascent = m.actualBoundingBoxAscent;
     const descent = m.actualBoundingBoxDescent;
@@ -859,11 +907,14 @@ export function inkMetricsPerEm(text, fontPx = INK_REF_FONT_PX, family = null, f
 // a condensed display face, so neighbouring words collide and the last word on
 // a line runs off the image. That is worse than the bug.
 //
-// The reason a replacement can't have both is that it is set in the app's font,
-// not the photo's - which is the font matcher that does not exist yet, and is
-// deliberately out of scope. Until it does, the honest target is the one that
-// holds regardless of which face the photo used: occupy the space the original
-// word occupied. So take the smaller of the two fits.
+// The reason a replacement can't have both is that it is set in a face CHOSEN
+// to resemble the photo's, not the photo's actual face. js/fontMatch.js closed
+// most of that gap - a replacement now matches the source's weight, slant,
+// serif-ness and width class, which is why the numbers above are what they are
+// rather than worse - but "resembles" is not "is", and no system stack contains
+// the poster's hand-drawn display face. So the target stays the one that holds
+// regardless of which face the photo used: occupy the space the original word
+// occupied. Take the smaller of the two fits.
 //
 // The floor keeps that from turning into its own absurdity. A replacement much
 // longer than the original would otherwise shrink without limit to stay inside
@@ -911,11 +962,12 @@ export const MIN_WIDTH_FIT_SCALE = 0.5;
 // pass P1 in the preview still spill the export canvas with no resize involved
 // at all, because "no resize" only holds the PREVIEW's scale fixed, not the
 // export's.
-export function inkFitPxAtScale(text, inkHeightPx, inkWidthPx, scale, fontClass = "regular") {
+export function inkFitPxAtScale(text, inkHeightPx, inkWidthPx, scale, font = "regular") {
   if (!inkHeightPx || !scale) return null;
-  const family = wordFontFamily(fontClass);
+  const spec = fontSpecOf(font);
+  const family = wordFontFamily(spec.fontClass);
   const inkAt = (dimension) => (cssPx) => {
-    const m = inkMetricsPerEm(text, cssPx, family, fontClass);
+    const m = inkMetricsPerEm(text, cssPx, family, spec);
     return m ? m[dimension] * cssPx : NaN;
   };
   const bounds = { minPx: INK_MIN_FONT_PX, maxPx: INK_MAX_FONT_PX };
@@ -943,14 +995,14 @@ export function inkFitPxAtScale(text, inkHeightPx, inkWidthPx, scale, fontClass 
   };
 }
 
-export function inkFitPx(text, inkHeightPx, inkWidthPx, naturalWidth, fontClass = "regular") {
+export function inkFitPx(text, inkHeightPx, inkWidthPx, naturalWidth, font = "regular") {
   if (!naturalWidth || !inkHeightPx) return null;
-  return inkFitPxAtScale(text, inkHeightPx, inkWidthPx, inkRenderScale(naturalWidth), fontClass);
+  return inkFitPxAtScale(text, inkHeightPx, inkWidthPx, inkRenderScale(naturalWidth), font);
 }
 
-export function fontSizePctForInk(text, inkHeightPx, inkWidthPx, naturalWidth, fontClass = "regular") {
+export function fontSizePctForInk(text, inkHeightPx, inkWidthPx, naturalWidth, font = "regular") {
   if (!naturalWidth || !inkHeightPx) return 0;
-  const fit = inkFitPx(text, inkHeightPx, inkWidthPx, naturalWidth, fontClass);
+  const fit = inkFitPx(text, inkHeightPx, inkWidthPx, naturalWidth, font);
   if (!fit) return (inkHeightPx / naturalWidth) * 100 * FONT_SIZE_CORRECTION;
   return (fit.fitPx / naturalWidth) * 100;
 }
@@ -969,7 +1021,7 @@ export function refitWordFontSize(obj) {
   if (!obj.inkTargetPx || obj.fontSizeLocked) return false;
   const text = obj.el.textContent;
   if (!text.trim()) return false;
-  const next = fontSizePctForInk(text, obj.inkTargetPx, obj.inkTargetWpx, state.lastNaturalWidth, obj.fontClass);
+  const next = fontSizePctForInk(text, obj.inkTargetPx, obj.inkTargetWpx, state.lastNaturalWidth, obj);
   if (!next || Math.abs(next - obj.fontSizePct) < 1e-9) return false;
   obj.fontSizePct = next;
   applyObjectStyle(obj);
@@ -1034,13 +1086,21 @@ export function applyObjectStyle(obj) {
   if (obj.type === "word") {
     obj.el.style.fontSize = `${obj.fontSizePct}cqw`;
     obj.el.style.minWidth = `${obj.w}%`;
-    // "condensed" needs no class of its own: every non-monospace word already
-    // inherits the container's condensed stack via plain CSS inheritance when
-    // detectCondensedSource fired for this scan (unchanged - see
-    // classifyWordFontClass). Only "monospace" needs an explicit per-word
-    // override, since it's the one axis that can genuinely differ within a
-    // single, otherwise-uniform scan.
+    // Only the PER-WORD families need a class here. "condensed" is a scan-wide
+    // decision (detectCondensedSource), so a condensed scan's words already
+    // inherit that stack from the container through plain CSS inheritance -
+    // unchanged by the per-word matcher. "monospace" and "serif" have no
+    // container to inherit from, so each carries its own override.
     obj.el.classList.toggle("is-font-monospace", obj.fontClass === "monospace");
+    obj.el.classList.toggle("is-font-serif", obj.fontClass === "serif");
+    // Weight and slant are per-word numbers rather than classes - they come out
+    // of fontMatch.js's matched filter as a weight in hundreds and a boolean,
+    // and there is no useful set of classes to bucket a continuous axis into.
+    // Written unconditionally (not only when non-default) so a word whose match
+    // changes - a paste that clones a lighter word over a bolder one - is
+    // actually reset rather than keeping the heavier value it had.
+    obj.el.style.fontWeight = String(obj.fontWeight || 400);
+    obj.el.style.fontStyle = obj.fontItalic ? "italic" : "normal";
     // .image-format-word already sets transform-origin: top left, which is the
     // same corner obj.x/obj.y anchor - so the span pivots about the word's own
     // start rather than drifting away from it. Left unset (rather than set to
@@ -1094,6 +1154,7 @@ export function clearImageFormatView() {
   resetEditorObjects();
   state.imageFormatLines = [];
   inkPerEmCache.clear();
+  clearProbeCache();
   lastFitContainerWidth = 0;
   state.objectIdCounter = 0;
   state.lastNaturalWidth = 0;
@@ -1111,7 +1172,7 @@ export function clearImageFormatView() {
 // tool / Phase 2's undo-recreate path, so every word object is constructed the same
 // way regardless of where it came from.
 
-export function createWordObject({ text, x, y, w, h, fontSizePct, rotationDeg, origin, confidence, bbox, inkTargetPx, inkTargetWpx, notTextMetrics, fontClass }) {
+export function createWordObject({ text, x, y, w, h, fontSizePct, rotationDeg, origin, confidence, bbox, inkTargetPx, inkTargetWpx, notTextMetrics, fontClass, fontWeight, fontItalic }) {
   const span = document.createElement("span");
   span.className = "image-format-word";
   // Starts editable; syncWordEditability (called by every creation call site,
@@ -1170,12 +1231,18 @@ export function createWordObject({ text, x, y, w, h, fontSizePct, rotationDeg, o
     // replaces nothing and so has no source ink to match.
     inkTargetPx: inkTargetPx || null,
     inkTargetWpx: inkTargetWpx || null,
-    // "regular" | "condensed" | "monospace" (see classifyWordFontClass). Fixed
+    // "regular" | "condensed" | "monospace" | "serif" (see classifyWordFont). Fixed
     // at creation from the source pixels, same as textColor below - a retype
     // keeps it (refitWordFontSize only re-solves fontSizePct), and a
     // user-added/pasted word with no source pixels defaults to "regular"
     // unless Phase 2's clone-paste explicitly carries one over.
     fontClass: fontClass || "regular",
+    // The other two axes of the same match (js/fontMatch.js): the stroke weight
+    // recovered from the source glyphs, in CSS hundreds, and whether they lean.
+    // A user-added or unmeasurable word gets the neutral pair, which is what
+    // every word got before the matcher existed.
+    fontWeight: fontWeight || 400,
+    fontItalic: !!fontItalic,
     // Set once the user resizes the word by hand, after which retyping must not
     // silently override the size they chose.
     fontSizeLocked: false,
@@ -1283,10 +1350,13 @@ export function sampleNearbyColor(imageData, naturalWidth, naturalHeight, x0, y0
 // clever demo and an edit that blends in: retype a word on a red sign and it
 // came back near-black on a grey slab.
 //
-// What's sampled here is deliberately coarse - an ink colour and a
-// bold-or-not - because that is what can be recovered reliably from a word-sized
-// crop. Font-family classification is not attempted: getting it wrong looks far
-// worse than a neutral stack, and there is no way to verify a guess.
+// What's sampled HERE is just the colour, and that is now the whole of this
+// function's job. The typeface half - weight, slant, serif-ness, monospace -
+// moved to js/fontMatch.js, which measures it from the same pixels by a
+// different method and against a test that scores it (test/font-match.js).
+// This function's older comment said family classification was not attempted
+// because "there is no way to verify a guess"; the way turned out to be
+// generating the ground truth rather than annotating it.
 
 // WCAG relative luminance and contrast ratio. Used to decide whether a sampled
 // ink colour is actually legible against its own background, rather than
@@ -1324,25 +1394,28 @@ const MIN_INK_CONTRAST = 2;
 // image, which is the whole point of matching the colour in the first place.
 
 const NO_BACKING_BOX_CONTRAST = 4.5;
-// NO BOLD/REGULAR DETECTION, and that is a measured decision rather than an
-// omission. The obvious proxy is how much of a word's box is ink, so it was
-// tried and measured against test/render-fidelity.js, which knows the weight it
-// drew every word in:
+// WEIGHT DETECTION USED TO LIVE HERE, AS AN ARGUMENT THAT IT WAS IMPOSSIBLE.
+// The argument was sound and the conclusion was not, so it is worth keeping
+// both. The proxy tried was how much of a word's box is ink, measured against
+// test/render-fidelity.js, which knows the weight it drew every word in:
 //
 //   system stack   weight 500: ink fraction 0.368-0.578   weight 700: 0.421-0.518
 //   display face   weight 500: ink fraction 0.638-0.835   weight 700: 0.619-0.721
 //
 // The ranges overlap almost entirely, and in the display face bold text has a
-// LOWER ink fraction than medium - the signal is inverted. Ink coverage is
-// dominated by the typeface and by which letters a word happens to contain, not
-// by its weight. There is no threshold that works, so guessing would just
-// render some words wrongly bold for the appearance of doing something.
+// LOWER ink fraction than medium. The diagnosis was exactly right: ink coverage
+// is dominated by the typeface and by which letters a word happens to contain,
+// not by its weight.
 //
-// The size half of "match the font" is already handled and does work: a word's
-// font size is derived from its bbox height (see renderImageFormatView), and
-// render-fidelity measures the resulting width ratio at a mean of 1.00.
-// inkFraction is still reported by the sampler so that harness can keep
-// measuring this if a better idea comes along.
+// What did not follow is "so it cannot be done". Both confounds are properties
+// of comparing a word against an ABSOLUTE number. js/fontMatch.js compares it
+// against a rendering of THE SAME STRING in each candidate face instead, which
+// cancels both exactly, and recovers weight on 99% of a synthetic corpus - the
+// same stroke measurement thresholded absolutely, the closest thing to the idea
+// rejected here, manages 84%. See that file's header.
+//
+// inkFraction is still reported by the sampler below. It is no longer a
+// candidate signal for anything; js/filter.js and the not-text scorer read it.
 
 // Splits the pixels inside a word's bbox into ink and background, and reports
 // the ink's mean colour, the background's mean colour, and what fraction of the
@@ -1390,33 +1463,11 @@ function medianSurroundingLuma(imageData, naturalWidth, naturalHeight, left, top
   return samples[Math.floor(samples.length / 2)];
 }
 
-// Otsu's method: the threshold maximizing between-class variance, over a
-// 256-bin luminance histogram. Shared by sampleInkAppearance's ink/background
-// split below and detectCondensedSource's binarization - one
-// implementation, not two copies of the same algorithm.
-function otsuThreshold(histogram, total) {
-  let sum = 0;
-  for (let v = 0; v < 256; v++) sum += v * histogram[v];
-  let sumBelow = 0;
-  let countBelow = 0;
-  let bestVariance = -1;
-  let threshold = 0;
-  for (let v = 0; v < 256; v++) {
-    countBelow += histogram[v];
-    if (!countBelow) continue;
-    const countAbove = total - countBelow;
-    if (!countAbove) break;
-    sumBelow += v * histogram[v];
-    const meanBelow = sumBelow / countBelow;
-    const meanAbove = (sum - sumBelow) / countAbove;
-    const variance = countBelow * countAbove * (meanBelow - meanAbove) ** 2;
-    if (variance > bestVariance) {
-      bestVariance = variance;
-      threshold = v;
-    }
-  }
-  return threshold;
-}
+// otsuThreshold moved to js/fontMatch.js alongside the rest of the pixel
+// analysis and is imported at the top of this file. sampleInkAppearance's
+// ink/background split and detectCondensedSource's binarization call the same
+// implementation they always did.
+
 
 function sampleInkAppearance(imageData, naturalWidth, naturalHeight, x0, y0, x1, y1) {
   if (!imageData) return null;
@@ -1514,9 +1565,10 @@ function sampleInkAppearance(imageData, naturalWidth, naturalHeight, x0, y0, x1,
 
 // ---- Condensed-source-text detection ----
 //
-// A replacement word is set in the app's own font, not the photo's - the
-// font matcher that doesn't exist yet (see fontSizePctForInk's header). On an
-// ordinary photo that costs almost nothing: complexPic5, ordinary sans body
+// A replacement word is set in a face chosen to resemble the photo's, and the
+// WIDTH CLASS is the one axis js/fontMatch.js's per-word matcher does not
+// decide - this scan-wide detector does, and predates it. On an
+// ordinary photo the cost of getting width wrong is almost nothing: complexPic5, ordinary sans body
 // text, sizes to a median 0.948 of its source box's height. On complexPic1 -
 // a poster in a condensed hand-drawn display face - the same measured (in
 // this session, freshly, in the pinned Docker container, on Liberation Sans)
@@ -1564,74 +1616,12 @@ if (typeof document !== "undefined" && document.fonts) {
   document.fonts.load(CONDENSED_FONT_LOAD_SPEC).catch(() => {});
 }
 
-// The connected ink components (Otsu-thresholded exactly like
-// sampleInkAppearance - ink is whichever side of the split is the minority
-// population, same reasoning as that function's own header) within one
-// word's own box, 4-connected, each surviving component (area >= 3px,
-// filtering single-pixel noise) a glyph candidate. Touching/cursive letters
-// merge into fewer, wider components on some faces; that under-counts rather
-// than crashing. Shared by medianGlyphAspect (condensed-source detection,
-// aggregated across many words - see detectCondensedSource) and
-// detectMonospaceWord (a single word's glyph-width uniformity) so the same
-// pixel work backs both classifiers rather than being duplicated.
-function glyphComponents(imageData, naturalWidth, naturalHeight, x0, y0, x1, y1) {
-  const left = Math.max(0, Math.floor(x0));
-  const right = Math.min(naturalWidth - 1, Math.ceil(x1));
-  const top = Math.max(0, Math.floor(y0));
-  const bottom = Math.min(naturalHeight - 1, Math.ceil(y1));
-  const w = right - left + 1;
-  const h = bottom - top + 1;
-  if (w < 6 || h < 6) return null;
-
-  const { data, width } = imageData;
-  const histogram = new Uint32Array(256);
-  const luma = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = ((top + y) * width + (left + x)) * 4;
-      const l = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-      luma[y * w + x] = l;
-      histogram[Math.round(l)]++;
-    }
-  }
-  const threshold = otsuThreshold(histogram, w * h);
-  let darkCount = 0;
-  for (let p = 0; p < luma.length; p++) if (luma[p] <= threshold) darkCount++;
-  const inkIsDark = darkCount <= luma.length / 2;
-  const grid = new Uint8Array(w * h);
-  for (let p = 0; p < luma.length; p++) {
-    grid[p] = (inkIsDark ? luma[p] <= threshold : luma[p] > threshold) ? 1 : 0;
-  }
-
-  const visited = new Uint8Array(w * h);
-  const components = [];
-  const stack = [];
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const idx = y * w + x;
-      if (!grid[idx] || visited[idx]) continue;
-      let minX = x, maxX = x, minY = y, maxY = y, area = 0;
-      stack.push(idx);
-      visited[idx] = 1;
-      while (stack.length) {
-        const cur = stack.pop();
-        const cy = (cur / w) | 0;
-        const cx = cur % w;
-        area++;
-        if (cx < minX) minX = cx;
-        if (cx > maxX) maxX = cx;
-        if (cy < minY) minY = cy;
-        if (cy > maxY) maxY = cy;
-        if (cx > 0 && grid[cur - 1] && !visited[cur - 1]) { visited[cur - 1] = 1; stack.push(cur - 1); }
-        if (cx < w - 1 && grid[cur + 1] && !visited[cur + 1]) { visited[cur + 1] = 1; stack.push(cur + 1); }
-        if (cy > 0 && grid[cur - w] && !visited[cur - w]) { visited[cur - w] = 1; stack.push(cur - w); }
-        if (cy < h - 1 && grid[cur + w] && !visited[cur + w]) { visited[cur + w] = 1; stack.push(cur + w); }
-      }
-      if (area >= 3) components.push({ width: maxX - minX + 1, height: maxY - minY + 1 });
-    }
-  }
-  return components;
-}
+// glyphComponents (the connected ink components within one word's own box)
+// moved to js/fontMatch.js when that file landed, and is imported back at the
+// top of this one. The condensed and monospace detectors below are UNCHANGED -
+// they call the same function over the same pixels and so keep measuring
+// exactly what their thresholds were calibrated against. See fontMatch.js for
+// the measurement itself and for why that file is where pixel analysis lives.
 
 // The median glyph aspect ratio (connected-component width/height) within
 // one word's own box - see glyphComponents above for the measurement itself.
@@ -1699,21 +1689,44 @@ export function detectCondensedSource(pixels, naturalWidth, naturalHeight, ocrWo
   return medians[Math.floor(medians.length / 2)] < CONDENSED_ASPECT_THRESHOLD;
 }
 
-// Per-word font classification (Phase 1d), combining both signals above:
-// monospace is checked first because it's the genuinely per-word one - a
-// word can be monospace regardless of what the rest of the scan looks like.
-// Falling through to `scanIsCondensed` (detectCondensedSource's own result,
-// computed once per scan and passed in rather than re-derived here) keeps the
-// condensed decision exactly as calibrated: every non-monospace word in a
-// condensed-flagged scan still renders condensed, the same broadcast this app
-// has always done, just carried as an explicit per-word fact instead of only
-// an inherited container class - which is what lets a word's own fontClass
-// travel with it into copy/paste (Phase 2) and export (editorExport.js).
-export function classifyWordFontClass(pixels, naturalWidth, naturalHeight, bbox, scanIsCondensed) {
-  if (pixels && bbox && detectMonospaceWord(pixels, naturalWidth, naturalHeight, bbox.x0, bbox.y0, bbox.x1, bbox.y1)) {
-    return "monospace";
+// Per-word font classification, combining every signal this app has:
+//
+//   1. MONOSPACE - the per-word glyph-width-uniformity detector above. Checked
+//      first because it is the one axis that can genuinely differ inside an
+//      otherwise-uniform scan, and because its calibration (12 components, CV
+//      below 0.15, fit against 137 real per-word measurements) is the most
+//      expensive thing in this file to have got right.
+//   2. CONDENSED - detectCondensedSource's scan-wide decision, passed in
+//      rather than re-derived, so the benchmark-calibrated threshold keeps
+//      deciding exactly what it always decided.
+//   3. WEIGHT, SLANT and (when neither detector above claimed the word)
+//      SERIF vs SANS - js/fontMatch.js's matched filter. These are the axes
+//      that had no detector at all before: every word rendered at weight 400,
+//      upright, in one family, whatever the photograph showed.
+//
+// The ordering is deliberate and conservative. Nothing already calibrated was
+// loosened to make room for the new axes - the two existing detectors still
+// have first refusal on a word, and the matcher is handed their verdict as a
+// constraint (forcedClass) rather than being allowed to overrule it. What the
+// matcher adds where they HAVE claimed a word is the weight and slant for it,
+// which neither of them ever had an opinion about.
+//
+// Returns the descriptor that travels with the word from here on: through
+// retyping (refitWordFontSize re-solves the size in this same face), copy/paste
+// (Phase 2 clones it), undo (snapshotState carries it) and export
+// (buildResultCanvas draws in it).
+export function classifyWordFont(pixels, naturalWidth, naturalHeight, bbox, scanIsCondensed, text = "") {
+  const monospace =
+    pixels && bbox && detectMonospaceWord(pixels, naturalWidth, naturalHeight, bbox.x0, bbox.y0, bbox.x1, bbox.y1);
+  const forcedClass = monospace ? "monospace" : scanIsCondensed ? "condensed" : null;
+  const matched = pixels && bbox ? matchWordFont(pixels, naturalWidth, naturalHeight, bbox, { text, forcedClass }) : null;
+  if (!matched) {
+    // Too small, too faint, or no pixels to read - the honest answer is the
+    // scan's own default, which is precisely what shipped before the matcher
+    // existed. A word it declines to measure is no worse off than it was.
+    return { fontClass: forcedClass || "regular", fontWeight: 400, fontItalic: false };
   }
-  return scanIsCondensed ? "condensed" : "regular";
+  return { fontClass: matched.fontClass, fontWeight: matched.weight, fontItalic: matched.italic };
 }
 
 export function isWordModified(obj) {
@@ -1819,8 +1832,8 @@ export async function renderImageFormatView(previewImg, ocrWords, naturalWidth, 
   // function inkFitPxAtScale (preview) and buildResultCanvas (export) both
   // read, so this is one decision feeding both surfaces, not two that could
   // drift. See detectCondensedSource's header for the evidence. Unchanged by
-  // Phase 1d's per-word classifyWordFontClass below, which only adds a second,
-  // genuinely per-word axis (monospace) on top of this one.
+  // the per-word classifyWordFont below, which adds the genuinely per-word axes
+  // (serif, monospace, weight and slant) on top of this one.
   let condensed = detectCondensedSource(pixels, naturalWidth, naturalHeight, ocrWords);
   if (condensed) {
     try {
@@ -1864,10 +1877,10 @@ export async function renderImageFormatView(previewImg, ocrWords, naturalWidth, 
     // Classified before sizing, not after: fontSizePctForInk measures ink in
     // whichever font this word will actually render in, and a monospace word
     // measures differently from a proportional one at the same text/size.
-    const fontClass = classifyWordFontClass(pixels, naturalWidth, naturalHeight, { x0, y0, x1, y1 }, condensed);
+    const font = classifyWordFont(pixels, naturalWidth, naturalHeight, { x0, y0, x1, y1 }, condensed, text);
     // The ink height this word has to match, in source-image pixels, kept on
     // the object so a retype can re-derive the size against the same target.
-    const fontSizePct = fontSizePctForInk(text, height, width, naturalWidth, fontClass);
+    const fontSizePct = fontSizePctForInk(text, height, width, naturalWidth, font);
 
     const obj = createWordObject({
       text,
@@ -1883,7 +1896,9 @@ export async function renderImageFormatView(previewImg, ocrWords, naturalWidth, 
       inkTargetPx: height,
       inkTargetWpx: width,
       notTextMetrics: { chars: text.length, widthPerChar: width / text.length, height },
-      fontClass,
+      fontClass: font.fontClass,
+      fontWeight: font.fontWeight,
+      fontItalic: font.fontItalic,
     });
     obj.patchColor = sampleNearbyColor(pixels, naturalWidth, naturalHeight, x0, y0, x1, y1);
     if (obj.patchColor) obj.patchEl.style.background = obj.patchColor;

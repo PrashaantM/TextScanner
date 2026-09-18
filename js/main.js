@@ -688,8 +688,11 @@ function downloadFile(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
+// Always the WHOLE recognized text, never just the selected word - see
+// getActiveResultText's header in js/editorExport.js for why Download and Copy
+// want different answers to what looks like the same question.
 function downloadResultText() {
-  const text = getActiveResultText();
+  const text = getActiveResultText({ restrictToSelection: false });
   if (!text) return;
   downloadFile(new Blob([text], { type: "text/plain" }), "textscanner-result.txt");
 }
@@ -718,13 +721,41 @@ function closeDownloadMenu() {
   downloadBtn.setAttribute("aria-expanded", "false");
 }
 
+// Anchored to the button: directly beneath it, and RIGHT-aligned with it
+// rather than left, because the button now sits at the right edge of a
+// right-aligned toolbar row (.result-toolbar__actions) - a menu growing
+// rightwards from a control that is already against the right margin either
+// runs off the screen or straddles the edge it is supposed to hang from.
+//
+// Measured after the menu is visible, not before: it is `display: none` while
+// hidden, so offsetWidth reads 0 and a right-aligned position computed from it
+// would land the menu's left edge exactly on the button's right edge. Unhiding
+// first costs one forced layout on a click, which is free at this rate.
+//
+// Clamped to the viewport on both axes afterwards. The clamp is what makes this
+// correct on a narrow phone, where a 4-item menu anchored under a button near
+// the right margin can be wider than the space left to its left; and flipping
+// above the button when there is no room below is what keeps the last item
+// reachable when the toolbar has been scrolled near the bottom of the screen.
+const MENU_VIEWPORT_MARGIN = 8;
+
 function openDownloadMenu() {
   if (!downloadMenu) return;
-  const rect = downloadBtn.getBoundingClientRect();
-  downloadMenu.style.setProperty("--menu-x", `${rect.left}px`);
-  downloadMenu.style.setProperty("--menu-y", `${rect.bottom + 4}px`);
   downloadMenu.classList.remove("hidden");
   downloadMenuBackdrop.classList.remove("hidden");
+
+  const rect = downloadBtn.getBoundingClientRect();
+  const width = downloadMenu.offsetWidth;
+  const height = downloadMenu.offsetHeight;
+
+  const maxX = window.innerWidth - width - MENU_VIEWPORT_MARGIN;
+  const x = Math.max(MENU_VIEWPORT_MARGIN, Math.min(rect.right - width, maxX));
+
+  const below = rect.bottom + 4;
+  const y = below + height > window.innerHeight - MENU_VIEWPORT_MARGIN ? Math.max(MENU_VIEWPORT_MARGIN, rect.top - height - 4) : below;
+
+  downloadMenu.style.setProperty("--menu-x", `${x}px`);
+  downloadMenu.style.setProperty("--menu-y", `${y}px`);
   downloadBtn.setAttribute("aria-expanded", "true");
 }
 
@@ -799,6 +830,11 @@ configureUndoHooks({
       confidence: null,
       bbox: null,
       fontClass: s.fontClass,
+      // Carried for the same reason rotationDeg above is, and lost the same
+      // way if it isn't: a matched bold or italic word recreated by Undo came
+      // back in the app's default face.
+      fontWeight: s.fontWeight,
+      fontItalic: s.fontItalic,
     }),
   onRemoved: (obj) => patchCache.delete(obj.id),
 });
