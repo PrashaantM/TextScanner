@@ -1,11 +1,13 @@
 {
-  "recordedAt": "2026-09-15T01:46:28.250Z",
+  "recordedAt": "2026-09-19T07:12:45.339Z",
   "engine": "tesseract.js (web path)",
   "imageCount": 11,
   "completeImageCount": 8,
   "partialImageCount": 3,
   "completeCer": 0.41558948581349353,
   "completeWer": 0.5710261151616116,
+  "completePooledCer": 0.6222524178722724,
+  "completePooledWer": 0.7627296587926509,
   "partialCer": 1.2994886823953795,
   "partialWer": 2.584710581320751,
   "allCer": 0.6566529030630988,
@@ -15,67 +17,78 @@
       "name": "complexPic1",
       "cer": 0.3141025641025641,
       "wer": 0.56,
-      "elapsedMs": 2743
+      "refChars": 156,
+      "refWords": 25
     },
     {
       "name": "complexPic10",
       "cer": 1.6603773584905661,
       "wer": 2.9714285714285715,
-      "elapsedMs": 4868
+      "refChars": 159,
+      "refWords": 35
     },
     {
       "name": "complexPic11",
       "cer": 1.4323144104803494,
       "wer": 3.358974358974359,
-      "elapsedMs": 21088
+      "refChars": 229,
+      "refWords": 39
     },
     {
       "name": "complexPic2",
       "cer": 0.3621621621621622,
       "wer": 0.7142857142857143,
-      "elapsedMs": 3092
+      "refChars": 370,
+      "refWords": 63
     },
     {
       "name": "complexPic3",
       "cer": 0.7906407291524963,
       "wer": 0.9475555555555556,
-      "elapsedMs": 25697
+      "refChars": 7351,
+      "refWords": 1125
     },
     {
       "name": "complexPic4",
       "cer": 0.20501285347043702,
       "wer": 0.1650485436893204,
-      "elapsedMs": 5664
+      "refChars": 1556,
+      "refWords": 206
     },
     {
       "name": "complexPic5",
       "cer": 0.0776978417266187,
       "wer": 0.1794871794871795,
-      "elapsedMs": 1836
+      "refChars": 695,
+      "refWords": 117
     },
     {
       "name": "complexPic6",
       "cer": 0.7496147919876733,
       "wer": 0.973404255319149,
-      "elapsedMs": 141487
+      "refChars": 1298,
+      "refWords": 188
     },
     {
       "name": "complexPic7",
       "cer": 0.8057742782152231,
       "wer": 1.423728813559322,
-      "elapsedMs": 4521
+      "refChars": 381,
+      "refWords": 59
     },
     {
       "name": "complexPic8",
       "cer": 0.3479020979020979,
       "wer": 0.41509433962264153,
-      "elapsedMs": 3078
+      "refChars": 572,
+      "refWords": 106
     },
     {
       "name": "complexPic9",
       "cer": 0.4775828460038986,
       "wer": 0.6133333333333333,
-      "elapsedMs": 2402
+      "refChars": 513,
+      "refWords": 75
     }
   ]
 }

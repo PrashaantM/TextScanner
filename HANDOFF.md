@@ -286,6 +286,22 @@ drafted and ready to paste.
 
 ### 5.5 Known limitations, carried forward deliberately
 
+- **Do not bump tesseract.js to 6.x without checking the coverage-rescue
+  trigger.** v6 restructured `blocks` to report only text-based blocks, and
+  `js/ocrEngine.js`'s rescue pass fires on *zero-word* blocks — so the bump can
+  silently disable a pass measured at **+3.6 CER points**, the largest accuracy
+  effect in this pipeline's history. v6's changes are performance and memory
+  only; none is an accuracy improvement. Full reasoning and the check to run:
+  [`vendor/tesseract/README.md`](vendor/tesseract/README.md) §"Before you bump
+  the version", [`RECOGNITION-SPIKE.md`](RECOGNITION-SPIKE.md) §4.3/§5.
+- **`oem 3` (LSTM + legacy) is unmeasured, not rejected.** Only LSTM cores and
+  LSTM traineddata are vendored, so the comparison cannot run offline. Expected
+  impact is low; that is an expectation, not a measurement.
+- **Recognition accuracy is Tesseract-exhausted, not engine-exhausted.**
+  Seventeen categorical engine/preprocessing variants were swept over the full
+  corpus and none helps without also hurting (`RECOGNITION-SPIKE.md` §3). The
+  open local option is a PaddleOCR-via-ONNX bake-off; the cloud-tier decision
+  should wait for it.
 - **`script: "LATIN"`** — now *asserted* rather than merely known, with measured
   CER per script and a tripwire that fires if it ever starts working.
 - **ML Kit telemetry** — now precisely quantified from Google's own manifests

@@ -23,6 +23,40 @@
 // any machine - no absolute paths and no borrowed node_modules, both of which this
 // harness previously depended on.
 //
+// ---- TWO NUMBERS ARE PRINTED FOR THE SAME EIGHT IMAGES. READ BOTH. ----
+//
+//   complete-GT (8)   41.6% CER   <- macro average, one vote per image. GATED.
+//   pooled (8)        62.2% CER   <- weighted by how much text each image holds.
+//
+// They differ by 20 points and neither is wrong. The macro average is the right
+// shape for a gate: it stops a single image dominating the tolerance. It is the
+// wrong shape for describing how well the engine reads, because this corpus is
+// wildly uneven - complexPic3 alone holds 7,351 of the gated eight's 12,511
+// ground-truth characters (58.8%) and gets 1/8 of the vote, while complexPic1
+// holds 156 characters (1.2%) and gets the same 1/8.
+//
+// So "41.6% CER" must not be read as "the engine gets 58% of characters right".
+// Per character it gets 38% right. The gate is unchanged and still compares the
+// macro average only; the pooled figure is reported so the friendlier of the two
+// is no longer the only one on screen. RECOGNITION-SPIKE.md §6.
+//
+// ---- PER-IMAGE TIMINGS ARE PRINTED, NEVER RECORDED ----
+//
+// The "time" column below is measured live every run. It is deliberately NOT
+// written into a baseline file, and --check-regression FAILS on a baseline that
+// contains one (see the check at the top of main()).
+//
+// This is not tidiness. The previous baseline recorded complexPic6 at
+// 141,487ms; re-run unmodified at 423de90 - the exact commit that produced that
+// file - it takes 10.6s, with byte-identical CER and WER. Nothing read the
+// field and nothing gated it, so nothing caught it, and it was cited as
+// evidence in two separate analyses before anyone re-measured. A wall-clock
+// number is a property of the machine that ran it, and a checked-in baseline is
+// precisely what gets compared across machines. RECOGNITION-SPIKE.md §2.2.
+//
+// refChars/refWords ARE recorded, because a character count is a property of
+// the corpus and reproduces anywhere.
+//
 // ---- WHY THE GATE IS THE EIGHT-IMAGE AVERAGE, NOT THE ELEVEN-IMAGE ONE ----
 //
 // complexPic7, complexPic10 and complexPic11 have deliberately partial ground
@@ -49,7 +83,7 @@ import { readFile, readdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
-import { characterErrorRate, wordErrorRate } from "./metrics.js";
+import { characterErrorRate, wordErrorRate, referenceLengths } from "./metrics.js";
 import { PARTIAL_GROUND_TRUTH } from "./partialGroundTruth.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -139,6 +173,33 @@ async function main() {
   const replayFlagIndex = process.argv.indexOf("--replay");
   const replayPath = replayFlagIndex !== -1 ? process.argv[replayFlagIndex + 1] : null;
 
+  // Checked BEFORE the browser launches, so a bad baseline fails in
+  // milliseconds rather than after a full corpus pass.
+  //
+  // WHY THIS IS AN ASSERTION AND NOT A COMMENT. The baseline used to carry
+  // per-image elapsedMs that did not reproduce - complexPic6 recorded at
+  // 141,487ms runs in 10.6s at the very commit that recorded it, with
+  // byte-identical output. Nothing read the field, nothing gated it, and it was
+  // quoted as evidence in two separate analyses anyway. A note saying "do not
+  // trust these" is a comment, and a comment cannot fail; the next person to
+  // regenerate a baseline with an older copy of this script would put them
+  // straight back. RECOGNITION-SPIKE.md §2.2 has the measurements.
+  if (checkRegression) {
+    const raw = JSON.parse(await readFile(baselinePath, "utf8"));
+    const withTimings = (raw.images || []).filter((r) => typeof r.elapsedMs === "number");
+    if (withTimings.length) {
+      console.error(
+        `\n${basename(baselinePath)} records per-image elapsedMs on ${withTimings.length} image(s).\n` +
+          `Wall-clock timings must not be recorded in a baseline: they are a property of the machine\n` +
+          `that ran it, a baseline is exactly what people compare across machines, and the last set\n` +
+          `was wrong by 13x on complexPic6 while nothing in CI could notice.\n` +
+          `Re-record with --json (this script strips the field), or delete it by hand.\n` +
+          `Per-run durations still print in the "time" column above. See RECOGNITION-SPIKE.md §2.2.`
+      );
+      process.exit(1);
+    }
+  }
+
   let rows;
   if (replayPath) {
     const replay = JSON.parse(await readFile(replayPath, "utf8"));
@@ -166,10 +227,19 @@ async function main() {
       }
       const elapsedMs = Date.now() - start;
 
+      const { chars: refChars, words: refWords } = referenceLengths(reference);
       rows.push({
         name,
         cer: characterErrorRate(hypothesis, reference),
         wer: wordErrorRate(hypothesis, reference),
+        // Carried so the pooled averages below can weight each image by how
+        // much text it actually holds. Recorded in a baseline too, unlike
+        // elapsedMs - a character count is a property of the corpus and
+        // reproduces anywhere; a wall-clock time is a property of the machine
+        // and does not. See the writer below.
+        refChars,
+        refWords,
+        // Measured and printed live, deliberately NOT written to a baseline.
         elapsedMs,
       });
     }
@@ -203,6 +273,33 @@ async function main() {
   const allCer = mean(scored, "cer");
   const allWer = mean(scored, "wer");
 
+  // ---- POOLED (text-length-weighted) averages ----
+  //
+  // The macro average above gives every image one vote regardless of how much
+  // text it holds, which is the right shape for a GATE - it stops one image
+  // dominating, and it is what --check-regression compares, unchanged.
+  //
+  // It is the wrong shape for describing how well the engine reads, and on this
+  // corpus the gap is 20 points. complexPic3 holds 7,351 of the gated eight's
+  // 12,511 ground-truth characters - 58.8% of all the text - and gets 1/8 of
+  // the vote. complexPic1 holds 156 characters (1.2%) and gets the same 1/8.
+  //
+  // Pooling re-weights by text: total edit distance over total reference
+  // length, which is what a person holding one of these images actually
+  // experiences. Measured 2026-09-18: macro 41.6% CER, pooled 62.2%. Reporting
+  // only the macro number let the friendlier of the two be the only one on
+  // screen. Both are printed now; only macro is gated. RECOGNITION-SPIKE.md §6.
+  //
+  // cer * refChars recovers the edit distance the rate was divided by, so this
+  // needs no second pass over the text. Rows from --replay may predate the
+  // refChars field, so a pooled figure is only reported when every scored row
+  // carries one rather than silently averaging over a subset.
+  const canPool = (xs) => xs.length > 0 && xs.every((r) => typeof r.refChars === "number" && typeof r.refWords === "number");
+  const pooled = (xs, rateKey, lenKey) =>
+    xs.reduce((s, r) => s + r[rateKey] * r[lenKey], 0) / xs.reduce((s, r) => s + r[lenKey], 0);
+  const completePooledCer = canPool(complete) ? pooled(complete, "cer", "refChars") : null;
+  const completePooledWer = canPool(complete) ? pooled(complete, "wer", "refWords") : null;
+
   if (scored.length) {
     console.log("------------------------------------------");
     console.log(`${`complete-GT (${complete.length})`.padEnd(15)} ${(completeCer * 100).toFixed(1).padStart(5)}%   ${(completeWer * 100).toFixed(1).padStart(5)}%   <- gated`);
@@ -211,6 +308,20 @@ async function main() {
       console.log("  * directional only - more real text read scores WORSE here, see test/partialGroundTruth.js. Never gated.");
     }
     console.log(`${`all ${scored.length} (info)`.padEnd(15)} ${(allCer * 100).toFixed(1).padStart(5)}%   ${(allWer * 100).toFixed(1).padStart(5)}%   (continuity only, not gated)`);
+    if (completePooledCer !== null) {
+      const totalChars = complete.reduce((s, r) => s + r.refChars, 0);
+      const biggest = complete.slice().sort((a, b) => b.refChars - a.refChars)[0];
+      console.log("------------------------------------------");
+      console.log(
+        `${`pooled (${complete.length})`.padEnd(15)} ${(completePooledCer * 100).toFixed(1).padStart(5)}%   ${(completePooledWer * 100).toFixed(1).padStart(5)}%   <- same 8 images, weighted by text length`
+      );
+      console.log(
+        `  The two lines marked (${complete.length}) are the same images scored two ways. "complete-GT" gives each image one\n` +
+          `  vote and is what the tolerance gates; "pooled" divides total edit distance by total reference\n` +
+          `  length. Pooled is what a reader experiences. On this corpus ${biggest.name} alone is ` +
+          `${((biggest.refChars / totalChars) * 100).toFixed(1)}% of the\n  ${totalChars} gated characters and still gets 1/${complete.length} of the macro vote. See RECOGNITION-SPIKE.md §6.`
+      );
+    }
   }
   console.log();
 
@@ -229,11 +340,31 @@ async function main() {
           // for visibility and continuity and are never compared to one.
           completeCer,
           completeWer,
+          // Weighted by text length over the same gated images. Never compared
+          // to a tolerance - recorded so the 20-point gap between the two is
+          // visible in the file as well as on screen.
+          completePooledCer,
+          completePooledWer,
           partialCer,
           partialWer,
           allCer,
           allWer,
-          images: rows,
+          // elapsedMs is deliberately STRIPPED here rather than recorded.
+          //
+          // The previous baseline carried it, and the numbers did not
+          // reproduce: it recorded complexPic6 at 141,487ms, and the same
+          // commit re-run on a quiet machine does it in 10.6s with
+          // byte-identical output (RECOGNITION-SPIKE.md §2.2). Nothing read the
+          // field and nothing gated it, so nothing caught it - but it was cited
+          // as evidence in two separate analyses before anyone re-measured.
+          //
+          // A wall-clock time is a property of the machine that ran it, and a
+          // checked-in baseline is exactly the place people compare ACROSS
+          // machines. The live per-image "time" column above still prints every
+          // run, which is where a duration is meaningful. refChars/refWords are
+          // kept because a character count is a property of the corpus and
+          // reproduces anywhere.
+          images: rows.map(({ elapsedMs, ...rest }) => rest),
         },
         null,
         2

@@ -40,3 +40,20 @@ export function wordErrorRate(hypothesis, reference) {
   if (refWords.length === 0) return hypWords.length === 0 ? 0 : 1;
   return editDistance(hypWords, refWords) / refWords.length;
 }
+
+// How much text a reference actually contains, after the SAME whitespace
+// normalization the two rates above apply. Exported so a caller can weight an
+// image by its text volume without re-implementing normalizeWhitespace and
+// drifting from it - the denominators here must be the identical ones
+// characterErrorRate and wordErrorRate divide by, or a pooled rate computed
+// from them is quietly wrong.
+//
+// Used by test/run-benchmark.js to report a pooled (text-length-weighted)
+// error rate alongside the macro average. The two differ a lot on this corpus:
+// complexPic3 alone holds 58.8% of the gated eight's characters and gets 1/8
+// of the vote in the macro average. See RECOGNITION-SPIKE.md §6.
+export function referenceLengths(reference) {
+  const ref = normalizeWhitespace(reference);
+  const words = ref.split(" ").filter(Boolean);
+  return { chars: ref.length, words: words.length };
+}

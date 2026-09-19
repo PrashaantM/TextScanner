@@ -69,6 +69,54 @@ The raw `.wasm` files and their small JS loaders are also omitted: the
 `.wasm.js` builds vendored here are the single-file variants, with the module
 embedded, which is what tesseract.js requests.
 
+## Before you bump the version — read this
+
+Two standing findings from the 2026-09-18 recognition spike
+([`RECOGNITION-SPIKE.md`](../../RECOGNITION-SPIKE.md) §5 and §7). Both are here
+rather than in the report because this file is what someone about to change the
+pinned version actually opens.
+
+### A 5.x → 6.x bump can silently cost 3.6 CER points
+
+tesseract.js 6.0.0's release notes say `blocks` was restructured so that **only
+text-based blocks are reported**.
+
+`js/ocrEngine.js`'s coverage-rescue pass is triggered by
+`hasUnreachableStructure` — regions where layout analysis produced a block but
+word recognition produced **zero words**. A zero-word block is exactly a block
+that is not text-based. If v6 stops reporting those, the trigger never fires and
+the rescue pass silently stops running.
+
+That pass is measured at **+3.6 CER points on the gated eight**, helping six of
+eight images and hurting none (`RECOGNITION-SPIKE.md` §4.3) — the largest single
+accuracy effect in this pipeline's recorded history. `run-benchmark.js`'s
+tolerance is 2 points, so this *would* go red — but only if someone runs it, and
+the failure would look like a version-bump regression with no obvious cause.
+
+**Before bumping: check whether `extractRegions` still sees zero-word blocks.**
+`node test/research/ocr-instrument.mjs complexPic6` prints the per-call PSM
+histogram; the rescue pass is the whole-image `psm 11` call, third in the list.
+If it disappears, the trigger is gone.
+
+v6's other changes (memory-leak fixes, lower runtime and memory) are real, and
+**none of them is an accuracy improvement** — the notes describe performance and
+resource usage only. There is no accuracy reason to bump.
+
+### `oem 3` / `oem 0` cannot be measured against what is vendored here
+
+The legacy engine modes need a non-LSTM core **and** legacy-capable traineddata.
+Neither is in the tree: the two cores here are both `-lstm` builds, and
+`eng.traineddata.gz` is `4.0.0_best_int`, which is LSTM data. So the LSTM-only
+vs combined comparison is **unmeasured**, not measured-and-rejected —
+`test/research/ocr-sweep.mjs` lists the variant and skips it out loud rather
+than omitting it.
+
+Measuring it means fetching a legacy core and legacy traineddata from a CDN,
+which this directory exists to avoid. Expected impact is low (LSTM beats legacy
+on everything except very clean, small, single-font text, which is not what this
+corpus holds), but that is an expectation and not a measurement. If anyone does
+add the legacy cores, the note above about `oem` 1 applies in reverse.
+
 ## Size
 
 ~11 MB total, dominated by the two core builds (3.8 MB each) and the language
