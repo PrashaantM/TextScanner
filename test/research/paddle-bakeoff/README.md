@@ -21,13 +21,32 @@ npm install
 That pulls `ppu-paddle-ocr` (MIT), `onnxruntime-web` (MIT) and
 `onnxruntime-node` (MIT). Versions are pinned in `package.json`.
 
-## The two measurements
+## The four measurements
 
 ```sh
 node score-paddle.mjs                  # accuracy, all 11 corpus images (node, ORT CPU)
 node score-paddle.mjs --engine opencv  # the same, with the OpenCV preprocessing path
 node browser-bakeoff.mjs               # payload + cold start, in real Chromium
+node geometry-bakeoff.mjs              # per-word box accuracy vs exact ground truth
+node region-coverage-bakeoff.mjs       # complexPic1 area by area, both engines
 ```
+
+The last two are the ones that decided it — see PADDLEOCR-BAKEOFF.md's Geometry
+section. Neither runs `test/render-fidelity.js` or `test/region-coverage.js`
+against the candidate, because neither gate can be: render-fidelity is
+deliberately engine-independent (it feeds *perfect* boxes to the renderer, and
+its fixture half emits coordinates with no pixels), and region-coverage drives
+the real app. What the two harnesses reuse is those gates' *methods* — exact
+`measureText` ground-truth boxes, and region-coverage's own centre-assignment
+rule and recorded ceilings. **Neither gate was modified.**
+
+`geometry-bakeoff.mjs` drives Tesseract through the **real app flow**
+(`setInputFiles` → Scan → `state.ocrWords`), not a hand-built `Image`. That is
+not fussiness: `js/ocrEngine.js` chooses between handing Tesseract the original
+bytes and drawing through a canvas first, and its header records the canvas path
+costing 8.83 WER because `rotateAuto` derives a different deskew angle. An
+earlier draft passed a `data:` URL and got 35 boxes on complexPic1 where the app
+produces 22 — it was measuring the rescue path.
 
 `score-paddle.mjs` imports `test/metrics.js` and `test/partialGroundTruth.js`
 from this repo directly rather than reimplementing them, so a CER printed here
