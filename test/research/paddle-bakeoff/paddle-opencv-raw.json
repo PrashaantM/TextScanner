@@ -1,0 +1,105 @@
+{
+  "engine": "opencv",
+  "coldStartMs": 55,
+  "rows": [
+    {
+      "name": "complexPic1",
+      "cer": 0.19230769230769232,
+      "wer": 0.84,
+      "refChars": 156,
+      "refWords": 25,
+      "elapsedMs": 189,
+      "chars": 168
+    },
+    {
+      "name": "complexPic2",
+      "cer": 0.16756756756756758,
+      "wer": 0.30158730158730157,
+      "refChars": 370,
+      "refWords": 63,
+      "elapsedMs": 209,
+      "chars": 361
+    },
+    {
+      "name": "complexPic3",
+      "cer": 0.73826690246225,
+      "wer": 0.9431111111111111,
+      "refChars": 7351,
+      "refWords": 1125,
+      "elapsedMs": 1166,
+      "chars": 6002
+    },
+    {
+      "name": "complexPic4",
+      "cer": 0.2352185089974293,
+      "wer": 0.2815533980582524,
+      "refChars": 1556,
+      "refWords": 206,
+      "elapsedMs": 391,
+      "chars": 1523
+    },
+    {
+      "name": "complexPic5",
+      "cer": 0.02158273381294964,
+      "wer": 0.13675213675213677,
+      "refChars": 695,
+      "refWords": 117,
+      "elapsedMs": 277,
+      "chars": 704
+    },
+    {
+      "name": "complexPic6",
+      "cer": 0.7041602465331279,
+      "wer": 0.8882978723404256,
+      "refChars": 1298,
+      "refWords": 188,
+      "elapsedMs": 518,
+      "chars": 593
+    },
+    {
+      "name": "complexPic7",
+      "cer": 0.7139107611548556,
+      "wer": 0.8813559322033898,
+      "refChars": 381,
+      "refWords": 59,
+      "elapsedMs": 374,
+      "chars": 184
+    },
+    {
+      "name": "complexPic8",
+      "cer": 0.4143356643356643,
+      "wer": 0.5,
+      "refChars": 572,
+      "refWords": 106,
+      "elapsedMs": 289,
+      "chars": 584
+    },
+    {
+      "name": "complexPic9",
+      "cer": 0.6023391812865497,
+      "wer": 0.7733333333333333,
+      "refChars": 513,
+      "refWords": 75,
+      "elapsedMs": 383,
+      "chars": 354
+    },
+    {
+      "name": "complexPic10",
+      "cer": 0.7295597484276729,
+      "wer": 0.8285714285714286,
+      "refChars": 159,
+      "refWords": 35,
+      "elapsedMs": 273,
+      "chars": 63
+    },
+    {
+      "name": "complexPic11",
+      "cer": 0.777292576419214,
+      "wer": 1,
+      "refChars": 229,
+      "refWords": 39,
+      "elapsedMs": 385,
+      "chars": 173
+    }
+  ]
+}

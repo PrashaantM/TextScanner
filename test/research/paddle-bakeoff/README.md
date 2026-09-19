@@ -1,0 +1,62 @@
+# PaddleOCR bake-off — how to re-run it
+
+**Branch only.** Nothing here is wired into `ci.yml`, imported by `js/`, or
+reachable from the app. The shipping pipeline is untouched; this branch exists
+to hold a measurement and its evidence. Results are in
+[`PADDLEOCR-BAKEOFF.md`](../../../PADDLEOCR-BAKEOFF.md).
+
+## One-time setup
+
+`node_modules/` here is gitignored — ~430 MB of ONNX Runtime binaries for three
+platforms, which is not something to commit even on a branch. The models it
+scores **are** committed, under `vendor-candidate/paddle/`, because they are the
+artifact being evaluated and because committing them is what proves the offline
+claim: no run below makes a network request.
+
+```sh
+cd test/research/paddle-bakeoff
+npm install
+```
+
+That pulls `ppu-paddle-ocr` (MIT), `onnxruntime-web` (MIT) and
+`onnxruntime-node` (MIT). Versions are pinned in `package.json`.
+
+## The two measurements
+
+```sh
+node score-paddle.mjs                  # accuracy, all 11 corpus images (node, ORT CPU)
+node score-paddle.mjs --engine opencv  # the same, with the OpenCV preprocessing path
+node browser-bakeoff.mjs               # payload + cold start, in real Chromium
+```
+
+`score-paddle.mjs` imports `test/metrics.js` and `test/partialGroundTruth.js`
+from this repo directly rather than reimplementing them, so a CER printed here
+is computed by the identical function `test/run-benchmark.js` uses, over the
+identical eight gated images. That is the whole point — the numbers are
+comparable rather than adjacent.
+
+`browser-bakeoff.mjs` answers what node cannot: what a browser actually pays. It
+serves the runtime and models over HTTP behind an **import map** — no bundler,
+matching this repo's no-build-step constraint — counts every byte fetched, and
+times wasm compile, session init and first recognition separately.
+
+## Two settings that matter, both non-obvious
+
+- **`processing: { engine: "canvas" }`, not the default `"opencv"`.** The
+  package defaults to OpenCV.js (`@techstark/opencv-js`, via `ppu-ocv`), which
+  this repo has refused for good reason — see `js/preprocess.js`'s header. The
+  canvas path is both better here (36.4% vs 38.4% CER) and avoids the
+  dependency entirely: `ppu-ocv/canvas-web` imports no OpenCV.
+- **`onnxruntime-web/wasm`, not the default entry.** The default resolves to the
+  JSEP/WebGPU core at **27 MB**; the wasm-only core is **13.58 MB**. Same
+  accuracy, 14 MB less. `ort.env.wasm.numThreads = 1` avoids needing
+  SharedArrayBuffer, so no COOP/COEP headers are required — which matters
+  because GitHub Pages cannot set them.
+
+## One upstream bug, avoided
+
+`model-catalogue.js`'s `V5_EN_MOBILE_MODEL` points `charactersDictionary` at
+`ppocrv5_th_dict.txt` — a **Thai** dictionary for the English model. Anything
+scored through that preset would be garbage for reasons that have nothing to do
+with the engine. The bake-off uses `V6_TINY` (the package default), whose
+dictionary is correct.
