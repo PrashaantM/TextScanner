@@ -516,6 +516,177 @@ A fifth was found in the *test* rather than the code: the soft-B&W assertion
 compared mean luma, and a hard and a soft image shared a mean while their
 histograms were 2 values and 182. It now counts distinct values.
 
+### 8.3.1 Four more, all in one flow, 2026-09-19 (`ba6e733`)
+
+Reported as "the Add as document page flow is broken through normal use". All
+four were reproduced in a real browser with the console open before anything
+was edited, which is the only reason two of the diagnoses below are the
+opposite of the ones everyone (including the report) started with.
+
+1. **Cancel was not reachable from where the flow landed — and the cause was
+   routing, not layout.** `js/app.js` entered the crop screen only inside
+   `if (detected)`, and `detectDocument` returns **null on 8 of the 11
+   photographs in `test/images`** (measured across four scales, null at every
+   one). On that majority path the page was committed on a single tap and the
+   person was deposited in the document view, which carries no Cancel at all.
+   The crop screen is now shown unconditionally, at a cost of one extra
+   "Apply" tap on a photo whose edges cannot be found.
+2. **Cancel committed the page anyway**, by design: `js/cropView.js` handed
+   back `undefined` and `js/app.js` mapped that to "commit uncropped", under a
+   comment arguing that "the photo is already taken". That conflates the photo
+   being taken with the person having asked for it to become a page; only the
+   second is what the screen asks about. Compounding it, the document was
+   created *before* the crop screen was shown, so opening the flow — not
+   completing it — is what created it. Creation now happens inside `commit()`.
+3. **Every button on the resulting page threw**, and the cause was neither of
+   the two things a missing-element bug usually is. See below.
+4. **"Auto enhance" was the default**, from `js/documents.js`'s
+   `createDocumentRecord`. `js/scanDoc.js`'s `|| FILTERS.AUTO` — the codebase's
+   only `FILTERS.AUTO` fallback, and the obvious suspect — is **unreachable**
+   for any document created through the model, because that field is always
+   set. Both now say `original`. "Selecting Original throws a *separate*
+   error" turned out to be bug 3 again, one stack frame shorter
+   (`applyFilter` → `cloneCanvas` directly rather than via `applyAuto`).
+
+**The two hypotheses that were wrong, and why they were worth writing down.**
+
+- *Proposed:* Cancel is unreachable because `#crop-view`'s Cancel sits in a
+  different `<section data-view>` from the preview screen carrying
+  `#scan-target-note`. *Actual:* that separation is real and is not the
+  mechanism — on an image where detection succeeds, the crop section IS shown
+  and its Cancel IS on screen. What stranded people was the `if (detected)`
+  branch never showing that section in the first place. A structural fact about
+  the markup looked like an explanation because it was true; it explained
+  nothing.
+- *Proposed:* the throwing buttons are a `js/dom.js` id-resolution failure
+  (lookups before the elements exist, `getElementById` returning `null` rather
+  than throwing) or an id collision with the main editor. *Actual:* neither.
+  `js/scanDoc.js`'s `rebuildPage` did `if (warped) canvas = warped;` where
+  `warpPerspective` returns `{ canvas, unwarpPoint }`. Both hypotheses were
+  plausible precisely because this repo has been bitten by id drift before —
+  it is why `test/dom-contract.js` exists — and pattern-matching to the last
+  bug of a similar shape is exactly what reproducing first is a defence
+  against.
+
+**The generalizable lesson: two call sites disagreeing about a return shape.**
+`warpPerspective` grew a second return value (`unwarpPoint`, so recognized word
+bboxes could be mapped out of rectified space) and became
+`{ canvas, unwarpPoint }`. `js/ocrEngine.js` — the caller that wanted the new
+half — was written against the new shape and has always been correct.
+`js/scanDoc.js`, added later by the document layer, was written against the
+shape the *name* implies. Nothing detected the disagreement:
+
+- It is not a type error JavaScript can raise. A plain object is a perfectly
+  good value to assign; it only fails when something tries to **draw** it,
+  which happened three calls later in a different module. The stack pointed at
+  `cloneCanvas` in `js/scanFilters.js` — two files away from the mistake.
+- It fires only when `nextCorners` is set and is not the full frame, i.e. only
+  for a page that has actually been cropped. Nothing else in CI produced one,
+  so every existing scan-document gate ran the untaken branch.
+- `js/perspective.js`'s own header documents the `{ canvas, unwarpPoint }`
+  contract accurately. The documentation was right and was not read; a comment
+  cannot fail, which is the same argument `test/dom-contract.js`,
+  `test/motion-contract.js` and `test/repo-contract.js` were each written to
+  settle for a different contract.
+
+The honest generalization is not "check return shapes". It is that **a
+function with more than one caller and a compound return value has a contract,
+and this repo's practice is that contracts get gated rather than described.**
+There is no gate for this one, and adding a unit test asserting
+`warpPerspective` returns an object with a `canvas` property would be a gate
+against the thing that was already right. What actually caught it — and what
+would catch the next instance in any module — was driving the real UI until
+something threw.
+
+### 8.3.2 The gate that reported six clean passes on six broken buttons
+
+Worth its own heading because the lesson is suite-wide rather than about this
+flow. `test/document-creation.js` was extended to click every control on the
+page the flow produces. Written with `page.on("pageerror")` — which is what
+every browser gate in this repo installs — it went **green against the build
+where all six filter chips, both rotate buttons and "Apply filter to all"
+raised a TypeError**.
+
+The reason is `js/scanDoc.js`'s `withBusy`, which is good code doing its job:
+it catches what the work throws, logs it through `console.error` and shows the
+message in a `window.alert`. So the error is *handled*, and a handled error is
+not a `pageerror`. Playwright reported nothing because nothing uncaught
+happened.
+
+`js/` has eleven `console.error` sites, six of them inside a `catch`. Any gate
+watching only `pageerror` is blind to all six. The listener is one line:
+
+```js
+page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+```
+
+It now lives in `test/browser.js` and attaches to every page created through
+`launchBrowser`, so a gate written next month inherits it without knowing it
+exists. Anything left unclaimed when the process exits fails the run, which
+means a new gate inherits the *failure* and not merely the listener. A gate
+that drives an error path deliberately declares it with `expectConsoleErrors`,
+per pattern and with a stated reason, rather than switching the check off.
+
+### 8.3.3 What the console capture found on its first run — OPEN, not fixed
+
+Landing it turned six gates red at once. Four were the capture working as
+designed and are now declared: `malformed-input.js` (the app catching and
+logging four unreadable files is that gate's pass condition), `heic-input.js`
+(no HEIC codec on CI is its premise), `web-tier-smoke.js` (the mocked API
+answers 401/429/503 on purpose) and `library-documents.js` (`sanitizeHtml`
+parsing hostile pasted markup into an inert `<template>`, where the CSP
+correctly refuses a `style` attribute that was about to be stripped anyway).
+
+**The other two are a real defect, left open deliberately so it can be triaged
+rather than folded into an unrelated commit.**
+
+`redaction-destroys-original.js` and `pii-redaction.js` report, 18 and 5 times
+respectively:
+
+> Applying inline style violates the following Content Security Policy
+> directive `style-src 'self'` … Note that hashes do not apply to event
+> handlers, **style attributes** and javascript: navigations unless the
+> `'unsafe-hashes'` keyword is present. **The action has been blocked.**
+
+`js/scanDoc.js`'s `renderDraftBoxes` builds each redaction draft box as an
+`innerHTML` string carrying a `style` attribute:
+
+```js
+`<span class="redact-box" style="left:${b.x * 100}%;top:${b.y * 100}%;` +
+`width:${b.width * 100}%;height:${b.height * 100}%"></span>`
+```
+
+`style-src 'self'` blocks style *attributes*, and `.redact-box` carries only
+`position: absolute` in `style.css` — every dimension comes from the blocked
+attribute. Measured on a real page, after a real drag:
+
+| | |
+|---|---|
+| `style` attribute in the DOM | `left:11.1%;top:8.3%;width:44.4%;height:16.7%` |
+| computed `left`/`top`/`width`/`height` | `0px` / `0px` / `0px` / `0px` |
+| rendered rect | `0 × 0` |
+| what the panel says | **"1 box drawn"**, Undo enabled |
+
+So **you drag to redact and see nothing**, while the app reports the box was
+recorded — and it *was*. Applying it then burns a box the person never saw,
+destroying the page's unredacted original, which is the one irreversible
+operation in the document layer. An invisible preview in front of a
+destructive, unrecoverable action is the worst possible place for this bug.
+
+Why nothing caught it before: `redaction-destroys-original.js` asserts against
+`STORES.BLOBS` and the burned pixels, and `pii-redaction.js` against OCR
+coordinates. Both are right to — and neither ever asked whether the box was
+on screen. The CSP is enforced by the `<meta>` tag in `index.html`, so this is
+live on GitHub Pages and inside the iOS WKWebView, not a test artifact.
+
+**Scope is one line.** A grep of `js/` finds exactly one site building a
+`style` attribute in markup; every other dynamic style in the codebase goes
+through CSSOM (`el.style.left = …`), which CSP permits — including
+`positionRedactOverlay` four lines above, which is why the overlay lands
+correctly and only its contents do not. `test/redaction-destroys-original.js`
+and `test/pii-redaction.js` stay red until it is fixed, which is the intended
+state: the gate is telling the truth.
+
 ### 8.4 The PDF writer, and why it is hand-written
 
 `pdf-lib` and `jsPDF` are 300–400 KB minified. This app has no bundler, so a
