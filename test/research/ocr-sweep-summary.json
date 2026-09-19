@@ -1,0 +1,192 @@
+{
+  "control": {
+    "cer": 0.4866856132425927,
+    "wer": 0.6010502223488752
+  },
+  "completeImages": [
+    "complexPic1",
+    "complexPic2",
+    "complexPic3",
+    "complexPic4",
+    "complexPic5",
+    "complexPic6",
+    "complexPic8",
+    "complexPic9"
+  ],
+  "rows": [
+    {
+      "label": "psm 4 (single column)",
+      "group": "psm",
+      "dCer": -0.039167764179027786,
+      "dWer": -0.01796216223705671,
+      "better": 4,
+      "worse": 4,
+      "same": 0,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "psm 6 (single uniform block)",
+      "group": "psm",
+      "dCer": 0.036591656903318615,
+      "dWer": 0.33591142685547004,
+      "better": 3,
+      "worse": 5,
+      "same": 0,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "psm 11 (sparse text)",
+      "group": "psm",
+      "dCer": -0.05230668003415945,
+      "dWer": 0.14094868582386955,
+      "better": 5,
+      "worse": 2,
+      "same": 1,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "psm 12 (sparse text + OSD)",
+      "group": "psm",
+      "dCer": -0.06353366948823136,
+      "dWer": 0.1536256663395743,
+      "better": 5,
+      "worse": 2,
+      "same": 1,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "user_defined_dpi 70",
+      "group": "dpi",
+      "dCer": 0,
+      "dWer": 0,
+      "better": 0,
+      "worse": 0,
+      "same": 8,
+      "verdict": "no effect at all"
+    },
+    {
+      "label": "user_defined_dpi 150",
+      "group": "dpi",
+      "dCer": -0.0014201622534294467,
+      "dWer": 0.006033745731584217,
+      "better": 3,
+      "worse": 4,
+      "same": 1,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "user_defined_dpi 300",
+      "group": "dpi",
+      "dCer": -0.011530341580989978,
+      "dWer": -0.0055998775589037875,
+      "better": 3,
+      "worse": 4,
+      "same": 1,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "upscale 1.5x (bicubic)",
+      "group": "scale",
+      "dCer": -0.08236632405180216,
+      "dWer": -0.052656927586156366,
+      "better": 5,
+      "worse": 2,
+      "same": 1,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "upscale 2.0x (bicubic)",
+      "group": "scale",
+      "dCer": -0.0564648826726849,
+      "dWer": -0.03110590487146392,
+      "better": 4,
+      "worse": 4,
+      "same": 0,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "downscale 0.75x",
+      "group": "scale",
+      "dCer": 0.024346911047573527,
+      "dWer": 0.017030902508796686,
+      "better": 1,
+      "worse": 7,
+      "same": 0,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "scanFilters: auto enhance",
+      "group": "filter",
+      "dCer": 0.11118559997640537,
+      "dWer": 0.11835269772489676,
+      "better": 1,
+      "worse": 7,
+      "same": 0,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "scanFilters: magic colour",
+      "group": "filter",
+      "dCer": 0.13254728861187753,
+      "dWer": 0.12297984393353156,
+      "better": 1,
+      "worse": 7,
+      "same": 0,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "scanFilters: greyscale",
+      "group": "filter",
+      "dCer": -0.02856869078159635,
+      "dWer": -0.012832236026222743,
+      "better": 6,
+      "worse": 2,
+      "same": 0,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "scanFilters: black & white (binarize)",
+      "group": "filter",
+      "dCer": 0.1647711613486849,
+      "dWer": 0.32874894158606105,
+      "better": 1,
+      "worse": 7,
+      "same": 0,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "scanFilters: soft B&W (adaptive)",
+      "group": "filter",
+      "dCer": 0.11018592249483633,
+      "dWer": 0.13849538595948385,
+      "better": 1,
+      "worse": 7,
+      "same": 0,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "rotateAuto off",
+      "group": "deskew",
+      "dCer": -0.014270904920019423,
+      "dWer": -0.004428224780731682,
+      "better": 3,
+      "worse": 1,
+      "same": 4,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "OCR each detected block separately",
+      "group": "region",
+      "dCer": 0.17931825770370718,
+      "dWer": 0.5651854938896472,
+      "better": 2,
+      "worse": 6,
+      "same": 0,
+      "verdict": "mixed - trades wins for losses"
+    },
+    {
+      "label": "oem 3 (LSTM + legacy) - NOT VENDORED, skipped",
+      "skipped": "vendor/tesseract/core has no legacy wasm build and tessdata is LSTM-only (4.0.0_best_int)"
+    }
+  ]
+}

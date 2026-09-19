@@ -1,0 +1,1622 @@
+[
+  {
+    "label": "control (app pass 1: psm 3, oem 1, rotateAuto, untouched)",
+    "group": "control",
+    "psm": "3",
+    "oem": 1,
+    "dpi": null,
+    "scale": 1,
+    "filter": "original",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.358974358974359,
+        "wer": 0.6,
+        "ms": 461,
+        "calls": 1,
+        "chars": 126
+      },
+      "complexPic2": {
+        "cer": 0.6243243243243243,
+        "wer": 0.7777777777777778,
+        "ms": 937,
+        "calls": 1,
+        "chars": 374
+      },
+      "complexPic3": {
+        "cer": 0.7816623588627397,
+        "wer": 0.9386666666666666,
+        "ms": 4373,
+        "calls": 1,
+        "chars": 2957
+      },
+      "complexPic4": {
+        "cer": 0.19023136246786632,
+        "wer": 0.18932038834951456,
+        "ms": 2627,
+        "calls": 1,
+        "chars": 1414
+      },
+      "complexPic5": {
+        "cer": 0.07338129496402877,
+        "wer": 0.17094017094017094,
+        "ms": 1101,
+        "calls": 1,
+        "chars": 703
+      },
+      "complexPic6": {
+        "cer": 0.8305084745762712,
+        "wer": 0.9627659574468085,
+        "ms": 1609,
+        "calls": 1,
+        "chars": 390
+      },
+      "complexPic7": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 690,
+        "calls": 1,
+        "chars": 0
+      },
+      "complexPic8": {
+        "cer": 0.3618881118881119,
+        "wer": 0.46226415094339623,
+        "ms": 1267,
+        "calls": 1,
+        "chars": 604
+      },
+      "complexPic9": {
+        "cer": 0.672514619883041,
+        "wer": 0.7066666666666667,
+        "ms": 845,
+        "calls": 1,
+        "chars": 206
+      },
+      "complexPic10": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 372,
+        "calls": 1,
+        "chars": 0
+      },
+      "complexPic11": {
+        "cer": 0.9563318777292577,
+        "wer": 1,
+        "ms": 649,
+        "calls": 1,
+        "chars": 12
+      }
+    }
+  },
+  {
+    "label": "psm 4 (single column)",
+    "group": "psm",
+    "psm": "4",
+    "oem": 1,
+    "dpi": null,
+    "scale": 1,
+    "filter": "original",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.4358974358974359,
+        "wer": 0.6,
+        "ms": 489,
+        "calls": 1,
+        "chars": 115
+      },
+      "complexPic2": {
+        "cer": 0.34054054054054056,
+        "wer": 0.6031746031746031,
+        "ms": 1000,
+        "calls": 1,
+        "chars": 373
+      },
+      "complexPic3": {
+        "cer": 0.7985308121344035,
+        "wer": 0.9475555555555556,
+        "ms": 4130,
+        "calls": 1,
+        "chars": 2435
+      },
+      "complexPic4": {
+        "cer": 0.1870179948586118,
+        "wer": 0.2087378640776699,
+        "ms": 2615,
+        "calls": 1,
+        "chars": 1439
+      },
+      "complexPic5": {
+        "cer": 0.10647482014388489,
+        "wer": 0.24786324786324787,
+        "ms": 1212,
+        "calls": 1,
+        "chars": 726
+      },
+      "complexPic6": {
+        "cer": 0.7827426810477658,
+        "wer": 0.9095744680851063,
+        "ms": 1806,
+        "calls": 1,
+        "chars": 450
+      },
+      "complexPic7": {
+        "cer": 0.8556430446194225,
+        "wer": 0.9322033898305084,
+        "ms": 990,
+        "calls": 1,
+        "chars": 97
+      },
+      "complexPic8": {
+        "cer": 0.36363636363636365,
+        "wer": 0.4811320754716981,
+        "ms": 1231,
+        "calls": 1,
+        "chars": 592
+      },
+      "complexPic9": {
+        "cer": 0.5653021442495126,
+        "wer": 0.6666666666666666,
+        "ms": 944,
+        "calls": 1,
+        "chars": 260
+      },
+      "complexPic10": {
+        "cer": 0.7672955974842768,
+        "wer": 1,
+        "ms": 441,
+        "calls": 1,
+        "chars": 54
+      },
+      "complexPic11": {
+        "cer": 0.9563318777292577,
+        "wer": 1,
+        "ms": 645,
+        "calls": 1,
+        "chars": 12
+      }
+    }
+  },
+  {
+    "label": "psm 6 (single uniform block)",
+    "group": "psm",
+    "psm": "6",
+    "oem": 1,
+    "dpi": null,
+    "scale": 1,
+    "filter": "original",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.5448717948717948,
+        "wer": 0.96,
+        "ms": 664,
+        "calls": 1,
+        "chars": 127
+      },
+      "complexPic2": {
+        "cer": 0.2945945945945946,
+        "wer": 0.7301587301587301,
+        "ms": 1109,
+        "calls": 1,
+        "chars": 431
+      },
+      "complexPic3": {
+        "cer": 0.7762209223234934,
+        "wer": 0.9448888888888889,
+        "ms": 5088,
+        "calls": 1,
+        "chars": 2888
+      },
+      "complexPic4": {
+        "cer": 0.2403598971722365,
+        "wer": 0.3106796116504854,
+        "ms": 3052,
+        "calls": 1,
+        "chars": 1645
+      },
+      "complexPic5": {
+        "cer": 0.1079136690647482,
+        "wer": 0.26495726495726496,
+        "ms": 1156,
+        "calls": 1,
+        "chars": 706
+      },
+      "complexPic6": {
+        "cer": 1.0600924499229585,
+        "wer": 2.367021276595745,
+        "ms": 5863,
+        "calls": 1,
+        "chars": 1687
+      },
+      "complexPic7": {
+        "cer": 0.7979002624671916,
+        "wer": 1,
+        "ms": 1598,
+        "calls": 1,
+        "chars": 180
+      },
+      "complexPic8": {
+        "cer": 0.5052447552447552,
+        "wer": 0.8113207547169812,
+        "ms": 1440,
+        "calls": 1,
+        "chars": 707
+      },
+      "complexPic9": {
+        "cer": 0.6569200779727096,
+        "wer": 1.1066666666666667,
+        "ms": 1399,
+        "calls": 1,
+        "chars": 486
+      },
+      "complexPic10": {
+        "cer": 0.8930817610062893,
+        "wer": 1,
+        "ms": 714,
+        "calls": 1,
+        "chars": 30
+      },
+      "complexPic11": {
+        "cer": 2.462882096069869,
+        "wer": 5.512820512820513,
+        "ms": 2823,
+        "calls": 1,
+        "chars": 650
+      }
+    }
+  },
+  {
+    "label": "psm 11 (sparse text)",
+    "group": "psm",
+    "psm": "11",
+    "oem": 1,
+    "dpi": null,
+    "scale": 1,
+    "filter": "original",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.28846153846153844,
+        "wer": 0.68,
+        "ms": 630,
+        "calls": 1,
+        "chars": 172
+      },
+      "complexPic2": {
+        "cer": 0.23783783783783785,
+        "wer": 0.5079365079365079,
+        "ms": 1056,
+        "calls": 1,
+        "chars": 422
+      },
+      "complexPic3": {
+        "cer": 0.7486056318868182,
+        "wer": 0.9528888888888889,
+        "ms": 7023,
+        "calls": 1,
+        "chars": 4453
+      },
+      "complexPic4": {
+        "cer": 0.19023136246786632,
+        "wer": 0.25728155339805825,
+        "ms": 2735,
+        "calls": 1,
+        "chars": 1586
+      },
+      "complexPic5": {
+        "cer": 0.08776978417266187,
+        "wer": 0.18803418803418803,
+        "ms": 1204,
+        "calls": 1,
+        "chars": 722
+      },
+      "complexPic6": {
+        "cer": 0.9745762711864406,
+        "wer": 2.0797872340425534,
+        "ms": 5733,
+        "calls": 1,
+        "chars": 1853
+      },
+      "complexPic7": {
+        "cer": 0.7821522309711286,
+        "wer": 1.11864406779661,
+        "ms": 1598,
+        "calls": 1,
+        "chars": 274
+      },
+      "complexPic8": {
+        "cer": 0.3374125874125874,
+        "wer": 0.44339622641509435,
+        "ms": 1441,
+        "calls": 1,
+        "chars": 638
+      },
+      "complexPic9": {
+        "cer": 0.6101364522417154,
+        "wer": 0.8266666666666667,
+        "ms": 1065,
+        "calls": 1,
+        "chars": 426
+      },
+      "complexPic10": {
+        "cer": 0.7358490566037735,
+        "wer": 1.2571428571428571,
+        "ms": 778,
+        "calls": 1,
+        "chars": 166
+      },
+      "complexPic11": {
+        "cer": 1.0436681222707425,
+        "wer": 2.4871794871794872,
+        "ms": 1432,
+        "calls": 1,
+        "chars": 386
+      }
+    }
+  },
+  {
+    "label": "psm 12 (sparse text + OSD)",
+    "group": "psm",
+    "psm": "12",
+    "oem": 1,
+    "dpi": null,
+    "scale": 1,
+    "filter": "original",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.32051282051282054,
+        "wer": 0.76,
+        "ms": 662,
+        "calls": 1,
+        "chars": 187
+      },
+      "complexPic2": {
+        "cer": 0.21081081081081082,
+        "wer": 0.4444444444444444,
+        "ms": 1040,
+        "calls": 1,
+        "chars": 414
+      },
+      "complexPic3": {
+        "cer": 0.7494218473677051,
+        "wer": 0.9528888888888889,
+        "ms": 7046,
+        "calls": 1,
+        "chars": 4415
+      },
+      "complexPic4": {
+        "cer": 0.18958868894601544,
+        "wer": 0.23786407766990292,
+        "ms": 2694,
+        "calls": 1,
+        "chars": 1575
+      },
+      "complexPic5": {
+        "cer": 0.08345323741007195,
+        "wer": 0.20512820512820512,
+        "ms": 1229,
+        "calls": 1,
+        "chars": 725
+      },
+      "complexPic6": {
+        "cer": 1.0107858243451464,
+        "wer": 2.2925531914893615,
+        "ms": 5745,
+        "calls": 1,
+        "chars": 1978
+      },
+      "complexPic7": {
+        "cer": 0.7847769028871391,
+        "wer": 1.11864406779661,
+        "ms": 1491,
+        "calls": 1,
+        "chars": 262
+      },
+      "complexPic8": {
+        "cer": 0.33916083916083917,
+        "wer": 0.42452830188679247,
+        "ms": 1254,
+        "calls": 1,
+        "chars": 615
+      },
+      "complexPic9": {
+        "cer": 0.48148148148148145,
+        "wer": 0.72,
+        "ms": 1145,
+        "calls": 1,
+        "chars": 483
+      },
+      "complexPic10": {
+        "cer": 0.7672955974842768,
+        "wer": 1,
+        "ms": 624,
+        "calls": 1,
+        "chars": 124
+      },
+      "complexPic11": {
+        "cer": 0.9082969432314411,
+        "wer": 2.1794871794871793,
+        "ms": 1244,
+        "calls": 1,
+        "chars": 333
+      }
+    }
+  },
+  {
+    "label": "user_defined_dpi 70",
+    "group": "dpi",
+    "psm": "3",
+    "oem": 1,
+    "dpi": 70,
+    "scale": 1,
+    "filter": "original",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.358974358974359,
+        "wer": 0.6,
+        "ms": 411,
+        "calls": 1,
+        "chars": 126
+      },
+      "complexPic2": {
+        "cer": 0.6243243243243243,
+        "wer": 0.7777777777777778,
+        "ms": 865,
+        "calls": 1,
+        "chars": 374
+      },
+      "complexPic3": {
+        "cer": 0.7816623588627397,
+        "wer": 0.9386666666666666,
+        "ms": 4259,
+        "calls": 1,
+        "chars": 2957
+      },
+      "complexPic4": {
+        "cer": 0.19023136246786632,
+        "wer": 0.18932038834951456,
+        "ms": 2531,
+        "calls": 1,
+        "chars": 1414
+      },
+      "complexPic5": {
+        "cer": 0.07338129496402877,
+        "wer": 0.17094017094017094,
+        "ms": 1034,
+        "calls": 1,
+        "chars": 703
+      },
+      "complexPic6": {
+        "cer": 0.8305084745762712,
+        "wer": 0.9627659574468085,
+        "ms": 1518,
+        "calls": 1,
+        "chars": 390
+      },
+      "complexPic7": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 657,
+        "calls": 1,
+        "chars": 0
+      },
+      "complexPic8": {
+        "cer": 0.3618881118881119,
+        "wer": 0.46226415094339623,
+        "ms": 1293,
+        "calls": 1,
+        "chars": 604
+      },
+      "complexPic9": {
+        "cer": 0.672514619883041,
+        "wer": 0.7066666666666667,
+        "ms": 838,
+        "calls": 1,
+        "chars": 206
+      },
+      "complexPic10": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 368,
+        "calls": 1,
+        "chars": 0
+      },
+      "complexPic11": {
+        "cer": 0.9563318777292577,
+        "wer": 1,
+        "ms": 643,
+        "calls": 1,
+        "chars": 12
+      }
+    }
+  },
+  {
+    "label": "user_defined_dpi 150",
+    "group": "dpi",
+    "psm": "3",
+    "oem": 1,
+    "dpi": 150,
+    "scale": 1,
+    "filter": "original",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.44871794871794873,
+        "wer": 0.64,
+        "ms": 393,
+        "calls": 1,
+        "chars": 117
+      },
+      "complexPic2": {
+        "cer": 0.6243243243243243,
+        "wer": 0.7777777777777778,
+        "ms": 879,
+        "calls": 1,
+        "chars": 374
+      },
+      "complexPic3": {
+        "cer": 0.7286083526050877,
+        "wer": 0.936,
+        "ms": 4103,
+        "calls": 1,
+        "chars": 3272
+      },
+      "complexPic4": {
+        "cer": 0.18766066838046272,
+        "wer": 0.18446601941747573,
+        "ms": 2441,
+        "calls": 1,
+        "chars": 1435
+      },
+      "complexPic5": {
+        "cer": 0.10647482014388489,
+        "wer": 0.24786324786324787,
+        "ms": 1092,
+        "calls": 1,
+        "chars": 726
+      },
+      "complexPic6": {
+        "cer": 0.8605546995377504,
+        "wer": 0.9627659574468085,
+        "ms": 1496,
+        "calls": 1,
+        "chars": 358
+      },
+      "complexPic7": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 663,
+        "calls": 1,
+        "chars": 0
+      },
+      "complexPic8": {
+        "cer": 0.3741258741258741,
+        "wer": 0.4811320754716981,
+        "ms": 1274,
+        "calls": 1,
+        "chars": 601
+      },
+      "complexPic9": {
+        "cer": 0.5516569200779727,
+        "wer": 0.6266666666666667,
+        "ms": 946,
+        "calls": 1,
+        "chars": 259
+      },
+      "complexPic10": {
+        "cer": 0.9811320754716981,
+        "wer": 1,
+        "ms": 436,
+        "calls": 1,
+        "chars": 6
+      },
+      "complexPic11": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 408,
+        "calls": 1,
+        "chars": 0
+      }
+    }
+  },
+  {
+    "label": "user_defined_dpi 300",
+    "group": "dpi",
+    "psm": "3",
+    "oem": 1,
+    "dpi": 300,
+    "scale": 1,
+    "filter": "original",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.46794871794871795,
+        "wer": 0.64,
+        "ms": 366,
+        "calls": 1,
+        "chars": 108
+      },
+      "complexPic2": {
+        "cer": 0.35405405405405405,
+        "wer": 0.6507936507936508,
+        "ms": 896,
+        "calls": 1,
+        "chars": 383
+      },
+      "complexPic3": {
+        "cer": 0.8053326078084614,
+        "wer": 0.944,
+        "ms": 3351,
+        "calls": 1,
+        "chars": 2097
+      },
+      "complexPic4": {
+        "cer": 0.18444730077120822,
+        "wer": 0.18446601941747573,
+        "ms": 2489,
+        "calls": 1,
+        "chars": 1407
+      },
+      "complexPic5": {
+        "cer": 0.07338129496402877,
+        "wer": 0.17094017094017094,
+        "ms": 1037,
+        "calls": 1,
+        "chars": 703
+      },
+      "complexPic6": {
+        "cer": 0.8559322033898306,
+        "wer": 0.9361702127659575,
+        "ms": 1431,
+        "calls": 1,
+        "chars": 287
+      },
+      "complexPic7": {
+        "cer": 0.931758530183727,
+        "wer": 0.9661016949152542,
+        "ms": 1146,
+        "calls": 1,
+        "chars": 36
+      },
+      "complexPic8": {
+        "cer": 0.3583916083916084,
+        "wer": 0.49056603773584906,
+        "ms": 1297,
+        "calls": 1,
+        "chars": 597
+      },
+      "complexPic9": {
+        "cer": 0.7017543859649122,
+        "wer": 0.7466666666666667,
+        "ms": 842,
+        "calls": 1,
+        "chars": 158
+      },
+      "complexPic10": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 225,
+        "calls": 1,
+        "chars": 0
+      },
+      "complexPic11": {
+        "cer": 0.9213973799126638,
+        "wer": 1,
+        "ms": 718,
+        "calls": 1,
+        "chars": 33
+      }
+    }
+  },
+  {
+    "label": "upscale 1.5x (bicubic)",
+    "group": "scale",
+    "psm": "3",
+    "oem": 1,
+    "dpi": null,
+    "scale": 1.5,
+    "filter": "original",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.391025641025641,
+        "wer": 0.64,
+        "ms": 849,
+        "calls": 1,
+        "chars": 125
+      },
+      "complexPic2": {
+        "cer": 0.28378378378378377,
+        "wer": 0.49206349206349204,
+        "ms": 1116,
+        "calls": 1,
+        "chars": 370
+      },
+      "complexPic3": {
+        "cer": 0.524418446469868,
+        "wer": 0.7128888888888889,
+        "ms": 7512,
+        "calls": 1,
+        "chars": 5592
+      },
+      "complexPic4": {
+        "cer": 0.18958868894601544,
+        "wer": 0.22330097087378642,
+        "ms": 3500,
+        "calls": 1,
+        "chars": 1420
+      },
+      "complexPic5": {
+        "cer": 0.1251798561151079,
+        "wer": 0.27350427350427353,
+        "ms": 1368,
+        "calls": 1,
+        "chars": 714
+      },
+      "complexPic6": {
+        "cer": 0.7912172573189522,
+        "wer": 0.9414893617021277,
+        "ms": 3100,
+        "calls": 1,
+        "chars": 541
+      },
+      "complexPic7": {
+        "cer": 0.8818897637795275,
+        "wer": 0.9491525423728814,
+        "ms": 1946,
+        "calls": 1,
+        "chars": 82
+      },
+      "complexPic8": {
+        "cer": 0.36013986013986016,
+        "wer": 0.49056603773584906,
+        "ms": 1827,
+        "calls": 1,
+        "chars": 599
+      },
+      "complexPic9": {
+        "cer": 0.5692007797270955,
+        "wer": 0.6133333333333333,
+        "ms": 1599,
+        "calls": 1,
+        "chars": 293
+      },
+      "complexPic10": {
+        "cer": 0.7358490566037735,
+        "wer": 0.9428571428571428,
+        "ms": 909,
+        "calls": 1,
+        "chars": 67
+      },
+      "complexPic11": {
+        "cer": 0.74235807860262,
+        "wer": 0.8974358974358975,
+        "ms": 1539,
+        "calls": 1,
+        "chars": 88
+      }
+    }
+  },
+  {
+    "label": "upscale 2.0x (bicubic)",
+    "group": "scale",
+    "psm": "3",
+    "oem": 1,
+    "dpi": null,
+    "scale": 2,
+    "filter": "original",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.3525641025641026,
+        "wer": 0.56,
+        "ms": 1856,
+        "calls": 1,
+        "chars": 138
+      },
+      "complexPic2": {
+        "cer": 0.3567567567567568,
+        "wer": 0.5873015873015873,
+        "ms": 1386,
+        "calls": 1,
+        "chars": 373
+      },
+      "complexPic3": {
+        "cer": 0.5867228948442389,
+        "wer": 0.7795555555555556,
+        "ms": 8183,
+        "calls": 1,
+        "chars": 5821
+      },
+      "complexPic4": {
+        "cer": 0.2474293059125964,
+        "wer": 0.30097087378640774,
+        "ms": 5237,
+        "calls": 1,
+        "chars": 1512
+      },
+      "complexPic5": {
+        "cer": 0.08776978417266187,
+        "wer": 0.15384615384615385,
+        "ms": 1682,
+        "calls": 1,
+        "chars": 692
+      },
+      "complexPic6": {
+        "cer": 0.8366718027734977,
+        "wer": 1.0212765957446808,
+        "ms": 6390,
+        "calls": 1,
+        "chars": 633
+      },
+      "complexPic7": {
+        "cer": 0.8241469816272966,
+        "wer": 0.9491525423728814,
+        "ms": 2628,
+        "calls": 1,
+        "chars": 107
+      },
+      "complexPic8": {
+        "cer": 0.3968531468531469,
+        "wer": 0.5566037735849056,
+        "ms": 2534,
+        "calls": 1,
+        "chars": 602
+      },
+      "complexPic9": {
+        "cer": 0.5769980506822612,
+        "wer": 0.6,
+        "ms": 2373,
+        "calls": 1,
+        "chars": 280
+      },
+      "complexPic10": {
+        "cer": 0.9182389937106918,
+        "wer": 0.9714285714285714,
+        "ms": 1193,
+        "calls": 1,
+        "chars": 20
+      },
+      "complexPic11": {
+        "cer": 0.777292576419214,
+        "wer": 0.9230769230769231,
+        "ms": 1468,
+        "calls": 1,
+        "chars": 78
+      }
+    }
+  },
+  {
+    "label": "downscale 0.75x",
+    "group": "scale",
+    "psm": "3",
+    "oem": 1,
+    "dpi": null,
+    "scale": 0.75,
+    "filter": "original",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.391025641025641,
+        "wer": 0.56,
+        "ms": 409,
+        "calls": 1,
+        "chars": 113
+      },
+      "complexPic2": {
+        "cer": 0.36486486486486486,
+        "wer": 0.6349206349206349,
+        "ms": 816,
+        "calls": 1,
+        "chars": 364
+      },
+      "complexPic3": {
+        "cer": 0.9507549993198204,
+        "wer": 0.9848888888888889,
+        "ms": 1260,
+        "calls": 1,
+        "chars": 461
+      },
+      "complexPic4": {
+        "cer": 0.2358611825192802,
+        "wer": 0.1941747572815534,
+        "ms": 2158,
+        "calls": 1,
+        "chars": 1489
+      },
+      "complexPic5": {
+        "cer": 0.0920863309352518,
+        "wer": 0.27350427350427353,
+        "ms": 977,
+        "calls": 1,
+        "chars": 728
+      },
+      "complexPic6": {
+        "cer": 0.9191063174114021,
+        "wer": 0.9893617021276596,
+        "ms": 805,
+        "calls": 1,
+        "chars": 142
+      },
+      "complexPic7": {
+        "cer": 0.94750656167979,
+        "wer": 0.9491525423728814,
+        "ms": 732,
+        "calls": 1,
+        "chars": 23
+      },
+      "complexPic8": {
+        "cer": 0.3723776223776224,
+        "wer": 0.4811320754716981,
+        "ms": 1054,
+        "calls": 1,
+        "chars": 574
+      },
+      "complexPic9": {
+        "cer": 0.7621832358674464,
+        "wer": 0.8266666666666667,
+        "ms": 626,
+        "calls": 1,
+        "chars": 184
+      },
+      "complexPic10": {
+        "cer": 0.8553459119496856,
+        "wer": 1,
+        "ms": 248,
+        "calls": 1,
+        "chars": 46
+      },
+      "complexPic11": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 263,
+        "calls": 1,
+        "chars": 0
+      }
+    }
+  },
+  {
+    "label": "scanFilters: auto enhance",
+    "group": "filter",
+    "psm": "3",
+    "oem": 1,
+    "dpi": null,
+    "scale": 1,
+    "filter": "auto",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.5256410256410257,
+        "wer": 0.84,
+        "ms": 562,
+        "calls": 1,
+        "chars": 120
+      },
+      "complexPic2": {
+        "cer": 0.9540540540540541,
+        "wer": 0.9841269841269841,
+        "ms": 280,
+        "calls": 1,
+        "chars": 24
+      },
+      "complexPic3": {
+        "cer": 0.6975921643313835,
+        "wer": 0.8933333333333333,
+        "ms": 4586,
+        "calls": 1,
+        "chars": 3047
+      },
+      "complexPic4": {
+        "cer": 0.2422879177377892,
+        "wer": 0.2524271844660194,
+        "ms": 2859,
+        "calls": 1,
+        "chars": 1578
+      },
+      "complexPic5": {
+        "cer": 0.08920863309352518,
+        "wer": 0.21367521367521367,
+        "ms": 1148,
+        "calls": 1,
+        "chars": 730
+      },
+      "complexPic6": {
+        "cer": 0.8751926040061633,
+        "wer": 0.9574468085106383,
+        "ms": 1282,
+        "calls": 1,
+        "chars": 251
+      },
+      "complexPic7": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 408,
+        "calls": 1,
+        "chars": 0
+      },
+      "complexPic8": {
+        "cer": 0.5646853146853147,
+        "wer": 0.7075471698113207,
+        "ms": 1165,
+        "calls": 1,
+        "chars": 497
+      },
+      "complexPic9": {
+        "cer": 0.834307992202729,
+        "wer": 0.9066666666666666,
+        "ms": 848,
+        "calls": 1,
+        "chars": 125
+      },
+      "complexPic10": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 287,
+        "calls": 1,
+        "chars": 0
+      },
+      "complexPic11": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 477,
+        "calls": 1,
+        "chars": 0
+      }
+    }
+  },
+  {
+    "label": "scanFilters: magic colour",
+    "group": "filter",
+    "psm": "3",
+    "oem": 1,
+    "dpi": null,
+    "scale": 1,
+    "filter": "magic",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.6153846153846154,
+        "wer": 0.92,
+        "ms": 635,
+        "calls": 1,
+        "chars": 89
+      },
+      "complexPic2": {
+        "cer": 0.9324324324324325,
+        "wer": 0.9841269841269841,
+        "ms": 379,
+        "calls": 1,
+        "chars": 33
+      },
+      "complexPic3": {
+        "cer": 0.7937695551625629,
+        "wer": 0.9528888888888889,
+        "ms": 4756,
+        "calls": 1,
+        "chars": 2604
+      },
+      "complexPic4": {
+        "cer": 0.2551413881748072,
+        "wer": 0.27184466019417475,
+        "ms": 2374,
+        "calls": 1,
+        "chars": 1567
+      },
+      "complexPic5": {
+        "cer": 0.060431654676258995,
+        "wer": 0.13675213675213677,
+        "ms": 1040,
+        "calls": 1,
+        "chars": 709
+      },
+      "complexPic6": {
+        "cer": 0.8466872110939908,
+        "wer": 0.9202127659574468,
+        "ms": 1148,
+        "calls": 1,
+        "chars": 263
+      },
+      "complexPic7": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 870,
+        "calls": 1,
+        "chars": 0
+      },
+      "complexPic8": {
+        "cer": 0.5786713286713286,
+        "wer": 0.7264150943396226,
+        "ms": 1038,
+        "calls": 1,
+        "chars": 496
+      },
+      "complexPic9": {
+        "cer": 0.8713450292397661,
+        "wer": 0.88,
+        "ms": 629,
+        "calls": 1,
+        "chars": 71
+      },
+      "complexPic10": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 266,
+        "calls": 1,
+        "chars": 0
+      },
+      "complexPic11": {
+        "cer": 0.9737991266375546,
+        "wer": 1,
+        "ms": 448,
+        "calls": 1,
+        "chars": 11
+      }
+    }
+  },
+  {
+    "label": "scanFilters: greyscale",
+    "group": "filter",
+    "psm": "3",
+    "oem": 1,
+    "dpi": null,
+    "scale": 1,
+    "filter": "grayscale",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.3525641025641026,
+        "wer": 0.72,
+        "ms": 468,
+        "calls": 1,
+        "chars": 143
+      },
+      "complexPic2": {
+        "cer": 0.34324324324324323,
+        "wer": 0.6031746031746031,
+        "ms": 1036,
+        "calls": 1,
+        "chars": 395
+      },
+      "complexPic3": {
+        "cer": 0.7139164739491226,
+        "wer": 0.9306666666666666,
+        "ms": 5695,
+        "calls": 1,
+        "chars": 3109
+      },
+      "complexPic4": {
+        "cer": 0.31748071979434445,
+        "wer": 0.24271844660194175,
+        "ms": 2700,
+        "calls": 1,
+        "chars": 1544
+      },
+      "complexPic5": {
+        "cer": 0.04460431654676259,
+        "wer": 0.1111111111111111,
+        "ms": 1230,
+        "calls": 1,
+        "chars": 721
+      },
+      "complexPic6": {
+        "cer": 0.8235747303543913,
+        "wer": 0.8829787234042553,
+        "ms": 1592,
+        "calls": 1,
+        "chars": 284
+      },
+      "complexPic7": {
+        "cer": 0.8267716535433071,
+        "wer": 0.9152542372881356,
+        "ms": 1180,
+        "calls": 1,
+        "chars": 87
+      },
+      "complexPic8": {
+        "cer": 0.34440559440559443,
+        "wer": 0.41509433962264153,
+        "ms": 1312,
+        "calls": 1,
+        "chars": 583
+      },
+      "complexPic9": {
+        "cer": 0.7251461988304093,
+        "wer": 0.8,
+        "ms": 925,
+        "calls": 1,
+        "chars": 231
+      },
+      "complexPic10": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 364,
+        "calls": 1,
+        "chars": 0
+      },
+      "complexPic11": {
+        "cer": 0.8864628820960698,
+        "wer": 1,
+        "ms": 738,
+        "calls": 1,
+        "chars": 39
+      }
+    }
+  },
+  {
+    "label": "scanFilters: black & white (binarize)",
+    "group": "filter",
+    "psm": "3",
+    "oem": 1,
+    "dpi": null,
+    "scale": 1,
+    "filter": "bw",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.7884615384615384,
+        "wer": 2.12,
+        "ms": 640,
+        "calls": 1,
+        "chars": 238
+      },
+      "complexPic2": {
+        "cer": 0.9243243243243243,
+        "wer": 0.9682539682539683,
+        "ms": 322,
+        "calls": 1,
+        "chars": 41
+      },
+      "complexPic3": {
+        "cer": 0.7597605767922732,
+        "wer": 0.9511111111111111,
+        "ms": 5170,
+        "calls": 1,
+        "chars": 2719
+      },
+      "complexPic4": {
+        "cer": 0.33226221079691515,
+        "wer": 0.46601941747572817,
+        "ms": 2407,
+        "calls": 1,
+        "chars": 1494
+      },
+      "complexPic5": {
+        "cer": 0.08633093525179857,
+        "wer": 0.21367521367521367,
+        "ms": 1102,
+        "calls": 1,
+        "chars": 747
+      },
+      "complexPic6": {
+        "cer": 0.8582434514637904,
+        "wer": 0.9574468085106383,
+        "ms": 1119,
+        "calls": 1,
+        "chars": 252
+      },
+      "complexPic7": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 341,
+        "calls": 1,
+        "chars": 0
+      },
+      "complexPic8": {
+        "cer": 0.6416083916083916,
+        "wer": 0.8018867924528302,
+        "ms": 941,
+        "calls": 1,
+        "chars": 466
+      },
+      "complexPic9": {
+        "cer": 0.8206627680311891,
+        "wer": 0.96,
+        "ms": 825,
+        "calls": 1,
+        "chars": 166
+      },
+      "complexPic10": {
+        "cer": 0.8742138364779874,
+        "wer": 1,
+        "ms": 600,
+        "calls": 1,
+        "chars": 42
+      },
+      "complexPic11": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 375,
+        "calls": 1,
+        "chars": 0
+      }
+    }
+  },
+  {
+    "label": "scanFilters: soft B&W (adaptive)",
+    "group": "filter",
+    "psm": "3",
+    "oem": 1,
+    "dpi": null,
+    "scale": 1,
+    "filter": "softbw",
+    "rotateAuto": true,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.47435897435897434,
+        "wer": 0.72,
+        "ms": 452,
+        "calls": 1,
+        "chars": 146
+      },
+      "complexPic2": {
+        "cer": 0.927027027027027,
+        "wer": 0.9682539682539683,
+        "ms": 271,
+        "calls": 1,
+        "chars": 39
+      },
+      "complexPic3": {
+        "cer": 0.7594885049653108,
+        "wer": 0.9448888888888889,
+        "ms": 4863,
+        "calls": 1,
+        "chars": 2699
+      },
+      "complexPic4": {
+        "cer": 0.31748071979434445,
+        "wer": 0.48058252427184467,
+        "ms": 2640,
+        "calls": 1,
+        "chars": 1621
+      },
+      "complexPic5": {
+        "cer": 0.0776978417266187,
+        "wer": 0.21367521367521367,
+        "ms": 1118,
+        "calls": 1,
+        "chars": 743
+      },
+      "complexPic6": {
+        "cer": 0.849768875192604,
+        "wer": 0.9308510638297872,
+        "ms": 1125,
+        "calls": 1,
+        "chars": 274
+      },
+      "complexPic7": {
+        "cer": 0.847769028871391,
+        "wer": 1,
+        "ms": 1060,
+        "calls": 1,
+        "chars": 131
+      },
+      "complexPic8": {
+        "cer": 0.5699300699300699,
+        "wer": 0.6981132075471698,
+        "ms": 836,
+        "calls": 1,
+        "chars": 398
+      },
+      "complexPic9": {
+        "cer": 0.7992202729044834,
+        "wer": 0.96,
+        "ms": 921,
+        "calls": 1,
+        "chars": 195
+      },
+      "complexPic10": {
+        "cer": 0.9308176100628931,
+        "wer": 1,
+        "ms": 352,
+        "calls": 1,
+        "chars": 29
+      },
+      "complexPic11": {
+        "cer": 1,
+        "wer": 1,
+        "ms": 406,
+        "calls": 1,
+        "chars": 0
+      }
+    }
+  },
+  {
+    "label": "rotateAuto off",
+    "group": "deskew",
+    "psm": "3",
+    "oem": 1,
+    "dpi": null,
+    "scale": 1,
+    "filter": "original",
+    "rotateAuto": false,
+    "perRegion": false,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.358974358974359,
+        "wer": 0.6,
+        "ms": 458,
+        "calls": 1,
+        "chars": 126
+      },
+      "complexPic2": {
+        "cer": 0.6243243243243243,
+        "wer": 0.7777777777777778,
+        "ms": 962,
+        "calls": 1,
+        "chars": 374
+      },
+      "complexPic3": {
+        "cer": 0.7816623588627397,
+        "wer": 0.9386666666666666,
+        "ms": 4372,
+        "calls": 1,
+        "chars": 2957
+      },
+      "complexPic4": {
+        "cer": 0.14845758354755784,
+        "wer": 0.1407766990291262,
+        "ms": 2092,
+        "calls": 1,
+        "chars": 1400
+      },
+      "complexPic5": {
+        "cer": 0.07338129496402877,
+        "wer": 0.17094017094017094,
+        "ms": 1131,
+        "calls": 1,
+        "chars": 703
+      },
+      "complexPic6": {
+        "cer": 0.889060092449923,
+        "wer": 0.9680851063829787,
+        "ms": 1248,
+        "calls": 1,
+        "chars": 260
+      },
+      "complexPic7": {
+        "cer": 0.9133858267716536,
+        "wer": 0.9661016949152542,
+        "ms": 660,
+        "calls": 1,
+        "chars": 54
+      },
+      "complexPic8": {
+        "cer": 0.3479020979020979,
+        "wer": 0.44339622641509435,
+        "ms": 1139,
+        "calls": 1,
+        "chars": 577
+      },
+      "complexPic9": {
+        "cer": 0.5555555555555556,
+        "wer": 0.7333333333333333,
+        "ms": 816,
+        "calls": 1,
+        "chars": 300
+      },
+      "complexPic10": {
+        "cer": 0.8427672955974843,
+        "wer": 1,
+        "ms": 303,
+        "calls": 1,
+        "chars": 31
+      },
+      "complexPic11": {
+        "cer": 0.9519650655021834,
+        "wer": 1,
+        "ms": 449,
+        "calls": 1,
+        "chars": 15
+      }
+    }
+  },
+  {
+    "label": "OCR each detected block separately",
+    "group": "region",
+    "psm": "3",
+    "oem": 1,
+    "dpi": null,
+    "scale": 1,
+    "filter": "original",
+    "rotateAuto": true,
+    "perRegion": true,
+    "perImage": {
+      "complexPic1": {
+        "cer": 0.4423076923076923,
+        "wer": 0.88,
+        "ms": 790,
+        "calls": 7,
+        "chars": 150
+      },
+      "complexPic2": {
+        "cer": 0.45135135135135135,
+        "wer": 0.746031746031746,
+        "ms": 1761,
+        "calls": 20,
+        "chars": 339
+      },
+      "complexPic3": {
+        "cer": 0.7720038090055775,
+        "wer": 0.9511111111111111,
+        "ms": 9717,
+        "calls": 22,
+        "chars": 3287
+      },
+      "complexPic4": {
+        "cer": 0.6381748071979434,
+        "wer": 0.8155339805825242,
+        "ms": 4578,
+        "calls": 25,
+        "chars": 987
+      },
+      "complexPic5": {
+        "cer": 0.13525179856115108,
+        "wer": 0.24786324786324787,
+        "ms": 2027,
+        "calls": 16,
+        "chars": 657
+      },
+      "complexPic6": {
+        "cer": 1.300462249614792,
+        "wer": 3.0425531914893615,
+        "ms": 7969,
+        "calls": 35,
+        "chars": 2142
+      },
+      "complexPic7": {
+        "cer": 0.8871391076115486,
+        "wer": 1.8983050847457628,
+        "ms": 2554,
+        "calls": 4,
+        "chars": 393
+      },
+      "complexPic8": {
+        "cer": 0.5611888111888111,
+        "wer": 0.8867924528301887,
+        "ms": 3607,
+        "calls": 21,
+        "chars": 774
+      },
+      "complexPic9": {
+        "cer": 1.02729044834308,
+        "wer": 1.76,
+        "ms": 2756,
+        "calls": 14,
+        "chars": 746
+      },
+      "complexPic10": {
+        "cer": 0.7735849056603774,
+        "wer": 1,
+        "ms": 763,
+        "calls": 5,
+        "chars": 76
+      },
+      "complexPic11": {
+        "cer": 3.2139737991266375,
+        "wer": 7.410256410256411,
+        "ms": 4701,
+        "calls": 10,
+        "chars": 836
+      }
+    }
+  }
+]
