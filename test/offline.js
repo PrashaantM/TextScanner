@@ -82,8 +82,37 @@ const MIME = {
 const served = [];
 let phase = "setup";
 
+// Two switches the later steps flip. `deploy` stands in for a new build landing
+// on Pages; `FAIL_PUT_PRELUDE` is served ahead of the REAL sw.js when a worker is
+// registered from /sw.js?failput=1, so the shipped strategy functions run against
+// a Cache API whose put always rejects. Stubbing it this way - rather than adding
+// a test-only flag to sw.js - means what runs in CI is the production code path.
+let deploy = 1;
+
+const FAIL_PUT_PRELUDE = `
+// Injected by test/offline.js. Every cache.put rejects, exactly as a full disk
+// does. open/match/keys/delete are left working, because the defects under test
+// are specifically about a failing WRITE.
+(() => {
+  const realOpen = caches.open.bind(caches);
+  caches.open = async (name) => {
+    const cache = await realOpen(name);
+    return new Proxy(cache, {
+      get(target, prop) {
+        if (prop === "put") {
+          return () => Promise.reject(new DOMException("Quota exceeded (test stub)", "QuotaExceededError"));
+        }
+        const value = target[prop];
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  };
+})();
+`;
+
 const server = createServer(async (req, res) => {
   const path = decodeURIComponent(req.url.split("?")[0]);
+  const failPut = req.url.includes("failput=1");
   served.push({ path, phase });
   // The directory URL resolves to index.html for the CONTENT TYPE as well as
   // the bytes, and that is not a detail. Every other gate in this suite maps
@@ -98,7 +127,20 @@ const server = createServer(async (req, res) => {
   // real one, and it has to be fixed here or the gate fails on its own fixture.
   const filePath = path.endsWith("/") ? `${path}index.html` : path;
   try {
-    const body = await readFile(join(ROOT, filePath));
+    let body = await readFile(join(ROOT, filePath));
+    if (deploy === 2) {
+      // A new build: one marker in the navigation document, one in a module, so
+      // the two halves of the shell can be told apart from their cached copies.
+      if (filePath.endsWith("index.html")) {
+        body = Buffer.from(String(body).replace("<title>TextScanner</title>", "<title>TextScanner DEPLOY-2</title>"));
+      }
+      if (filePath.endsWith("js/state.js")) {
+        body = Buffer.from(String(body).replace('APP_VERSION = "1.0.0"', 'APP_VERSION = "9.9.9"'));
+      }
+    }
+    if (failPut && filePath.endsWith("sw.js")) {
+      body = Buffer.from(FAIL_PUT_PRELUDE + String(body));
+    }
     res.writeHead(200, { "Content-Type": MIME[extname(filePath)] || "application/octet-stream" });
     res.end(body);
   } catch {
@@ -143,7 +185,7 @@ const servedSinceMark = () => served.slice(witnessMark);
 // claim: it is the worker SCRIPT, not an app resource, so nothing the app
 // renders or recognizes came from the network; with a genuinely absent network
 // it simply fails and the installed worker keeps serving, which is precisely
-// what STEP 7 demonstrates with the socket closed; and it is the very mechanism
+// what STEP 9 demonstrates with the socket closed; and it is the very mechanism
 // that keeps this app updatable, so suppressing it would be undesirable even if
 // it were possible.
 //
@@ -462,7 +504,228 @@ const offlineConsole = takeConsoleErrors(page);
 check("nothing logged a console error while offline", offlineConsole.length === 0, offlineConsole.join(" | "));
 
 // ---------------------------------------------------------------------------
-// STEP 7: no socket at all. Nothing left to trust about the emulation.
+// STEP 7: A CACHE WRITE THAT FAILS MUST NOT CHANGE WHAT THE PAGE RECEIVES.
+//
+// Two shipped defects, both from an unguarded `await cache.put`, both firing on a
+// full disk - which for an app that fills IndexedDB with scanned documents is a
+// state real users reach, not a thought experiment:
+//
+//   - networkFirst had the put INSIDE its try. A rejecting put fell into the
+//     catch, which served the STALE cached copy while the network was healthy and
+//     had just returned a good response - the precise version skew sw.js's header
+//     says the whole design exists to prevent.
+//   - cacheFirst had the same put throw straight out, so respondWith rejected and
+//     the browser reported a network error for eng.traineddata.gz. A full disk
+//     broke scanning outright even though the file had downloaded fine.
+//
+// The stub makes every put reject with a QuotaExceededError while leaving reads
+// working, and these assertions - not the wrappers in sw.js - are what hold the
+// invariant. Both need a POPULATED cache plus a failing put, so the step installs
+// the normal worker first, lets it cache deploy 1, changes what the server
+// returns, and only then swaps in the worker whose puts fail. With the defect, the
+// stale deploy-1 copy is what comes back.
+console.log("\nA failing cache.put must not change what the page receives");
+
+{
+  markWitness("the hostile-cache step");
+  const hostileContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const hostilePage = await hostileContext.newPage();
+  hostilePage.on("pageerror", (e) => failures.push(`pageerror (hostile cache): ${e.message}`));
+
+  // 1. The normal worker, caching the CURRENT build.
+  await hostilePage.goto(`${origin}/index.html?sw=1`);
+  await hostilePage.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 30000 });
+  const cachedTitle = await hostilePage.title();
+  check("the hostile-cache step starts from a populated cache", cachedTitle === "TextScanner", cachedTitle);
+
+  // 2. A new build lands.
+  deploy = 2;
+
+  // 3. Swap in the worker whose puts all reject. Registered explicitly with a
+  //    query so it is a distinct script URL: js/serviceWorkerRegistration.js only
+  //    ever registers the plain path, and this is testing sw.js's strategies
+  //    rather than the registration module. keyFor() strips the query, and BASE
+  //    resolves from the directory, so neither is affected by it.
+  await hostilePage.evaluate(async () => {
+    await navigator.serviceWorker.register("/sw.js?failput=1", { scope: "./" });
+    await navigator.serviceWorker.ready;
+  });
+  await hostilePage.waitForFunction(() => navigator.serviceWorker.controller?.scriptURL.includes("failput=1"), null, {
+    timeout: 30000,
+  });
+  check("the put-failing worker is in control", true);
+
+  // 4. networkFirst: the network is FINE and has fresh bytes. The put fails.
+  await hostilePage.goto(`${origin}/index.html`, { waitUntil: "load", timeout: 30000 });
+  await hostilePage.waitForFunction(() => document.body.dataset.activeView, null, { timeout: 30000 });
+
+  const underFailingPut = await hostilePage.evaluate(() => ({
+    title: document.title,
+    footer: document.getElementById("footer-version")?.textContent || "(none)",
+    activeView: document.body.dataset.activeView || "(none)",
+  }));
+
+  check(
+    "networkFirst serves the FRESH document when the cache write fails",
+    underFailingPut.title === "TextScanner DEPLOY-2",
+    `got ${JSON.stringify(underFailingPut.title)} - a stale cached copy means the failed put was ` +
+      `mistaken for a failed network, which is the version skew sw.js exists to prevent`
+  );
+  check(
+    "networkFirst serves the FRESH module when the cache write fails",
+    underFailingPut.footer === "9.9.9",
+    `footer-version reads ${JSON.stringify(underFailingPut.footer)}, so js/state.js came from the stale cache`
+  );
+  check("the app still boots with every cache write failing", underFailingPut.activeView === "library", underFailingPut.activeView);
+
+  // 5. cacheFirst: the recognition payload downloads fine and cannot be stored.
+  //    Scanning must still work. With the defect this is where it broke: the put
+  //    threw out of cacheFirst, respondWith rejected, and the browser reported a
+  //    network error for eng.traineddata.gz.
+  await hostilePage.setInputFiles("#file-input", join(ROOT, "test/images/complexPic2.jpeg"));
+  await hostilePage.click("#scan-btn");
+  let scanCompleted = true;
+  try {
+    await hostilePage.waitForSelector("#result-section:not(.hidden)", { timeout: 180000 });
+  } catch {
+    scanCompleted = false;
+  }
+  const hostileScan = scanCompleted
+    ? await hostilePage.evaluate(async () => {
+        const { state } = await import("/js/state.js");
+        return state.ocrWords?.length ?? 0;
+      })
+    : 0;
+
+  check(
+    "cacheFirst still completes a scan when the payload cannot be cached",
+    scanCompleted && hostileScan > 0,
+    scanCompleted
+      ? `scan finished but recognized ${hostileScan} words`
+      : "the scan never produced a result - a failing cache write broke recognition outright, " +
+        "which is what a full disk did before the fix"
+  );
+
+  // A quota failure is a warning, not an error, and must stay that way: the page
+  // is working, so logging console.error would make every gate in this suite red
+  // on a full disk.
+  const hostileConsole = takeConsoleErrors(hostilePage);
+  check(
+    "a failing cache write logs no console ERROR",
+    hostileConsole.length === 0,
+    hostileConsole.join(" | ")
+  );
+
+  await hostileContext.close();
+  deploy = 1;
+}
+
+// ---------------------------------------------------------------------------
+// STEP 8: LIE-FI. A connection that hangs instead of failing.
+//
+// network-first with no timeout handled "offline" - fetch rejects, the catch runs
+// - and MISHANDLED lie-fi: a captive portal accepts the request and never answers,
+// so fetch stayed pending, never rejected, and the fallback never ran. Measured at
+// 1bbc46e with the route handler below: hard offline rendered the Library, and the
+// navigation hung for the full 40s of this step's patience with a perfectly good
+// cached copy sitting unused.
+//
+// sw.js now races every network-first request against NETWORK_FIRST_TIMEOUT_MS
+// (8s). Deliberately not applied to cacheFirst - that path pulls 6.7 MB with no
+// cached fallback to race toward, and a timeout there would turn slow-but-working
+// downloads into failed scans.
+//
+// WHAT THIS ASSERTS, AND WHY IT IS THE COMMIT RATHER THAN THE LOAD. The defect was
+// "the document never arrives". So the tight bound is on `waitUntil: "commit"` -
+// the navigation's own bytes - which is exactly what the race fixes, and which
+// measured 8019ms once the fix was in.
+//
+// The full boot is asserted too, but with a deliberately loose budget, because on
+// THIS server it is dominated by something that is not the app: the test server is
+// HTTP/1.1, so ~54 module requests queue about six at a time and each burns the
+// full 8s timeout - measured at 40091ms after commit. The live deployment is
+// HTTP/2 (`curl -o /dev/null -w %{http_version}` against
+// /TextScanner/js/main.js returns 2), so those requests multiplex on one
+// connection and time out concurrently, putting real-world lie-fi recovery at
+// roughly one timeout rather than ten. Pinning the loose number here would be
+// pinning Chromium's per-host connection limit, not this app's behaviour.
+console.log("\nLie-fi: a hanging connection falls back instead of hanging");
+
+{
+  markWitness("the lie-fi step");
+  const lieFiContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const lieFiPage = await lieFiContext.newPage();
+  lieFiPage.on("pageerror", (e) => failures.push(`pageerror (lie-fi): ${e.message}`));
+
+  await lieFiPage.goto(`${origin}/index.html?sw=1`);
+  await lieFiPage.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 30000 });
+
+  // A NEW BUILD LANDS BEFORE THE HANG IS ARMED, and this is what stops the step
+  // passing for the wrong reason. Route interception is not reliably applied to
+  // requests a service worker issues (the same property that made it the wrong
+  // tool for the offline steps - see the header). If it failed to reach the
+  // worker's fetch here, the worker would quietly reach the real server, the page
+  // would render, and the assertion would go green while proving nothing. So the
+  // server starts returning DEPLOY-2 first: the cached copy still says
+  // "TextScanner", so the title tells us WHICH side answered.
+  deploy = 2;
+
+  // Every request is accepted and never answered. Not an abort - an abort would
+  // reject, and the plain catch path already handled that case.
+  await lieFiContext.route("**/*", () => {});
+
+  let committed = false;
+  let commitMs = 0;
+  let servedTitle = "(navigation never committed)";
+  const startedAt = Date.now();
+  try {
+    await lieFiPage.goto(`${origin}/`, { waitUntil: "commit", timeout: 40000 });
+    commitMs = Date.now() - startedAt;
+    servedTitle = await lieFiPage.title();
+    committed = true;
+  } catch (error) {
+    commitMs = Date.now() - startedAt;
+    servedTitle = `(HUNG: ${error.message.split("\n")[0]})`;
+  }
+
+  check("a hanging network serves the document from cache instead of hanging", committed, `after ${commitMs}ms: ${servedTitle}`);
+  // Generous upper bound rather than a tight one: this pins "one timeout, not
+  // forever". Below 8s would mean the race fired early; anywhere near 40s would
+  // mean it did not fire at all.
+  check(
+    "it falls back within roughly one timeout, not after an unbounded wait",
+    committed && commitMs >= 7000 && commitMs < 20000,
+    `committed in ${commitMs}ms; NETWORK_FIRST_TIMEOUT_MS is 8000`
+  );
+  check(
+    "and the fallback came from the CACHE, not from a network the hang failed to block",
+    servedTitle === "TextScanner",
+    `title is ${JSON.stringify(servedTitle)}; DEPLOY-2 would mean route interception never reached ` +
+      `the worker's fetch, so this step would have been proving nothing`
+  );
+
+  // The app does come all the way up; see the note above on why the number is not
+  // asserted tightly.
+  let bootMs = 0;
+  let booted = false;
+  const bootStarted = Date.now();
+  try {
+    await lieFiPage.waitForFunction(() => document.body?.dataset?.activeView, null, { timeout: 180000 });
+    bootMs = Date.now() - bootStarted;
+    booted = (await lieFiPage.evaluate(() => document.body.dataset.activeView)) === "library";
+  } catch {
+    bootMs = Date.now() - bootStarted;
+  }
+  check("and the app boots all the way to the Library", booted, `${bootMs}ms after commit`);
+  console.log(`       (commit ${commitMs}ms, boot +${bootMs}ms - the boot figure is this HTTP/1.1 server's`);
+  console.log(`        six-connection limit against 50 modules, not the app; production is HTTP/2)`);
+
+  await lieFiContext.close();
+  deploy = 1;
+}
+
+// ---------------------------------------------------------------------------
+// STEP 9: no socket at all. Nothing left to trust about the emulation.
 console.log("\nWith the server socket closed outright");
 
 markWitness("the closed-socket load");

@@ -71,10 +71,34 @@ embedded, which is what tesseract.js requests.
 
 ## Before you bump the version — read this
 
-Two standing findings from the 2026-09-18 recognition spike
-([`RECOGNITION-SPIKE.md`](../../RECOGNITION-SPIKE.md) §5 and §7). Both are here
-rather than in the report because this file is what someone about to change the
-pinned version actually opens.
+Three standing findings. Two are from the 2026-09-18 recognition spike
+([`RECOGNITION-SPIKE.md`](../../RECOGNITION-SPIKE.md) §5 and §7); the third is
+about the service worker. All are here rather than in their own reports because
+this file is what someone about to change the pinned version actually opens.
+
+### A bump MUST also bump `SW_VERSION` in `sw.js`
+
+`sw.js` caches the recognition payload — `worker.min.js`, one core `.wasm.js` and
+`eng.traineddata.gz` — **cache-first**, because it is 6.7 MB and revalidating
+that on every scan would be hostile. The consequence is the one thing that can go
+wrong here: if you bump the version and the new bytes land under the **same
+filenames**, every client that already cached the old core keeps serving it
+**forever**. The app would report the new version while recognizing with the old
+engine, on exactly the users who had used it most.
+
+So a version bump is two edits, not one:
+
+1. the files in this directory, and
+2. `SW_VERSION` in [`sw.js`](../../sw.js), which renames the caches and makes
+   `activate` drop the old ones.
+
+**This is gated, not trusted.** `sw.js` declares
+`VENDORED_TESSERACT_VERSION` and `test/repo-contract.js` (CHECK 5) reads the real
+version out of `tesseract.min.js`'s own bytes and fails if the two disagree — so
+a bump cannot land without editing `sw.js`, which is where `SW_VERSION` lives.
+The gate exists because this note on its own would not be enough: the pointer
+used to run one way (`sw.js` pointed at this section, and this section did not
+mention `SW_VERSION`), so the bumper was never told.
 
 ### A 5.x → 6.x bump can silently cost 3.6 CER points
 
@@ -125,9 +149,14 @@ removing an entire class of supply-chain risk and making *recognition* need no
 network at all.
 
 Worth stating precisely, because the wider claim does not follow from this:
-vendoring makes the **scan** offline-capable, not the **app**. The page is still
-loaded over the network like any website, and there is no service worker, so
-opening TextScanner with no connection does not work yet. See
+vendoring makes the **scan** offline-capable on its own, not the **app**. Since
+`1bbc46e` there IS a service worker ([`sw.js`](../../sw.js)), so opening
+TextScanner with no connection does work — but that is the worker's doing, not
+vendoring's. The division of labour: vendoring is why recognition needs no
+third-party host, and the worker is why the page itself loads offline. The
+payload here is cached on the **first successful scan** rather than up front,
+precisely so a first visit does not pay 11 MB, which is why the first scan still
+needs the network and every one after it does not. See
 `WEB-COMPLETION-PLAN.md` §W1.
 
 ## Updating
@@ -139,3 +168,7 @@ opening TextScanner with no connection does not work yet. See
 3. Re-run a scan with request logging and confirm the external request list is
    empty — filenames and default paths have changed between tesseract.js majors
    before.
+4. Bump `SW_VERSION` **and** `VENDORED_TESSERACT_VERSION` in
+   [`sw.js`](../../sw.js), in the same commit. `test/repo-contract.js` CHECK 5
+   fails until the second one matches the bytes you just copied in; the first is
+   what actually evicts the stale core from clients. See the section above.

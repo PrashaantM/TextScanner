@@ -147,7 +147,37 @@
 // Bumping this drops every cache below and refetches. Bump it when the
 // recognition payload's bytes change under unchanged filenames (a tesseract.js
 // upgrade); the shell does not need it, being network-first.
+//
+// DELIBERATELY NOT BUMPED FOR THE CACHE-FAILURE FIXES BELOW, and the reasoning
+// is worth keeping because the instinct on any service-worker change is to bump.
+// A worker updates when its own BYTES change, which these fixes do; SW_VERSION
+// controls only cache NAMING and eviction. The already-cached bytes on live
+// clients are not wrong - the defects were about writes failing, not about bad
+// data being stored - so bumping would evict a 6.7 MB recognition payload from
+// every client that has one and leave them unable to scan offline until their
+// next online scan. That is a real cost for no correctness gain.
 const SW_VERSION = "1";
+
+// The tesseract.js version the cache-first recognition payload below was filled
+// from, and the mechanism that makes the SW_VERSION coupling survive a bump by
+// someone who has never read this file.
+//
+// THE COUPLING, and why a comment was not enough. The payload is cache-first, so
+// if tesseract.js is bumped and the new bytes land under the SAME filenames, a
+// client that already cached the old core keeps serving it forever - a silent
+// pin to a stale engine. sw.js recorded that in prose and pointed AT
+// vendor/tesseract/README.md's "Before you bump the version" section as the
+// place it was written down. The pointer ran one way: that section never
+// mentioned SW_VERSION, so the person doing the bump - who opens the vendor
+// README, not this file - was never told.
+//
+// Prose in two places would drift, which is §0's whole standing lesson. So the
+// version is declared here as DATA and test/repo-contract.js (CHECK 5) reads the
+// real version out of vendor/tesseract/tesseract.min.js's own bytes and fails if
+// the two disagree. A bump therefore cannot land without editing this file,
+// which is the file SW_VERSION lives in. The reverse prose pointer is in the
+// vendor README as well now, but the gate is what makes it durable.
+const VENDORED_TESSERACT_VERSION = "5.1.1";
 
 const SHELL_CACHE = `textscanner-shell-v${SW_VERSION}`;
 const VENDOR_CACHE = `textscanner-vendor-v${SW_VERSION}`;
@@ -249,26 +279,32 @@ const isLazyVendor = (url) =>
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
-      const cache = await caches.open(SHELL_CACHE);
+      // openCache rather than caches.open: if storage is refused outright there
+      // is nothing to precache, but failing the install would just make every
+      // navigation retry it. The worker activates and its fetch handler degrades
+      // to pure passthrough - the same behaviour as having no worker at all.
+      const cache = await openCache(SHELL_CACHE);
       // Added one at a time rather than with cache.addAll, which rejects the
       // WHOLE batch if any single request fails and would leave a first-time
       // visitor with no offline capability at all because one icon 404'd. A
       // missing shell asset is reported and the rest still cached; the gate is
       // what turns a missing asset into a red build.
       const failed = [];
-      await Promise.all(
-        SHELL_ASSETS.map(async (path) => {
-          try {
-            // cache: "reload" so a fresh install never seeds itself from the
-            // HTTP cache's copy of a build that is already being replaced.
-            const response = await fetch(new Request(at(path), { cache: "reload" }));
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            await cache.put(at(path), response);
-          } catch (error) {
-            failed.push(`${path}: ${error.message}`);
-          }
-        })
-      );
+      if (cache) {
+        await Promise.all(
+          SHELL_ASSETS.map(async (path) => {
+            try {
+              // cache: "reload" so a fresh install never seeds itself from the
+              // HTTP cache's copy of a build that is already being replaced.
+              const response = await fetch(new Request(at(path), { cache: "reload" }));
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+              await cache.put(at(path), response);
+            } catch (error) {
+              failed.push(`${path}: ${error.message}`);
+            }
+          })
+        );
+      }
       if (failed.length) {
         console.error(`[sw] ${failed.length} shell asset(s) not precached:\n  ${failed.join("\n  ")}`);
       }
@@ -319,34 +355,151 @@ function keyFor(request) {
   return url.href;
 }
 
-async function networkFirst(request, cacheName, fallbacks = []) {
-  const cache = await caches.open(cacheName);
+// ---------------------------------------------------------------------------
+// THE INVARIANT EVERY HELPER BELOW EXISTS TO HOLD: **a Cache API failure must
+// never change what the page receives.** Caching is an optimisation for the
+// NEXT load; the current load has already got its bytes. Two shipped defects
+// came from breaking that invariant in two different directions, and both fire
+// on the same trigger - a failing `cache.put`, which in an app that fills
+// IndexedDB with scanned documents means a full disk, a real state rather than a
+// theoretical one:
+//
+//   - In networkFirst the put sat INSIDE the try. A rejecting put fell into the
+//     catch, which then served the STALE cached copy while the network was
+//     perfectly healthy and had just returned a good response. That is the exact
+//     version skew this file's header says the design exists to prevent.
+//   - In cacheFirst the same put threw straight out of the function, so
+//     respondWith rejected and the browser reported a network error for
+//     eng.traineddata.gz. A full disk broke scanning outright even though the
+//     file had downloaded fine.
+//
+// So every cache operation is wrapped. Reads degrade to "nothing cached", writes
+// degrade to "not cached", and neither can propagate into the response path.
+// test/offline.js stubs the Cache API so put always rejects and asserts the page
+// still receives the FRESH network body from both strategies - that assertion,
+// not these wrappers, is what keeps the invariant true.
+
+async function openCache(name) {
   try {
-    const response = await fetch(request);
-    // Only a real 200 is worth storing. An opaque or partial response cached
-    // here would be replayed offline as the app's own asset.
-    if (response.ok && response.type !== "opaque") {
-      await cache.put(keyFor(request), response.clone());
-    }
-    return response;
+    return await caches.open(name);
+  } catch (error) {
+    // Storage disabled entirely, or a partitioned context that refuses it.
+    console.warn(`[sw] cache ${name} unavailable: ${error.message}`);
+    return null;
+  }
+}
+
+async function cachedMatch(cache, key) {
+  if (!cache) return undefined;
+  try {
+    return await cache.match(key, { ignoreSearch: true });
+  } catch (error) {
+    console.warn(`[sw] cache read failed for ${key}: ${error.message}`);
+    return undefined;
+  }
+}
+
+async function putSafely(cache, key, response) {
+  if (!cache) return;
+  try {
+    await cache.put(key, response);
+  } catch (error) {
+    // QuotaExceededError is the one that matters: the disk is full because the
+    // user has scanned a lot. Nothing to do about it here, and nothing about the
+    // response the page is already holding changes.
+    console.warn(`[sw] could not cache ${key}: ${error.name} ${error.message}`);
+  }
+}
+
+// How long a network-first request may hang before the cache answers instead.
+//
+// WHY A TIMEOUT EXISTS AT ALL. network-first with no timeout handles "offline"
+// (fetch rejects, the catch runs) and mishandles LIE-FI: a captive portal or a
+// hanging connection ACCEPTS the request and never answers, so fetch stays
+// pending, never rejects, and the fallback never runs. Reproduced with a route
+// handler that never resolves: hard-offline rendered the Library, while lie-fi
+// hung for the full 15s of the probe's patience with a perfectly good cached
+// copy sitting unused.
+//
+// WHY 8 SECONDS, measured rather than chosen by taste. A warm full-shell load
+// through this worker is 56ms on loopback, three runs, and the slowest single
+// shell resource in that load is 16ms - so 8s is ~140x the whole shell and ~500x
+// any one asset. The largest eager asset is 93 KB (js/editorObjects.js) before
+// gzip; on a slow 3G link (~50 KB/s) its gzipped form is well under a second, so
+// 8s leaves better than an order of magnitude of headroom before a
+// working-but-slow connection could lose the race.
+//
+// WHY IT CANNOT CAUSE A LOCKOUT, which is the risk that actually matters. The
+// network is always tried FIRST and always wins if it answers at all within the
+// window; the cache is never preferred. A cache entry is only ever written by a
+// successful fetch of that same URL, so the worst thing a timeout can serve is
+// "the last build you successfully loaded" - never something you never had, and
+// never something that outlives the next successful load, because the next
+// network-first hit overwrites it. There is no state this can reach where a new
+// deploy stops arriving.
+//
+// WHAT IT CAN DO, stated rather than glossed: a connection marginal exactly at
+// the boundary can time out on some assets and succeed on others, mixing two
+// build generations within one load. That window is NOT created by the timeout -
+// per-asset network-first already mixes generations on a flaky link where some
+// fetches reject and others succeed - but the timeout does widen it slightly.
+// The mixture self-heals on the next load over a working network.
+const NETWORK_FIRST_TIMEOUT_MS = 8000;
+
+// Deliberately NOT applied to cacheFirst. That path fetches the 6.7 MB
+// recognition payload, which legitimately takes minutes on a slow link (3.8 MB
+// at ~50 KB/s is over a minute for the core alone), and it has no cached
+// fallback to race toward - that is precisely why it is fetching. A timeout
+// there would convert slow-but-working downloads into failed scans, which is the
+// opposite of the point.
+async function fetchWithin(request, ms) {
+  let timer;
+  try {
+    return await Promise.race([
+      fetch(request),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`[sw] network did not answer within ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function networkFirst(request, cacheName, fallbacks = []) {
+  const cache = await openCache(cacheName);
+
+  let response;
+  try {
+    response = await fetchWithin(request, NETWORK_FIRST_TIMEOUT_MS);
   } catch {
-    const hit = await cache.match(request, { ignoreSearch: true });
+    const hit = await cachedMatch(cache, request);
     if (hit) return hit;
     for (const fallback of fallbacks) {
-      const alternative = await cache.match(fallback, { ignoreSearch: true });
+      const alternative = await cachedMatch(cache, fallback);
       if (alternative) return alternative;
     }
     throw new Error(`[sw] offline and nothing cached for ${request.url}`);
   }
+
+  // OUTSIDE the try, and that placement is the whole fix: a failing cache write
+  // must not be mistaken for a failed network. Only a real 200 is worth storing
+  // - an opaque or partial response cached here would be replayed offline as the
+  // app's own asset.
+  if (response.ok && response.type !== "opaque") {
+    await putSafely(cache, keyFor(request), response.clone());
+  }
+  return response;
 }
 
 async function cacheFirst(request, cacheName) {
-  const cache = await caches.open(cacheName);
-  const hit = await cache.match(request, { ignoreSearch: true });
+  const cache = await openCache(cacheName);
+  const hit = await cachedMatch(cache, request);
   if (hit) return hit;
+  // No timeout here on purpose - see fetchWithin's note.
   const response = await fetch(request);
   if (response.ok && response.type !== "opaque") {
-    await cache.put(keyFor(request), response.clone());
+    await putSafely(cache, keyFor(request), response.clone());
   }
   return response;
 }

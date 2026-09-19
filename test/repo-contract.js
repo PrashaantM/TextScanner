@@ -1,6 +1,9 @@
 // repo-contract.js: the repository's own bookkeeping, asserted instead of
-// maintained by hand. Two checks, both about claims this repo makes ABOUT
-// itself rather than about how the app behaves.
+// maintained by hand. Five checks, all about claims this repo makes ABOUT itself
+// rather than about how the app behaves. (This line read "Two checks" through the
+// additions of CHECK 3, CHECK 4 and CHECK 5 - a header miscounting the file it
+// heads, in the one gate whose whole subject is numbers that drift. CHECK 1 and
+// CHECK 2 are documented here; 3, 4 and 5 at their own sites below.)
 //
 // WHY THIS IS A SEPARATE FILE FROM dom-contract.js. That gate's header calls
 // its scope "deliberately narrow": js/dom.js's ids, and nothing else. The two
@@ -579,6 +582,91 @@ for (const name of testFiles) {
 }
 
 // ---------------------------------------------------------------------------
+// CHECK 5: sw.js's record of the vendored tesseract.js version vs. the bytes.
+//
+// WHY THIS IS A GATE AND NOT A COMMENT. sw.js caches the 6.7 MB recognition
+// payload CACHE-FIRST. If tesseract.js is bumped and the new bytes land under the
+// same filenames - which is exactly what happens, since the filenames carry no
+// version - every client that already cached the old core keeps serving it
+// forever. The app would report the new version while recognizing with the old
+// engine, on precisely the users who had used it most. The fix is to bump
+// SW_VERSION in the same commit, which renames the caches so activate() drops the
+// old ones.
+//
+// That was recorded in prose, and the prose ran ONE WAY: sw.js pointed at
+// vendor/tesseract/README.md's "Before you bump the version" section as the place
+// the coupling was written down, and that section never mentioned SW_VERSION. So
+// the one person who needed the instruction - whoever opens the vendor README to
+// do the bump - was the one person who could not find it. A second prose pointer
+// would have fixed today's gap and drifted like the first; §0's standing rule is
+// the whole lesson on that.
+//
+// So sw.js declares the version as DATA and this reads the truth out of the
+// vendored bundle's own bytes. A bump now CANNOT land without editing sw.js,
+// because CI fails until the declaration matches - and sw.js is the file
+// SW_VERSION lives in, so the edit puts the bumper exactly where they need to be.
+// This does not verify SW_VERSION was bumped (nothing can know what the right
+// value is); it guarantees the bumper is standing in front of it.
+//
+// The extractor requires EXACTLY ONE quoted semver in the bundle. Measured
+// against tesseract.js 5.1.1: there is precisely one, webpack's own version
+// module (`{i8:"5.1.1"}`). If a future bundle carries more, this fails asking for
+// the extractor to be updated - which lands on the desk of someone already
+// mid-bump, the only person with the context to do it.
+const swSource = await readFile(join(ROOT, "sw.js"), "utf8");
+const vendorReadme = await readFile(join(ROOT, "vendor/tesseract/README.md"), "utf8");
+const tesseractBundle = await readFile(join(ROOT, "vendor/tesseract/tesseract.min.js"), "utf8");
+
+const declaredVersion = swSource.match(/VENDORED_TESSERACT_VERSION\s*=\s*"([^"]+)"/)?.[1];
+const bundleVersions = [...new Set((tesseractBundle.match(/"\d+\.\d+\.\d+"/g) || []).map((m) => m.slice(1, -1)))];
+
+if (!declaredVersion) {
+  failures.push(
+    `sw.js no longer declares VENDORED_TESSERACT_VERSION. It is what couples a tesseract.js ` +
+      `bump to SW_VERSION - without it a bumped core is pinned forever on any client that ` +
+      `cached the old one. Restore it, or delete this check and say why in the same commit.`
+  );
+} else if (bundleVersions.length !== 1) {
+  failures.push(
+    `vendor/tesseract/tesseract.min.js carries ${bundleVersions.length} quoted semvers ` +
+      `(${bundleVersions.join(", ") || "none"}), so this gate cannot tell which is the ` +
+      `tesseract.js version. Update the extractor in test/repo-contract.js CHECK 5.`
+  );
+} else if (bundleVersions[0] !== declaredVersion) {
+  failures.push(
+    `sw.js declares VENDORED_TESSERACT_VERSION "${declaredVersion}" but ` +
+      `vendor/tesseract/tesseract.min.js is "${bundleVersions[0]}". If you have just bumped ` +
+      `tesseract.js: set the declaration to "${bundleVersions[0]}" AND bump SW_VERSION in the ` +
+      `same commit. SW_VERSION is what renames the caches so activate() drops the stale core; ` +
+      `without it, every client that already cached the old core keeps using it forever. See ` +
+      `vendor/tesseract/README.md "Before you bump the version".`
+  );
+}
+
+// And both halves of the pointer must keep existing, since the gate above is only
+// as useful as the explanation it sends people to.
+const bumpSection = vendorReadme.split(/^## /m).find((part) => part.startsWith("Before you bump the version"));
+if (!bumpSection) {
+  failures.push(
+    `vendor/tesseract/README.md has no "Before you bump the version" section, which sw.js ` +
+      `points at for the SW_VERSION coupling.`
+  );
+} else if (!bumpSection.includes("SW_VERSION")) {
+  failures.push(
+    `vendor/tesseract/README.md's "Before you bump the version" section does not mention ` +
+      `SW_VERSION, so someone bumping tesseract.js is never told that the cache-first ` +
+      `recognition payload pins the old core until SW_VERSION changes. That one-way pointer ` +
+      `is the defect this check was added for; restore the reverse half.`
+  );
+}
+if (!swSource.includes("vendor/tesseract/README.md")) {
+  failures.push(
+    `sw.js no longer points at vendor/tesseract/README.md for the version-bump coupling. ` +
+      `Both halves of that pointer are checked, because the bug was having only one.`
+  );
+}
+
+// ---------------------------------------------------------------------------
 
 console.log(`js/ holds ${actualModuleCount} modules and ${actualLineCount.toLocaleString("en-US")} lines (wc -l).`);
 console.log(`ci.yml's per-push test: job runs ${actualGateCount} node steps.`);
@@ -597,5 +685,6 @@ console.log(
   "\nCounts in " +
     GATED_DOCS.map((d) => d.path).join(", ") +
     " match the tree (or are marked as snapshots), every gate in test/ is wired into CI,\n" +
-    "no gate binds a fixed port, and every browser gate can see handled console errors."
+    "no gate binds a fixed port, every browser gate can see handled console errors, and sw.js's\n" +
+    "record of the vendored tesseract.js version still matches the bytes."
 );
