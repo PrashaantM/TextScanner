@@ -146,8 +146,20 @@ async function rebuildPage(page, { filter, rotation, corners, annotations } = {}
       const [tl, tr, br, bl] = nextCorners;
       const width = Math.round((Math.hypot(tr.x - tl.x, tr.y - tl.y) + Math.hypot(br.x - bl.x, br.y - bl.y)) / 2);
       const height = Math.round((Math.hypot(bl.x - tl.x, bl.y - tl.y) + Math.hypot(br.x - tr.x, br.y - tr.y)) / 2);
+      // `.canvas`, NOT the return value itself. warpPerspective returns
+      // `{ canvas, unwarpPoint }` - the second half exists so js/ocrEngine.js
+      // can map words recognized in rectified space back to real image
+      // coordinates - and assigning the wrapper here put a plain object where
+      // every step after this one expects a canvas. The failure is invisible
+      // until something tries to DRAW it, so it surfaced three calls later as
+      // `drawImage: The provided value is not of type '(CSSImageValue or
+      // HTMLCanvasElement or ...)'` out of cloneCanvas, on every filter chip,
+      // both rotate buttons, "Apply filter to all" and a redaction apply - but
+      // ONLY for a page carrying corners, which is exactly what the capture
+      // flow's crop step stores. js/ocrEngine.js's call site unpacked it
+      // correctly from the start; this one never did.
       const warped = warpPerspective(canvas, nextCorners, Math.max(1, width), Math.max(1, height));
-      if (warped) canvas = warped;
+      if (warped) canvas = warped.canvas;
     }
 
     if (nextRotation) canvas = rotateCanvas(canvas, nextRotation);
@@ -241,8 +253,13 @@ async function renderPreview() {
 
   elements.previewEmpty?.classList.add("hidden");
 
+  // The replacement is fetched and shown BEFORE the old URL is revoked. The
+  // other order revokes a blob: URL that is still the element's live
+  // background-image, and the browser tries to fetch it during the paint that
+  // happens across the `await` below - which fails as
+  // `net::ERR_FILE_NOT_FOUND` in the console on every single re-render, with
+  // nothing visibly wrong to explain it.
   const previous = pageUrls.get("preview");
-  if (previous) releaseObjectUrl(previous);
 
   const url = await getBlobUrl(page.blobKey);
   if (url) {
@@ -250,6 +267,8 @@ async function renderPreview() {
     elements.preview.style.backgroundImage = `url("${url}")`;
     elements.preview.setAttribute("aria-label", `Page ${pages.indexOf(page) + 1}`);
   }
+
+  if (previous && previous !== url) releaseObjectUrl(previous);
 
   // Filter buttons reflect the selected page.
   for (const button of elements.filterRow?.querySelectorAll("[data-filter]") || []) {
@@ -276,7 +295,14 @@ async function renderPreview() {
 export async function renderScanDoc() {
   if (!currentDoc) return;
 
-  releasePageUrls();
+  // Same rule as renderPreview above, for the same reason: these URLs are what
+  // the strip and the preview are displaying RIGHT NOW. Revoking them here -
+  // which is what this did - killed them several awaits before their
+  // replacements existed. The map is cleared so the renders below write fresh
+  // entries into it, and the old set is revoked once they have.
+  const stale = [...pageUrls.values()];
+  pageUrls.clear();
+
   pages = await getPagesForDocument(currentDoc);
 
   if (!pages.some((p) => p.id === selectedPageId)) selectedPageId = pages[0]?.id || null;
@@ -286,6 +312,9 @@ export async function renderScanDoc() {
 
   await renderStrip();
   await renderPreview();
+
+  const live = new Set(pageUrls.values());
+  for (const url of stale) if (!live.has(url)) releaseObjectUrl(url);
 
   const hasPages = pages.length > 0;
   for (const el of elements.needsPages || []) el.disabled = !hasPages;
@@ -578,7 +607,15 @@ function redactSelectedPii() {
 export async function addPageFromCanvas(canvas, { filter, corners } = {}) {
   if (!currentDoc) return null;
 
-  const chosenFilter = filter || currentDoc.defaultFilter || FILTERS.AUTO;
+  // Both fallbacks land on ORIGINAL, matching js/documents.js's
+  // createDocumentRecord. This line was the only FILTERS.AUTO fallback in the
+  // codebase and it is NOT what made "Auto enhance" the default here - a
+  // document created by js/documents.js always carries a defaultFilter, so
+  // the third operand is unreachable for it. It is still wrong to disagree
+  // with the field it backstops: a document restored from a backup written by
+  // a build that predates `defaultFilter` would have hit it and been enhanced
+  // against the default everything else now promises.
+  const chosenFilter = filter || currentDoc.defaultFilter || FILTERS.ORIGINAL;
   const filtered = applyFilter(canvas, chosenFilter);
   const blob = await canvasToBlob(filtered, "image/jpeg", 0.92);
 

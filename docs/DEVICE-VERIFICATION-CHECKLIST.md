@@ -172,6 +172,7 @@ The CI half asserts HEIC fails **safely** where there is no codec: a categorized
 
 - [ ] Scan a real multi-page document — take three photos of three pages into one document
 - [ ] **Auto edge detection on a real page on a real desk.** Does it find the page? If it declines, that is a valid outcome (it prefers no crop to a wrong one) — note which it did
+- [ ] **"Add as document page" → Cancel, with a real thumb.** The confirm (crop) screen is now shown whether or not detection found edges, so this is one extra tap on a photo it cannot read — judge whether that tap feels like a safeguard or like an obstacle, because that trade was made deliberately (`js/app.js`'s addCurrentImageAsPage). Cancel must leave the library with exactly as many documents as it had; `test/document-creation.js` gates that in CI, this checks how it feels
 - [ ] **Crop handles with a real thumb.** Can you place a corner precisely? Does the magnifier help, or does your finger cover it anyway? This is the single most touch-sensitive thing in the app and has never been used with a finger
 - [ ] Try each of the six filters on a real photographed page. Does Auto enhance actually look better than Original? Does Magic colour overdo it?
 - [ ] Reorder pages by dragging. Then reorder with the keyboard if an external one is available

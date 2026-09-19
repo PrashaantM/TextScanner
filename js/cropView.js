@@ -30,6 +30,10 @@ import { detectDocument, fullFrameCorners, orderCorners } from "./edgeDetect.js"
 import { hapticLight, hapticMedium } from "./haptics.js";
 import { goBack } from "./views.js";
 
+// Surfaces that sit above this view and answer Escape before it does - see the
+// Escape handler in initCropView.
+const OVERLAY_IDS = ["command-palette", "action-sheet", "shortcut-sheet"];
+
 // Visual radius of a handle, in CSS pixels.
 const HANDLE_RADIUS = 11;
 // Touch slop around it. 44px total is Apple's and Google's stated minimum.
@@ -503,19 +507,52 @@ export function initCropView() {
         await apply();
         break;
       case "cancel":
-        if (onApply) {
-          const callback = onApply;
-          onApply = null;
-          // Cancelling during capture keeps the page uncropped rather than
-          // abandoning the capture entirely - the photo is already taken.
-          callback(undefined);
-        } else {
-          goBack();
-        }
+        cancel();
         break;
       default:
         break;
     }
+  });
+
+  // Escape cancels, and on the capture path that is not a convenience - it is
+  // the only way a keyboard reaches this screen's Cancel at all. Focus lands on
+  // #crop-canvas (data-autofocus), and the corner-cycling handler above
+  // preventDefault()s every plain Tab, so Tab never moves off the canvas: six
+  // presses, six times still on the canvas, measured rather than assumed. Only
+  // Shift+Tab escapes, and it goes BACKWARDS out of the view entirely, past the
+  // buttons rather than to them. Tab keeps cycling corners - the canvas's own
+  // aria-label promises exactly that, and it is genuinely useful - so the fix
+  // is the way out, not the trap. Escape is also what every other dismissible
+  // surface in this app already uses (#download-menu, the action sheet, the
+  // command palette).
+  //
+  // Scoped to this view being visible rather than bound globally: every view's
+  // markup stays in the document at all times (js/views.js), so an unguarded
+  // document-level handler here would fire while someone was pressing Escape
+  // at something else entirely.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!elements.root || elements.root.classList.contains("hidden")) return;
+    // An overlay ON TOP of this view owns Escape first - dismissing the command
+    // palette must not also abandon the capture underneath it. Two checks,
+    // because the overlays in this app answer Escape in two different places
+    // and one check catches only one of them:
+    //
+    //   - `defaultPrevented` covers a surface that handles Escape NEARER THE
+    //     TARGET than this listener. js/commandPalette.js binds keydown on
+    //     #command-palette itself, and focus is in its input - so it closes
+    //     itself and calls preventDefault() while the event is still bubbling
+    //     UP to here. The id check below cannot see that one: by the time this
+    //     runs, the palette is already hidden. Measured, not reasoned about -
+    //     an Escape aimed at the palette cancelled the capture underneath it.
+    //   - the id check covers surfaces handled by js/app.js's own document-level
+    //     listener (the action sheet, the shortcut sheet), which is registered
+    //     AFTER this one and so has not run yet. Those are still visible here,
+    //     and they do not preventDefault.
+    if (event.defaultPrevented) return;
+    if (OVERLAY_IDS.some((id) => document.getElementById(id) && !document.getElementById(id).classList.contains("hidden"))) return;
+    event.preventDefault();
+    cancel();
   });
 
   // The canvas is sized from its container, so a rotation or window resize has
@@ -527,4 +564,27 @@ export function initCropView() {
   };
   window.addEventListener("resize", onResize);
   window.addEventListener("orientationchange", onResize);
+}
+
+// Cancel, shared by the button and by Escape below so the two can never drift
+// into meaning different things.
+function cancel() {
+  if (onApply) {
+    const callback = onApply;
+    onApply = null;
+    // `undefined` means CANCELLED, and the capture flow treats it as such:
+    // nothing is added and nothing is created (js/app.js's
+    // addCurrentImageAsPage). It used to be documented as "cancelling during
+    // capture keeps the page uncropped rather than abandoning the capture
+    // entirely - the photo is already taken", and the caller duly committed
+    // the page. That reasoning confuses two different things: the photo being
+    // taken, and the person having asked for it to become a document page.
+    // Only the second is what this screen is asking about, and Cancel is the
+    // answer "no". Applying the whole frame is still one tap away - "Use whole
+    // image", then Apply, which hands back `null` rather than `undefined`.
+    callback(undefined);
+    return;
+  }
+
+  goBack();
 }

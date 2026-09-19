@@ -71,7 +71,18 @@ export function createDocumentRecord({ type, title = "", folderId = null, tags =
     // A scan remembers the last filter used so the next page in the same
     // document defaults to matching its siblings, which is what makes a
     // multi-page scan look like one document rather than a pile.
-    defaultFilter: "auto",
+    //
+    // The INITIAL value is "original" - the captured pixels, untouched. This
+    // line is what actually decides the filter a freshly captured page is
+    // stored with and what the scan document's filter row shows as selected;
+    // js/scanDoc.js's `|| FILTERS.AUTO` fallback never runs for a document
+    // created here, because this field is always set. It read "auto", so
+    // every first page was silently contrast-stretched and white-balanced
+    // before anyone had a chance to look at it, and "Original" - the one
+    // choice that is not an opinion about the photograph - had to be selected
+    // by hand. Choosing a filter still updates this field (js/scanDoc.js's
+    // setFilter), so the sibling-matching above is unaffected.
+    defaultFilter: "original",
   };
 }
 
@@ -170,7 +181,7 @@ export async function addPage(docId, { blob, width, height, filter }) {
   const page = createPageRecord({ docId, blobKey, order: (doc.pageIds || []).length });
   page.width = width || 0;
   page.height = height || 0;
-  page.filter = filter || doc.defaultFilter || "auto";
+  page.filter = filter || doc.defaultFilter || "original";
 
   await put(STORES.PAGES, page);
   await updateDocument(docId, { pageIds: [...(doc.pageIds || []), page.id] });

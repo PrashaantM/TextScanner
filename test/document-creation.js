@@ -1,5 +1,6 @@
 // document-creation.js: regression coverage for when a document is actually
-// created, driven through the real UI in a real browser.
+// created, AND for the whole "Add as document page" flow, driven through the
+// real UI in a real browser.
 //
 // Added alongside a fix to app.js: tapping "Note" used to call
 // createDocument() immediately, and so did tapping "Scan" -
@@ -9,6 +10,43 @@
 // this file - library-documents.js exercises js/documents.js directly, never
 // through the UI that actually calls it - so this closes a real gap, not just a
 // regenerated one.
+//
+// ---------------------------------------------------------------------------
+// WHY PART 6 WAS ADDED, AND WHAT THIS FILE MISSED FOR SO LONG.
+//
+// Parts 1-5 below drive real UI - the nav bar, the action sheet, "Try a sample
+// image", the delete/Undo toast - so this file was never a model-only gate in
+// the way library-documents.js deliberately is. Its blind spot was narrower
+// and more ordinary: it only ever asked WHEN a document comes into existence,
+// and it reached the scan flow through `#sample-btn` and stopped at the
+// preview. It never opened `#download-menu`, never clicked "Add as document
+// page", and therefore never once executed js/app.js's addCurrentImageAsPage -
+// the function that creates the document, routes through the crop screen and
+// commits the page. Everything downstream of that menu item was ungated, and
+// four separate defects lived there at once:
+//
+//   1. The crop screen - the only screen in this flow carrying a Cancel - was
+//      shown ONLY when edge detection returned corners. detectDocument returns
+//      null on 8 of the 11 photographs in test/images, so the ordinary path
+//      committed a page on one tap and left the person in the document view,
+//      where the flow's Cancel does not exist.
+//   2. Cancel, when the crop screen WAS shown, committed the page anyway:
+//      cropView.js handed back `undefined` and app.js turned that into "commit
+//      uncropped". The document had also already been created, before the crop
+//      screen was shown at all.
+//   3. Every filter chip, both rotate buttons and "Apply filter to all" threw
+//      `TypeError: Failed to execute 'drawImage'` on the resulting page, because
+//      rebuildPage assigned warpPerspective's `{ canvas, unwarpPoint }` wrapper
+//      where a canvas was expected. It fired only for a page carrying corners -
+//      which is exactly what this flow's crop step stores, and nothing else in
+//      CI produced one.
+//   4. A new scan document defaulted to "Auto enhance", so the captured pixels
+//      were contrast-stretched before anyone saw them.
+//
+// So Part 6 drives the flow with clicks, from the menu item to every button on
+// the page it produces. The pageerror handler below is not incidental: three of
+// the four defects above were uncaught runtime errors, and an assertion-only
+// gate would have gone green while the console filled up.
 //
 // Usage: node test/document-creation.js
 
@@ -58,6 +96,47 @@ const browser = await launchBrowser({ headless: true });
 const page = await browser.newPage();
 const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(e.message));
+
+// A blob: URL that 404s is this app's signature for "an object URL was revoked
+// while an element was still displaying it" - it produces no exception, nothing
+// visibly wrong in a screenshot, and a console error on every re-render.
+// renderScanDoc did exactly that until Part 6 caught it.
+const failedRequests = [];
+page.on("requestfailed", (r) => failedRequests.push(`${r.url().slice(0, 80)} (${r.failure()?.errorText})`));
+
+// console.error counts too, and that is not belt-and-braces - it is the whole
+// difference between this gate working and not. js/scanDoc.js's withBusy
+// CATCHES whatever a filter, a rotate or a rebuild throws, logs it through
+// console.error and puts the message in a window.alert. So the TypeError that
+// broke every button on this screen was never an UNCAUGHT error, and a
+// pageerror-only listener watched all six filter chips fail in a row and
+// reported six clean passes. Verified by running this file against the commit
+// before the fix: without this line it went green on exactly the defect it was
+// written for.
+page.on("console", (message) => {
+  if (message.type() === "error") pageErrors.push(`console.error: ${message.text().slice(0, 300)}`);
+});
+
+// An uncaught rejection is not a pageerror in every Playwright build, and the
+// bugs Part 6 exists for live in async click handlers, where a rejection is the
+// ONLY trace a failure leaves.
+await page.exposeFunction("__reportRejection", (message) => pageErrors.push(`Unhandled rejection: ${message}`));
+await page.addInitScript(() => {
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event.reason;
+    window.__reportRejection?.(String(reason?.stack || reason?.message || reason));
+  });
+});
+
+// Drains both error channels and reports what came out of them, so a failure is
+// attributed to the step that caused it rather than to the end of the file.
+const noErrorsDuring = (label) => {
+  const problems = [...pageErrors.map((e) => `uncaught: ${e}`), ...failedRequests.map((r) => `failed request: ${r}`)];
+  pageErrors.length = 0;
+  failedRequests.length = 0;
+  check(`no console errors ${label}`, problems.length === 0, problems.join(" | "));
+  return problems.length === 0;
+};
 
 await page.goto(`http://localhost:${PORT}/index.html`);
 await page.waitForFunction(() => document.body.dataset.activeView, null, { timeout: 15000 });
@@ -219,6 +298,463 @@ await page.waitForFunction(
 );
 check("Undo restored the document", true);
 
+// ---------------------------------------------------------------------------
+// 6. "Add as document page", end to end, through real clicks.
+// ---------------------------------------------------------------------------
+//
+// EVERY WAIT BELOW IS A waitForFunction, NEVER A FIXED SLEEP, and that is not
+// only about flake. Playwright's waitForFunction polls inside the page (rAF by
+// default), which keeps the renderer producing frames; a node-side sleep does
+// not. Chromium encodes canvas.toBlob on an idle task, and a headless renderer
+// that nobody is waking has no idle periods - so a commit that calls toBlob
+// twice stalls forever on the second one, mid-flow, with no error. That stall
+// is an artifact of headless plus a node-side sleep, NOT app behaviour: the
+// identical flow completes without pause in a headed browser. Keep the polling
+// waits and it never arises.
+
+console.log("\nAdd as document page: opening the flow");
+
+const scansBefore = await countDocs("scan");
+const pagesIn = (id) =>
+  page.evaluate(async (docId) => {
+    const docs = await import("/js/documents.js");
+    const doc = await docs.getDocument(docId);
+    return (doc?.pageIds || []).length;
+  }, id);
+const newestScan = () =>
+  page.evaluate(async () => {
+    const docs = await import("/js/documents.js");
+    const all = (await docs.getAllDocuments()).filter((d) => d.type === "scan" && !d.deletedAt);
+    all.sort((a, b) => b.createdAt - a.createdAt);
+    return all[0] ? { id: all[0].id, pages: (all[0].pageIds || []).length, defaultFilter: all[0].defaultFilter } : null;
+  });
+
+// Reaches the corner menu the way a person does: scan an image, then open
+// "More actions" on the result screen.
+async function reachResultScreen(loadImage) {
+  await page.click("#nav-add");
+  await page.waitForFunction(() => !document.getElementById("action-sheet").classList.contains("hidden"));
+  await page.click("#action-sheet-scan");
+  await page.waitForFunction(() => document.body.dataset.activeView === "scan");
+  await loadImage();
+  await page.waitForFunction(() => !document.getElementById("preview-section").classList.contains("hidden"), null, { timeout: 20000 });
+  await page.click("#scan-btn");
+  await page.waitForFunction(() => !document.getElementById("result-section").classList.contains("hidden"), null, { timeout: 120000 });
+}
+
+async function openAddAsDocumentPage() {
+  await page.click("#download-btn");
+  await page.waitForFunction(() => !document.getElementById("download-menu").classList.contains("hidden"));
+  await page.click('#download-menu [data-menu-action="add-to-doc"]');
+}
+
+const useSample = () => page.click("#sample-btn");
+const usePhoto = (name) => page.setInputFiles("#file-input", join(ROOT, "test/images", name));
+
+// A failed assertion must not abort the assertions after it. Run against the
+// commit before the fix, Cancel left the person in the DOCUMENT view - so the
+// next `#download-btn` click found an invisible button, threw, and killed the
+// file before the throwing-filter-chip and default-filter symptoms below ever
+// got the chance to report. A gate that stops at the first symptom hides the
+// rest of them, which is the opposite of what it is for.
+async function ensureResultScreen(loadImage = useSample) {
+  const ready = await page.evaluate(() => {
+    const button = document.getElementById("download-btn");
+    return (
+      document.body.dataset.activeView === "scan" &&
+      !!button &&
+      !!(button.offsetParent || button.getClientRects().length)
+    );
+  });
+  if (!ready) await reachResultScreen(loadImage);
+}
+
+await reachResultScreen(useSample);
+noErrorsDuring("scanning the sample image");
+
+await openAddAsDocumentPage();
+await page.waitForFunction(() => document.body.dataset.activeView === "crop", null, { timeout: 10000 });
+
+// The landing screen, and whether the flow can be backed out of FROM IT. The
+// reported symptom was "Cancel is not reachable from where the user lands -
+// they have to navigate back to find it", and the mechanism was routing:
+// app.js showed #crop-view only when detection returned corners, so the other
+// path landed in the document view, where this button does not exist.
+const landing = await page.evaluate(() => {
+  const cancel = document.querySelector('[data-crop-action="cancel"]');
+  const rect = cancel?.getBoundingClientRect();
+  return {
+    view: document.body.dataset.activeView,
+    cancelExists: !!cancel,
+    // Actually on screen where the person is standing, not merely in the DOM:
+    // the whole bug was a Cancel that existed in a section nobody was shown.
+    cancelOnScreen: !!rect && rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.bottom <= window.innerHeight,
+    cancelInCurrentView: !!cancel?.closest(`[data-view="${document.body.dataset.activeView}"]`),
+  };
+});
+check("opening the flow lands on the crop screen", landing.view === "crop", landing.view);
+check("...with Cancel present in that same view, no back-navigation needed", landing.cancelInCurrentView, JSON.stringify(landing));
+check("...and visible on screen", landing.cancelOnScreen, JSON.stringify(landing));
+check("opening the flow created no document yet", (await countDocs("scan")) === scansBefore, `${await countDocs("scan")} vs ${scansBefore}`);
+noErrorsDuring("opening the flow");
+
+// ---- 6b. Cancel adds nothing ----
+
+console.log("\nAdd as document page: Cancel");
+
+await page.click('[data-crop-action="cancel"]');
+await page.waitForFunction(() => document.body.dataset.activeView !== "crop", null, { timeout: 10000 });
+
+check("Cancel left the crop screen", (await page.evaluate(() => document.body.dataset.activeView)) !== "crop");
+check("Cancel created no document", (await countDocs("scan")) === scansBefore, `${await countDocs("scan")} vs ${scansBefore}`);
+check(
+  "Cancel returned to the capture screen with the scanned image still loaded",
+  await page.evaluate(
+    () =>
+      document.body.dataset.activeView === "scan" && !document.getElementById("result-section").classList.contains("hidden")
+  ),
+  await page.evaluate(() => document.body.dataset.activeView)
+);
+check(
+  "Cancel left no \"Adding to...\" target behind",
+  await page.evaluate(() => document.getElementById("scan-target-note").classList.contains("hidden"))
+);
+noErrorsDuring("cancelling");
+
+// Escape is the keyboard's only route to Cancel on this screen, which matters
+// now that the screen is unconditional. Focus arrives on #crop-canvas
+// (data-autofocus) and its corner-cycling handler preventDefault()s every
+// plain Tab, so Tab never reaches the buttons - asserted here rather than
+// described, because it is the reason the Escape binding exists.
+await ensureResultScreen();
+await openAddAsDocumentPage();
+await page.waitForFunction(() => document.body.dataset.activeView === "crop", null, { timeout: 10000 });
+
+const focusStart = await page.evaluate(() => document.activeElement?.id);
+for (let i = 0; i < 4; i++) await page.keyboard.press("Tab");
+const focusAfterTabs = await page.evaluate(() => document.activeElement?.id);
+check("focus lands on the crop canvas", focusStart === "crop-canvas", focusStart);
+check(
+  "Tab cycles corners rather than leaving the canvas (so it cannot reach Cancel)",
+  focusAfterTabs === "crop-canvas",
+  focusAfterTabs
+);
+
+await page.keyboard.press("Escape");
+// Tolerant: at the parent commit nothing was listening for Escape here at all,
+// and that silence IS the symptom - it has to be reported as a failed check
+// rather than as a timeout that ends the file.
+await page
+  .waitForFunction(() => document.body.dataset.activeView !== "crop", null, { timeout: 10000 })
+  .catch(() => {});
+check("Escape cancels, so Cancel is reachable without a pointer", (await page.evaluate(() => document.body.dataset.activeView)) === "scan", await page.evaluate(() => document.body.dataset.activeView));
+check("Escape created no document either", (await countDocs("scan")) === scansBefore, `${await countDocs("scan")} vs ${scansBefore}`);
+
+// Leave by the button if Escape did not, so the checks after this one still
+// have a screen to stand on.
+if ((await page.evaluate(() => document.body.dataset.activeView)) === "crop") {
+  await page.click('[data-crop-action="cancel"]');
+  await page.waitForFunction(() => document.body.dataset.activeView !== "crop", null, { timeout: 10000 }).catch(() => {});
+}
+
+// The command palette sits above this view and owns Escape first: dismissing it
+// must not also abandon the capture underneath.
+await ensureResultScreen();
+await openAddAsDocumentPage();
+await page.waitForFunction(() => document.body.dataset.activeView === "crop", null, { timeout: 10000 });
+await page.keyboard.press("Control+k");
+await page.waitForFunction(() => !document.getElementById("command-palette").classList.contains("hidden"), null, { timeout: 5000 }).catch(() => {});
+await page.keyboard.press("Escape");
+await page.waitForFunction(() => document.getElementById("command-palette").classList.contains("hidden"), null, { timeout: 5000 }).catch(() => {});
+check(
+  "Escape that closes the command palette leaves the capture alone",
+  (await page.evaluate(() => document.body.dataset.activeView)) === "crop",
+  await page.evaluate(() => document.body.dataset.activeView)
+);
+await page.keyboard.press("Escape");
+await page.waitForFunction(() => document.body.dataset.activeView !== "crop", null, { timeout: 10000 }).catch(() => {});
+if ((await page.evaluate(() => document.body.dataset.activeView)) === "crop") {
+  await page.click('[data-crop-action="cancel"]');
+  await page.waitForFunction(() => document.body.dataset.activeView !== "crop", null, { timeout: 10000 }).catch(() => {});
+}
+noErrorsDuring("the keyboard route out of the confirm screen");
+
+// ---- 6c. Completing the flow adds exactly one page, filtered Original ----
+
+console.log("\nAdd as document page: Apply");
+
+await ensureResultScreen();
+await openAddAsDocumentPage();
+await page.waitForFunction(() => document.body.dataset.activeView === "crop", null, { timeout: 10000 });
+await page.click('[data-crop-action="apply"]');
+await page.waitForFunction(() => document.body.dataset.activeView === "document", null, { timeout: 30000 });
+await page.waitForFunction(() => document.querySelectorAll("#page-strip [data-page]").length === 1, null, { timeout: 30000 });
+
+const created = (await newestScan()) || { id: null, pages: 0, defaultFilter: null };
+check("Apply created exactly one scan document", (await countDocs("scan")) === scansBefore + 1, `${await countDocs("scan")} vs ${scansBefore + 1}`);
+check("...holding exactly one page", created?.pages === 1, JSON.stringify(created));
+check("...and the scan document view is showing", await page.evaluate(() => !document.getElementById("scan-doc").classList.contains("hidden")));
+noErrorsDuring("committing the page");
+
+// The default filter. "Auto enhance" was the default and silently
+// contrast-stretched every captured page; the value that decides it is
+// js/documents.js's createDocumentRecord, not js/scanDoc.js's FILTERS.AUTO
+// fallback, which a document created through the model never reaches.
+const filterState = await page.evaluate(async () => {
+  const docs = await import("/js/documents.js");
+  const all = (await docs.getAllDocuments()).filter((d) => d.type === "scan" && !d.deletedAt);
+  all.sort((a, b) => b.createdAt - a.createdAt);
+  const pages = await docs.getPagesForDocument(all[0]);
+  return {
+    defaultFilter: all[0].defaultFilter,
+    pageFilter: pages[0]?.filter,
+    pressed: [...document.querySelectorAll("#scan-filter-row [data-filter]")]
+      .filter((b) => b.classList.contains("is-active"))
+      .map((b) => b.dataset.filter),
+  };
+});
+check("the new document's default filter is Original", filterState.defaultFilter === "original", filterState.defaultFilter);
+check("the committed page was stored as Original", filterState.pageFilter === "original", filterState.pageFilter);
+check("Original is the chip shown as selected", JSON.stringify(filterState.pressed) === '["original"]', JSON.stringify(filterState.pressed));
+
+// ---- 6d. Every button on the resulting document page ----
+//
+// The defect this covers threw on a page carrying CORNERS, which is precisely
+// what the crop step above stores and what nothing else in CI produced. Native
+// dialogs are dismissed rather than accepted: the OK branches are
+// destructive-actions.js's job, and accepting "Delete page?" here would delete
+// the page the rest of this section is about.
+
+console.log("\nAdd as document page: every control on the resulting page");
+
+page.on("dialog", (d) => d.dismiss().catch(() => {}));
+
+const controls = await page.evaluate(() =>
+  [...document.querySelectorAll("#scan-doc button")]
+    .filter((b) => (b.offsetParent || b.getClientRects().length) && !b.disabled)
+    .map((b) => ({ key: b.dataset.scanAction || (b.dataset.filter ? `filter:${b.dataset.filter}` : ""), label: b.textContent.trim().slice(0, 24) }))
+    .filter((c) => c.key)
+);
+check("the resulting page offers its full control set", controls.length >= 20, `${controls.length} enabled buttons`);
+
+for (const control of controls) {
+  const selector = control.key.startsWith("filter:")
+    ? `#scan-doc [data-filter="${control.key.slice(7)}"]`
+    : `#scan-doc [data-scan-action="${control.key}"]`;
+
+  const element = await page.$(selector);
+  if (!element) {
+    check(`clicking "${control.label}" [${control.key}]`, false, "control vanished between enumeration and click");
+    continue;
+  }
+
+  await element.click();
+  // Settles on whichever of the three outcomes a control has: it navigates, it
+  // goes busy and comes back, or it finishes in place. Polling in the page also
+  // keeps the renderer awake for any toBlob the click kicked off - see the note
+  // at the top of Part 6.
+  await page.waitForFunction(
+    () => document.body.dataset.activeView !== "document" || document.getElementById("scan-busy").classList.contains("hidden"),
+    null,
+    { timeout: 30000 }
+  );
+
+  const clean = noErrorsDuring(`clicking "${control.label}" [${control.key}]`);
+  if (!clean) failures.push(`"${control.label}" [${control.key}] raised an error`);
+
+  // "Adjust edges" and "Add page" legitimately leave the document view.
+  if ((await page.evaluate(() => document.body.dataset.activeView)) !== "document") {
+    await page.goBack();
+    await page.waitForFunction(() => document.body.dataset.activeView === "document", null, { timeout: 15000 });
+    await page.waitForFunction(() => document.getElementById("scan-busy").classList.contains("hidden"), null, { timeout: 15000 });
+  }
+}
+
+check(
+  "the page survived the whole sweep (nothing was destroyed by a dismissed dialog)",
+  created.id !== null && (await pagesIn(created.id)) === 1,
+  String(created.id === null ? "no document was created to sweep" : await pagesIn(created.id))
+);
+
+// ---- 6e. Original and Auto enhance both actually apply ----
+//
+// Both threw the same TypeError before the fix. Asserted on the STORED page
+// rather than on the chip's class, because a chip can look selected while the
+// rebuild behind it failed - which is exactly what it did.
+
+console.log("\nAdd as document page: the two filters the report named");
+
+const applyFilter = async (name) => {
+  await page.click(`#scan-doc [data-filter="${name}"]`);
+  await page.waitForFunction(() => document.getElementById("scan-busy").classList.contains("hidden"), null, { timeout: 30000 });
+  await page.waitForFunction(
+    async (expected) => {
+      const docs = await import("/js/documents.js");
+      const all = (await docs.getAllDocuments()).filter((d) => d.type === "scan" && !d.deletedAt);
+      all.sort((a, b) => b.createdAt - a.createdAt);
+      const pages = await docs.getPagesForDocument(all[0]);
+      return pages[0]?.filter === expected;
+    },
+    name,
+    { timeout: 30000 }
+  ).catch(() => {});
+  return page.evaluate(async () => {
+    const docs = await import("/js/documents.js");
+    const all = (await docs.getAllDocuments()).filter((d) => d.type === "scan" && !d.deletedAt);
+    all.sort((a, b) => b.createdAt - a.createdAt);
+    const pages = await docs.getPagesForDocument(all[0]);
+    return pages[0]?.filter;
+  });
+};
+
+const auto = await applyFilter("auto");
+check("selecting Auto enhance applies it to the page", auto === "auto", auto);
+noErrorsDuring("selecting Auto enhance");
+
+const original = await applyFilter("original");
+check("selecting Original applies it to the page", original === "original", original);
+noErrorsDuring("selecting Original");
+
+// ---- 6f. The path where edge detection finds nothing ----
+//
+// The mechanism behind "Cancel is not reachable". detectDocument returns null
+// on this photograph - and on 8 of the 11 in test/images - and app.js used to
+// take that as licence to skip the confirm screen entirely and commit on one
+// tap. The confirm screen is now unconditional, so this path has a Cancel too.
+
+console.log("\nAdd as document page: a photo edge detection cannot read");
+
+const scansBeforePhoto = await countDocs("scan");
+await page.click("#nav-library");
+await page.waitForFunction(() => document.body.dataset.activeView === "library");
+await reachResultScreen(() => usePhoto("complexPic1.jpeg"));
+
+check(
+  "edge detection genuinely finds nothing in this photo (the precondition)",
+  await page.evaluate(async () => {
+    const edges = await import("/js/edgeDetect.js");
+    return edges.detectDocument(document.getElementById("preview-img")) === null;
+  })
+);
+
+await openAddAsDocumentPage();
+// `.catch` rather than a bare await: at the parent commit this path did not go
+// to the crop screen at all - it committed the page and went straight to the
+// document view - and that IS the symptom, so it has to be reported as a failed
+// check rather than as a timeout that ends the run.
+const reachedCrop = await page
+  .waitForFunction(() => document.body.dataset.activeView === "crop", null, { timeout: 15000 })
+  .then(() => true)
+  .catch(() => false);
+check("...and the flow STILL lands on the crop screen rather than committing", reachedCrop, await page.evaluate(() => document.body.dataset.activeView));
+check(
+  "...with a Cancel in the view the person is looking at",
+  await page.evaluate(
+    () => !!document.querySelector('[data-view="crop"] [data-crop-action="cancel"]:not(.hidden)') && document.body.dataset.activeView === "crop"
+  )
+);
+check("...and still no document created", (await countDocs("scan")) === scansBeforePhoto, `${await countDocs("scan")} vs ${scansBeforePhoto}`);
+
+if (reachedCrop) {
+  await page.click('[data-crop-action="cancel"]');
+  await page.waitForFunction(() => document.body.dataset.activeView !== "crop", null, { timeout: 10000 });
+}
+check("Cancel on the undetected-edges path also adds nothing", (await countDocs("scan")) === scansBeforePhoto, `${await countDocs("scan")} vs ${scansBeforePhoto}`);
+noErrorsDuring("the undetected-edges path");
+
+// ---- 6g. Re-entering an existing document adds a second page, not a second
+// document, and the "Adding to..." line keeps up ----
+
+console.log("\nAdd as document page: re-entry into a document that already has a page");
+
+await page.goto(`http://localhost:${PORT}/index.html#document/${created.id || "none"}`);
+await page.waitForFunction(() => document.body.dataset.activeView === "document", null, { timeout: 15000 });
+await page.waitForFunction(() => document.querySelectorAll("#page-strip [data-page]").length === 1, null, { timeout: 15000 });
+pageErrors.length = 0;
+failedRequests.length = 0;
+
+await page.click('#scan-doc [data-scan-action="add-page"]');
+await page.waitForFunction(() => document.body.dataset.activeView === "scan", null, { timeout: 10000 });
+// The line is filled from an IndexedDB read, so it lands a tick after the view
+// flips. Waiting for the element rather than for the navigation keeps this
+// about the content, not about which of the two resolved first.
+await page
+  .waitForFunction(() => !document.getElementById("scan-target-note").classList.contains("hidden"), null, { timeout: 10000 })
+  .catch(() => {});
+check(
+  "\"Add page\" says which document the next page joins",
+  await page.evaluate(() => {
+    const note = document.getElementById("scan-target-note");
+    return !note.classList.contains("hidden") && /1 page so far/.test(note.textContent);
+  }),
+  await page.evaluate(() => document.getElementById("scan-target-note").textContent)
+);
+
+await usePhoto("complexPic1.jpeg");
+await page.waitForFunction(() => !document.getElementById("preview-section").classList.contains("hidden"), null, { timeout: 20000 });
+await page.click("#scan-btn");
+await page.waitForFunction(() => !document.getElementById("result-section").classList.contains("hidden"), null, { timeout: 120000 });
+await openAddAsDocumentPage();
+// Tolerant for the same reason as the undetected-edges section above: at the
+// parent commit this photo's capture never reached a crop screen at all, and
+// the checks below are what should say so.
+const reachedCropOnReentry = await page
+  .waitForFunction(() => document.body.dataset.activeView === "crop", null, { timeout: 15000 })
+  .then(() => true)
+  .catch(() => false);
+if (reachedCropOnReentry) await page.click('[data-crop-action="apply"]');
+await page
+  .waitForFunction(() => document.body.dataset.activeView === "document", null, { timeout: 30000 })
+  .catch(() => {});
+await page
+  .waitForFunction(() => document.querySelectorAll("#page-strip [data-page]").length === 2, null, { timeout: 30000 })
+  .catch(() => {});
+
+check("re-entry added a second page to the SAME document", (await pagesIn(created.id)) === 2, String(await pagesIn(created.id)));
+check("re-entry created no extra document", (await countDocs("scan")) === scansBefore + 1, `${await countDocs("scan")} vs ${scansBefore + 1}`);
+noErrorsDuring("adding a second page");
+
+// The line went stale here: it still read "1 page so far" against a two-page
+// document, because nothing refreshed it after a commit.
+await page.click('#scan-doc [data-scan-action="add-page"]');
+await page.waitForFunction(() => document.body.dataset.activeView === "scan", null, { timeout: 10000 });
+await page
+  .waitForFunction(() => !document.getElementById("scan-target-note").classList.contains("hidden"), null, { timeout: 10000 })
+  .catch(() => {});
+check(
+  "the \"Adding to...\" line counts the page that was just added",
+  await page.evaluate(() => /2 pages so far/.test(document.getElementById("scan-target-note").textContent)),
+  await page.evaluate(() => document.getElementById("scan-target-note").textContent)
+);
+
+// ---- 6h. The empty state ----
+
+console.log("\nAdd as document page: the empty-state entry point");
+
+const emptyState = await page.evaluate(async () => {
+  const docs = await import("/js/documents.js");
+  const doc = await docs.createDocument({ type: docs.DOC_TYPES.SCAN, title: "Empty on purpose" });
+  return doc.id;
+});
+await page.goto(`http://localhost:${PORT}/index.html#document/${emptyState}`);
+await page.waitForFunction(() => document.body.dataset.activeView === "document", null, { timeout: 15000 });
+pageErrors.length = 0;
+failedRequests.length = 0;
+
+check(
+  "a document with no pages says so and disables everything that needs one",
+  await page.evaluate(() => {
+    const empty = document.getElementById("page-preview-empty");
+    const needsPages = [...document.querySelectorAll("#scan-doc [data-needs-pages]")];
+    return !empty.classList.contains("hidden") && needsPages.length > 0 && needsPages.every((b) => b.disabled);
+  })
+);
+check(
+  "...while \"Add page\" stays available, since it is the way out of the empty state",
+  await page.evaluate(() => !document.querySelector('#scan-doc [data-scan-action="add-page"]').disabled)
+);
+noErrorsDuring("opening an empty scan document");
+
 // ---- Done ----
 
 await browser.close();
@@ -233,4 +769,8 @@ if (failures.length) {
   for (const f of failures) console.error("  -", f);
   process.exit(1);
 }
-console.log("\nDocument creation timing, cleanup sweep, and the delete/Undo toast all behave as designed.");
+console.log(
+  "\nDocument creation timing, cleanup sweep, the delete/Undo toast, and the whole\n" +
+    '"Add as document page" flow - Cancel, Apply, every control on the resulting\n' +
+    "page, re-entry and the empty state - all behave as designed."
+);

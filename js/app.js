@@ -45,7 +45,6 @@ import {
 } from "./scanDoc.js";
 import { initCropView, openCropForPage, openCropForImage, closeCrop } from "./cropView.js";
 import { canvasFromSource } from "./scanFilters.js";
-import { detectDocument } from "./edgeDetect.js";
 import { clearHistory, historyStats } from "./translateHistory.js";
 import { hapticLight, hapticMedium } from "./haptics.js";
 import { cycleTheme, themeLabel } from "./theme.js";
@@ -196,9 +195,30 @@ async function updateScanTargetNote() {
 
 // ---- Capture -> page ----
 //
-// The crop step is offered rather than forced: detection returning corners means
-// there is something worth confirming, and detection returning null means there
-// is nothing to confirm and the whole frame is the honest default.
+// THE CROP SCREEN IS THIS FLOW'S CONFIRM STEP, and it is now shown whether or
+// not edge detection found anything. It used to be shown only when
+// detectDocument returned corners, on the reasoning that "detection returning
+// null means there is nothing to confirm and the whole frame is the honest
+// default". The default was honest; the flow around it was not. Detection
+// returns null on 8 of the 11 photographs in test/images, so the ordinary path
+// through "Add as document page" was: one tap, a page silently committed, and
+// the person deposited in the document view with no Cancel anywhere on it -
+// the only Cancel in this flow lives in #crop-view, which that path never
+// shows. Reaching it meant navigating BACK into a screen they had never been
+// sent to.
+//
+// The cost is one extra tap ("Apply") on a photo where detection finds nothing.
+// That is the price of the action being cancellable at all, and it is worth it:
+// this is the only control in the app that writes a new document to disk from a
+// single menu item.
+//
+// NOTHING IS WRITTEN UNTIL THAT CONFIRM. The document used to be created up
+// front, before the crop screen was even shown, so opening the flow - not
+// completing it - is what created it. Cancel then had nothing to undo and
+// wasn't offered a chance to: cropView.js handed back `undefined` and this
+// function committed the page uncropped anyway, which made Cancel a slower
+// synonym for Apply. Creation now lives inside commit(), so a cancelled capture
+// leaves the library exactly as it found it.
 async function addCurrentImageAsPage(previewImg) {
   if (!storageReady) {
     window.alert("This browser isn't allowing local storage, so multi-page documents aren't available here.");
@@ -207,18 +227,20 @@ async function addCurrentImageAsPage(previewImg) {
 
   if (!previewImg?.naturalWidth) return;
 
-  let targetId = pendingTarget;
-  let justCreated = false;
-  if (!targetId) {
-    const doc = await createDocument({ type: DOC_TYPES.SCAN });
-    targetId = doc.id;
-    pendingTarget = doc.id;
-    justCreated = true;
-  }
-
-  const detected = detectDocument(previewImg);
+  // Adopted, never created, at this point: a target only exists here when the
+  // capture was entered from an existing document's "Add page".
+  const existingTarget = pendingTarget;
 
   const commit = async (corners) => {
+    let targetId = existingTarget;
+    let justCreated = false;
+    if (!targetId) {
+      const created = await createDocument({ type: DOC_TYPES.SCAN });
+      targetId = created.id;
+      pendingTarget = created.id;
+      justCreated = true;
+    }
+
     const doc = await getDocument(targetId);
     if (!doc) return;
 
@@ -229,27 +251,34 @@ async function addCurrentImageAsPage(previewImg) {
     hapticMedium();
     showView(VIEWS.DOCUMENT, { id: targetId });
     await openDocument(targetId);
+    // The "Adding to X - N pages so far" line on the capture screen is derived
+    // from the document's page count, so it goes stale the moment a page lands
+    // unless it is refreshed here. It said "1 page so far" while the document
+    // held two.
+    await updateScanTargetNote();
     // Announced after the page (and therefore the document's real title, if the
     // page recognized one) is in, not at creation - "Created 'Untitled scan'" a
     // beat before it says "Created 'Coffee receipt'" would be a confusing flash.
     if (justCreated) {
-      const created = await getDocument(targetId);
-      if (created) showToast(`Created "${deriveTitle(created)}"`);
+      const withFirstPage = await getDocument(targetId);
+      if (withFirstPage) showToast(`Created "${deriveTitle(withFirstPage)}"`);
     }
   };
 
-  if (detected) {
-    // Straight into the crop screen with the detection pre-loaded, so the
-    // person confirms or corrects rather than starting from scratch.
-    showView(VIEWS.CROP, { id: targetId });
-    await openCropForImage(previewImg, async (corners) => {
-      // `undefined` means cancelled - keep the page, uncropped.
-      await commit(corners === undefined ? null : corners);
-    });
-    return;
-  }
-
-  await commit(null);
+  // No id in the params: there is no document yet, and the CROP case in
+  // onViewChange only loads a stored page when given both an id and a page.
+  showView(VIEWS.CROP, existingTarget ? { id: existingTarget } : {});
+  await openCropForImage(previewImg, async (corners) => {
+    // `undefined` is cropView.js's cancel signal, and it now means what the
+    // button says: add nothing, write nothing, and go back to the capture
+    // screen with the image still loaded. `null` is a real choice - Apply with
+    // the whole frame - and still commits.
+    if (corners === undefined) {
+      goBack();
+      return;
+    }
+    await commit(corners);
+  });
 }
 
 // ---- Settings ----
