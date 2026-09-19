@@ -878,5 +878,13 @@
        tesseractAssetPaths() in js/ocrEngine.js. -->
   <script src="vendor/tesseract/tesseract.min.js"></script>
   <script type="module" src="js/main.js"></script>
+  <!-- W1's service worker registration. A separate module rather than an inline
+       block because script-src above is 'self' with no 'unsafe-inline', which
+       would refuse an inline script outright - and a separate <script> so its
+       ?nosw kill switch still runs if js/main.js ever fails to boot. It
+       registers only over https: (or on an explicit ?sw opt-in), which is what
+       keeps the Playwright gates - all served over http://localhost - seeing
+       the network exactly as they did before. See that file's header. -->
+  <script type="module" src="js/serviceWorkerRegistration.js"></script>
 </body>
 </html>

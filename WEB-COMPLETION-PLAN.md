@@ -79,8 +79,8 @@ Checked today rather than carried forward from `HANDOFF.md`:
 | 81 unit tests pass | `node --test test/unit/*.test.js` — 81 pass, 0 fail |
 | The newest browser gate passes | `node test/font-match.js` — all 7 checks green |
 | Last CI run on `main` green | run `34673998815`, 3m30s |
-| 49 modules, 17,597 lines in `js/` | `wc -l js/*.js`, `ls js/*.js \| wc -l` |
-| 32 gates in `ci.yml`'s per-push `test:` job | `awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml \| grep -c '^      - run: node'` |
+| 50 modules, 17,689 lines in `js/` | `wc -l js/*.js`, `ls js/*.js \| wc -l` |
+| 33 gates in `ci.yml`'s per-push `test:` job | `awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml \| grep -c '^      - run: node'` |
 | Tracked repo 8.87 MiB; `vendor/tesseract` is 11 MB of it on disk | `git count-objects -vH`, `du` |
 
 **Jekyll is not eating anything.** Its default excludes cover `vendor/bundle`,
@@ -94,7 +94,7 @@ empirically by the 200s above, so no `.nojekyll` is needed.
 > to 49/17,394 in the same commit that added `js/fontMatch.js` — the rule
 > applied, one commit late for the module before it.
 
-**49 unbundled ES modules over HTTP/2 is not a load problem.** 584 KB raw across
+**50 unbundled ES modules over HTTP/2 is not a load problem.** 736 KB raw across
 `js/`, gzipped per-file, multiplexed on one connection. Don't add a bundler; the
 no-build-step property is worth more than the milliseconds.
 
@@ -138,7 +138,7 @@ have meant hoisting a scan-doc-local control into `js/dom.js` purely to make a
 number change, which is the opposite of what that gate is for. The figure that
 moved is the total: 154 → 160.
 
-### The 32 CI gates, and which ones a change can actually break
+### The 33 CI gates, and which ones a change can actually break
 
 `.github/workflows/ci.yml` runs gates 1-4 immediately (none of them needs a
 browser or an `npm install` - see their own comments), then `npm ci` +
@@ -179,9 +179,10 @@ file actually runs them:
 | 30 | `radial-call-sites.js` | Yes |
 | 31 | `inpaint-fidelity.js` | No — imports `/js/inpaint.js` and drives the algorithm directly |
 | 32 | `backup-roundtrip.js` | Partly - mostly imports `/js/store.js`, `/js/documents.js` and `/js/backup.js` directly, but "Delete all local data" goes through the real `#settings-delete-all` button |
+| 33 | `offline.js` — **added by W1** | Partly — drives the real `#file-input`/`#scan-btn` and reads the rendered Library, but its subject is `sw.js`: the two cache buckets, the precache manifest against `ls js/*.js` in both directions, and the registration escape hatch |
 
 This table drifted every time a gate was added, and it moved six times in
-six sessions before the count became a gate. The 32 above is the literal
+six sessions before the count became a gate. The 33 above is the literal
 output of
 (`awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml | grep -c
 '^      - run: node'`), not 30 plus two, and gate 4 now fails if it is ever
@@ -250,43 +251,121 @@ can check yourself without taking my word for it, and what it risks.
 
 ---
 
-### W1 — Make the offline claim true, or stop making it
+### W1 — Make the offline claim true, or stop making it — **DONE (built, not reworded), 3 findings, and one check still owed**
 
-**The problem.** `README.md:81` says *"the web app works offline outright."* It
-does not. There is no service worker anywhere in the repo (`grep -rn
-"serviceWorker" index.html js/` returns nothing), so opening the app with the
-network off gives the browser's own error page. What is actually true is the
-narrower claim the same sentence goes on to make: no network round trip is needed
-*for recognition*, because Tesseract's worker, wasm core and `eng.traineddata.gz`
-are vendored. For a local-first document scanner whose whole pitch is "no server,"
-this is the gap most worth closing rather than rewording.
+**What was built.** `sw.js` at the repo root, registered from
+`js/serviceWorkerRegistration.js` (loaded by `index.html` as its own module), and
+`test/offline.js` wired in as gate 33. The claim is now true: with the network
+off, a full load of the app URL renders the Library and scanning a local image
+completes end to end, both asserted in CI.
 
-**Files.**
-- Build it: new `sw.js` at the repo root; registration in `index.html` (near the
-  existing module `<script>` at line 698); new `test/offline.js`; `.github/workflows/ci.yml`.
-- Or reword it: `README.md:81` only.
+**Two buckets, and the split is the whole design.** `vendor/tesseract` is 11 MB;
+precaching it at install would mean every first visit pays for 11 MB before the
+app is usable, including visits that never scan. So:
 
-**Definition of done (build it).** With the app loaded once, then DevTools →
-Network → **Offline** (and again with Wi-Fi genuinely off, which is a different
-code path in Safari), a full reload of the live URL renders the Library, and
-scanning a local image completes end to end. DevTools → Application → Cache
-Storage lists `index.html`, `style.css`, all 46 `js/*.js`, `tesseract.min.js`,
-`worker.min.js`, one core `.wasm.js`, and `eng.traineddata.gz`. A second check
-that matters as much: push any change to `main`, wait for Pages, reload twice, and
-confirm you get the **new** build — a service worker that pins `index.html`
-forever is the classic way to ship an app that can never be updated again.
+- **Eager, precached at install (1.07 MB as stored):** `./` and `index.html` (both keys —
+  a reload of the deployed URL asks for the directory, not the filename),
+  `style.css`, all 50 `js/*.js`, `manifest.webmanifest`, the four `icons/` PNGs,
+  `vendor/tesseract/tesseract.min.js` (which *must* be eager: `index.html` loads
+  it in a blocking classic `<script>`, so the page cannot boot without it), and
+  the 47 KB `RobotoCondensed-Regular.ttf`. Deliberately excluded: `404.html`
+  (offline, an unknown path falls back to the cached shell, which is better) and
+  the two `.LICENSE.txt` files, never requested at runtime.
+- **Lazy, cached on the first successful scan (6.69 MB as stored):**
+  `worker.min.js`, `tessdata/eng.traineddata.gz`, and **one** core `.wasm.js` —
+  whichever the worker's own runtime SIMD detection asks for, rather than both.
+  This needs no message plumbing: the first scan *is* what requests these three,
+  so the cache fills as a side effect of requests the scan already makes.
 
-**Definition of done (reword).** `README.md:81` no longer contains "works offline
-outright"; it says recognition needs no network once the page has loaded.
+**Stale-cache lockout is designed against, not merely noted.** Navigations are
+**network-first**, so an online user always gets the deployed build. The shell
+assets are network-first **too**, which is the less obvious half: this repo has
+no build step and therefore no content hashes, so cache-first on `js/*.js` would
+pin last week's modules under a freshly fetched `index.html` — a version skew
+presenting as an app broken in a way no single file explains. The cache is a
+genuine offline *fallback* and never a source of skew. Only the recognition
+payload is cache-first, because revalidating 6.7 MB on every scan is the hostile
+behaviour this is all trying to avoid; the price is a coupling, stated in
+`sw.js`: **bumping tesseract.js means bumping `SW_VERSION` in the same commit.**
+`skipWaiting()` + `clients.claim()` are deliberate for the same reason — a new
+worker parked in "waiting" behind an always-open tab is the classic way a new
+build never reaches anyone. And `?nosw` is a real recovery path, not a test hook:
+it unregisters and purges the caches without touching IndexedDB.
 
-**Risk.** CSP needs no change — `worker-src 'self' blob:` already covers service
-worker registration, and `default-src 'self'` covers the rest. No DOM ids touched.
-Real hazards are (a) stale-cache lockout, which is why the redeploy check above is
-part of "done", and (b) the 11 MB `vendor/tesseract` tree — precaching it wholesale
-makes first load hostile, so cache the app shell eagerly and the tessdata/core on
-first successful scan. Existing gates are indifferent unless the SW starts
-intercepting during tests; register it behind a check for `location.protocol ===
-"https:"` or a `?nosw` escape hatch so the Playwright gates keep seeing the network.
+**The escape hatch: opt-IN, and the two candidates are not equivalent.** §W1
+originally offered `location.protocol === "https:"` **or** a `?nosw` parameter.
+`?nosw` is opt-**out**: the worker would register everywhere unless a page said
+otherwise, so making the suite safe would mean appending `?nosw` to the URL in
+all 32 existing gates — and the 34th gate, the one nobody has written, would
+silently inherit a worker answering its requests from a cache. That is the same
+shape of defect as the console-capture blind spot `test/browser.js` exists to
+centralise: coverage believed rather than real, with the newest gate the least
+protected. So registration happens only over `https:` or on an explicit `?sw`,
+and `test/offline.js` asserts **both** halves — a plain `http://` load leaves the
+page uncontrolled with no registration and no cache, and `?sw=1` produces a
+controlled page. It falls out of this that the iOS build never registers either
+(Capacitor serves the WKWebView over `capacitor://localhost`), which matters
+because `scripts/sync-web-assets.sh` copies `js/` but not the root-level `sw.js`;
+an `isNativePlatform` guard states that intent rather than leaving it resting on
+a scheme comparison. **Not device-verified** — see "still owed" below.
+
+**CSP needed no change, and that was checked rather than assumed.**
+`index.html:55` literally carries `worker-src 'self' blob:` and
+`default-src 'self'`. But the same CSP forced one real design decision: it is
+`script-src 'self' 'wasm-unsafe-eval'` with **no `'unsafe-inline'`**, so the
+registration cannot be the inline `<script>` this section's "Files" note
+originally implied — an inline block would be refused outright. Hence a module.
+
+**Three findings from building it.**
+
+1. **A service worker *does* see the requests made by Tesseract's `blob:`
+   Worker.** The whole lazy-caching design rests on this and it was not safe to
+   guess: two of the three payload files are fetched by the worker, not the page,
+   and that worker is created from a Blob URL. A recording worker plus a real
+   scan settled it — `worker.min.js` (`mode=no-cors`),
+   `core/tesseract-core-simd-lstm.wasm.js` (`mode=no-cors`) and
+   `tessdata/eng.traineddata.gz` (`mode=cors`) were all intercepted on chromium.
+   Had they not been, lazy caching could never have served them back offline.
+2. **`context.setOffline(true)` does not block Chromium's service-worker script
+   update check.** `/sw.js` still reached the static server during the offline
+   steps, with no `?sw` in the URL and nothing in the repo fetching that path —
+   it is the navigation-triggered soft update the spec requires, issued outside
+   Playwright's context-level emulation, and it arrives a beat late, so it first
+   surfaced in the window for the step *after* the one that caused it. Allowed as
+   one exact path, never a category, and the socket-closed step covers the case
+   where even that cannot succeed. It is also the mechanism that keeps the app
+   updatable, so suppressing it would be undesirable even if it were possible.
+3. **Every gate's static server mislabels the directory URL.** They map `/` to
+   `index.html`'s bytes while taking the MIME type from `extname("/")`, which is
+   `""` — so `/` is served as `application/octet-stream`. No existing gate
+   notices, because every one of them navigates to `/index.html` explicitly.
+   `test/offline.js` navigates to the bare URL a bookmark opens, the worker
+   precached that octet-stream response, and replaying it offline made Chromium
+   *download* the app instead of rendering it (`page.goto: Download is
+   starting`). The deployment is fine — Pages returns `text/html` for
+   `/TextScanner/` — so this is the test server being less faithful than the real
+   one. Fixed in `test/offline.js` only; **the other 32 servers still have it**,
+   latent until another gate asks for a directory URL.
+
+**What is still owed, and it is part of this task's own definition of done.**
+The live redeploy check: push to `main`, wait for Pages, reload twice, confirm
+the **new** build arrives. That cannot be done from this session, so it was
+simulated faithfully against a local server instead — a changed asset, served to
+an already-controlled client, must appear on the next load. The simulation is
+evidence that the strategy is right; it is **not** the real check, and the real
+one is still outstanding. Also still owed: real Safari with Wi-Fi genuinely off
+(a different code path from DevTools offline, and §4.3's hardware limit), and the
+`capacitor://` non-registration reasoned above.
+
+**The problem, as originally recorded.** `README.md` said *"the web app works
+offline outright."* It did not. There was no service worker anywhere in the repo
+(`grep -rn "serviceWorker" index.html js/` returned nothing), so opening the app
+with the network off gave the browser's own error page. What was actually true was
+the narrower claim the same sentence went on to make: no network round trip is
+needed *for recognition*, because Tesseract's worker, wasm core and
+`eng.traineddata.gz` are vendored. For a local-first document scanner whose whole
+pitch is "no server," that was the gap most worth closing rather than rewording —
+and it was closed rather than reworded.
 
 ---
 
@@ -730,9 +809,21 @@ markup is the pattern to copy — it already exists and already works.
 
 ---
 
-### W7 — No web app manifest, so the app cannot be installed
+### W7 — No web app manifest, so the app cannot be installed — **DONE**
 
-**The problem.** `grep -rn "manifest\|apple-touch-icon" index.html` returns nothing.
+**What was built, verified against the tree rather than carried forward.**
+`manifest.webmanifest` (name, short_name, description, `start_url`/`scope` both
+`./` so the project-path deployment resolves, `display: standalone`, three icon
+entries) plus `icons/` holding all four PNGs — checked to be real PNGs at their
+declared sizes by reading their IHDR chunks: `icon-192.png` 192x192,
+`icon-512.png` 512x512, `icon-maskable-512.png` 512x512 (`purpose: maskable`),
+and `apple-touch-icon.png` 180x180. Wired up at `index.html:92`
+(`<link rel="manifest">`) and `index.html:95` (`<link rel="apple-touch-icon">`),
+with the `apple-mobile-web-app-*` meta tags beside them for the pre-16.4
+home-screen path. The paragraph below describing the gap is the ORIGINAL finding,
+kept as the record; its `grep` no longer returns nothing.
+
+**The problem, as originally recorded.** `grep -rn "manifest\|apple-touch-icon" index.html` returns nothing.
 There is a lovely inline SVG favicon (`index.html:62`) and nothing else. Consequences,
 in order of how much they matter:
 
@@ -760,9 +851,26 @@ home screen opens without browser chrome. Then re-check Application → Storage:
 
 ---
 
-### W8 — Storage durability: a local-first app whose storage the browser may delete
+### W8 — Storage durability: a local-first app whose storage the browser may delete — **DONE**
 
-**The problem.** This is the one I would rank as the biggest *product* risk in the
+**What was built, verified against the tree rather than carried forward.**
+Persistence is requested at launch, fire-and-forget, from `js/app.js:363`
+(`requestPersistence()` in `js/store.js:409`, which returns early if the browser
+has already granted it) — so the claim in `index.html:87` that the app asks on
+every launch is accurate. Settings carries `#settings-persist` ("Keep storage
+permanently", `index.html:798`) and a three-part status line rather than a
+boolean: `#settings-persist-status` (:799), `#settings-persist-state` (:804) and
+`#settings-persist-explain` (:805), which distinguish "granted", "not granted"
+and "this browser won't say" in plain language. Backup is
+`#settings-backup-export` ("Back up everything", :816) and
+`#settings-backup-import` ("Restore from a backup", :817). `test/backup-roundtrip.js`
+is gate 32 and passes, including its API-key canary — which is a genuine negative
+assertion searched in the RAW serialized bytes (`!exported.text.includes(CANARY_KEY)`),
+not inferred from intent, plus a companion check that the export copied the key
+rather than clearing it. The paragraph below is the ORIGINAL finding, kept as the
+record.
+
+**The problem, as originally recorded.** This is the one I would rank as the biggest *product* risk in the
 web build, and it is not on any existing list. The app's premise is "everything is
 local, there is no server." On the web that means:
 
@@ -1105,14 +1213,14 @@ Vision migration, and on the web it is not.
 
 | Task | Touches the 72 ids | Can turn CI red | Effort |
 |---|---|---|---|
-| W1 offline / service worker | No | New gate; SW must not intercept existing gates | M |
+| ~~W1 offline / service worker~~ **done, live redeploy check still owed** | No | Gate 33 `offline.js`; the SW does not intercept the other gates, and that is now asserted rather than hoped | M |
 | ~~W2 cross-browser CI~~ **done** | No | Nightly red on WebKit: X1, X2, X3 | M–L |
 | ~~W3 dom-id gate~~ **done** | No (protects them) | New gate only | S |
 | ~~W4 motion invariant~~ **done** | No | New gate only | S |
 | ~~W5 dialog-path coverage~~ **done** | No | Found F4 (copy, not a broken path) | S–M |
 | W6 replace native dialogs | **Yes** | Gates 12, 13, 14 | L |
-| W7 web app manifest | No | No | S |
-| W8 storage durability + backup | Adds Settings ids | Gate 12 | L |
+| ~~W7 web app manifest~~ **done** | No | No | S |
+| ~~W8 storage durability + backup~~ **done** | Adds Settings ids | Gate 12 | L |
 | ~~W9 run the 17 checks~~ **done** | No | Found 3 (F1-F3), none fixed | S |
 | ~~W10 doc accuracy~~ **done** | No | No | S |
 | W11 og: + 404 | No | No | S |
@@ -1129,19 +1237,22 @@ W9 left three findings (F1-F3) that are unassigned; **F3 is the one to pick up**
 since a gate covering the interaction spec's call site 3 at a phone width would
 have caught two of the three by itself.
 
-**Then the two that decide what "shippable web app" even means:**
-W2 (cross-browser — do this before building anything new, so you are not
-debugging new code and a WebKit divergence at once) → W1 (offline).
+**~~Then the two that decide what "shippable web app" even means:~~**
+~~W2 (cross-browser — do this before building anything new, so you are not
+debugging new code and a WebKit divergence at once) → W1 (offline).~~ Both done.
+W1's one outstanding piece is a live redeploy check that needs a push to `main`,
+not more engineering.
 
 **Then the product gaps, in dependency order:**
-W7 (manifest) → W8 (storage durability, which depends on W7 for persistence) →
-~~W5 (cover the dialog paths)~~ done → W6 (replace them, now that a test of the old behaviour exists to port).
+~~W7 (manifest)~~ → ~~W8 (storage durability, which depends on W7 for persistence)~~ →
+~~W5 (cover the dialog paths)~~ all done → W6 (replace them, now that a test of the old behaviour exists to port).
 
 **Last, optional:** W11, W12, W13.
 
-If you only do four: **W3, W2, W1, W8.** Those are, respectively, the invariant you
-asked about, the browsers you have never tested, the claim you are making that
-isn't true, and the data your users could lose.
+~~If you only do four: **W3, W2, W1, W8.**~~ All four are done — respectively the
+invariant you asked about, the browsers you had never tested, the claim you were
+making that wasn't true, and the data your users could lose. What is left in §1 is
+W6 (replace the native dialogs), W11, W12 and W13.
 
 ---
 

@@ -85,7 +85,7 @@ What this doesn't claim: better raw recognition accuracy than those tools on har
 - Live progress feedback while the OCR engine loads and processes the image
 - Copy the extracted text to your clipboard or download it as a `.txt` file, from any view. Paste works the other way: in Text mode it replaces the whole result with your clipboard's contents (with a confirm, since it discards the OCR result); in Image format/Full image it drops the clipboard's text as a new object wherever you tap next
 - A built-in sample image so you can try it out with no image of your own
-- Everything runs on-device, and **recognition needs no network at all, ever** - not even the first time: Tesseract.js, its worker, its WebAssembly core and its English language data are all served from this repository rather than a CDN, so nothing is fetched from a third party at scan time. To be precise about what that does *not* mean: the page itself is still loaded over the network like any website, so opening the app with no connection at all does not currently work - there is no service worker yet. Once the tab is open, no network is needed to scan, edit or export. The precise, honest claim is that **your image is never uploaded** - recognition happens on the device and the picture itself goes nowhere. The app is not, however, wholly silent on the network: Coherence Filter makes an opt-in call to Claude's API with your extracted text (disclosed every time the panel is open), and the iOS build links Google's ML Kit, which performs its own usage logging (see `ios/` notes and the App Store readiness work)
+- Everything runs on-device, and **recognition needs no network at all, ever** - not even the first time: Tesseract.js, its worker, its WebAssembly core and its English language data are all served from this repository rather than a CDN, so nothing is fetched from a third party at scan time. Since the service worker landed this is true of the *page* as well: `sw.js` precaches the app shell on first visit and the recognition payload on your first successful scan, so opening the app with no connection at all renders your Library and scans an image end to end - asserted in CI by `test/offline.js`, with the network genuinely gone rather than mocked. Two honest limits on that. The 11 MB of wasm core and language data are cached on the first scan rather than up front, deliberately, so a first visit is not made hostile - which means your **first** scan still needs the network, and every one after it does not. And it has been verified on Chromium in CI and reasoned about for Safari, not confirmed on a real iPhone with Wi-Fi switched off. The precise, honest claim is that **your image is never uploaded** - recognition happens on the device and the picture itself goes nowhere. The app is not, however, wholly silent on the network: Coherence Filter makes an opt-in call to Claude's API with your extracted text (disclosed every time the panel is open), and the iOS build links Google's ML Kit, which performs its own usage logging (see `ios/` notes and the App Store readiness work)
 - Responsive layout with automatic light and dark themes
 
 ## How it works
@@ -110,13 +110,17 @@ Then open `http://localhost:8000` in your browser.
 ## Project structure
 
 The web app has no build step: `index.html` loads `js/main.js` as an ES module and
-the browser resolves the rest. 49 modules, grouped by what they own.
+the browser resolves the rest. 50 modules, grouped by what they own.
 
 ```
 index.html            Markup and layout. Every view's markup is present at all
                       times, hidden with a class - see js/views.js for why
 style.css             Styling, light/dark themes, and the --motion-* tokens a
                       single prefers-reduced-motion block zeroes
+sw.js                 The service worker: app shell precached eagerly, the 11 MB
+                      Tesseract payload cached on the first successful scan.
+                      Network-first for everything in the shell, on purpose -
+                      see its header on stale-cache lockout
 
 Shell and navigation
   js/app.js           The app shell: five views, settings, storage, wiring
@@ -126,6 +130,9 @@ Shell and navigation
   js/state.js         Shared app/editor state and tunable constants
   js/theme.js         System / light / dark, remembered in localStorage
   js/toast.js         Transient messages, including delete-with-Undo
+  js/serviceWorkerRegistration.js
+                      Registers sw.js over https: (or an explicit ?sw), and the
+                      ?nosw kill switch that unregisters and purges it
 
 Library and persistence
   js/store.js         IndexedDB: documents, pages, blobs, folders, settings

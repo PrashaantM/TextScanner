@@ -222,6 +222,26 @@ jobs:
       # serialized bytes are searched for it, because a library backup is
       # exactly the file someone emails themselves or drops in a synced folder.
       - run: node test/backup-roundtrip.js
+      # W1's service worker, with the network genuinely gone. Three layered
+      # mechanisms rather than one, because the weak version of this test is the
+      # one that passes while proving nothing: context.setOffline(true), a
+      # SERVER-SIDE WITNESS that fails the run if anything at all reached the
+      # static server during an offline step, and finally the server socket
+      # closed outright so no emulation is being trusted. page.route() abort is
+      # deliberately NOT used - requests issued by a service worker are not
+      # reliably subject to it, so the component under test could have gone on
+      # fetching for real behind a green gate.
+      # Also pins the two cache buckets as buckets: the 6.7 MB recognition payload
+      # (wasm core + tessdata) must be ABSENT before the first scan, because
+      # precaching 11 MB of vendor/tesseract at install would make first load
+      # hostile, and PRESENT after it. And it asserts sw.js's precache manifest
+      # against `ls js/*.js` in BOTH directions - a service worker cannot glob a
+      # directory, so that list is the one place in the repo restating what js/
+      # contains, and it is what rots the next time a module is renamed.
+      # The escape hatch is asserted here too, which is what protects the 32
+      # gates above: a plain http:// load must leave the page uncontrolled with
+      # no registration and no cache at all.
+      - run: node test/offline.js
 
   # ---------------------------------------------------------------------------
   # Nightly only, and that is a deliberate choice rather than a lack of nerve.
