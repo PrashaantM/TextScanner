@@ -24,14 +24,13 @@
 //
 // Usage: node test/font-match.js   (exits non-zero if anything regressed)
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, listenOnEphemeralPort } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const PORT = 8143;
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".jpeg": "image/jpeg", ".png": "image/png", ".wasm": "application/wasm", ".traineddata": "application/octet-stream", ".gz": "application/gzip" };
 
 // Floors. See the header for why weight's is expressed against 50%.
@@ -56,7 +55,8 @@ const server = createServer(async (req, res) => {
     res.writeHead(404);
     res.end("nf");
   }
-}).listen(PORT);
+});
+const PORT = await listenOnEphemeralPort(server);
 
 const failures = [];
 const check = (name, condition, detail = "") => {

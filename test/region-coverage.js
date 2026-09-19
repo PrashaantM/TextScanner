@@ -35,7 +35,7 @@
 // Usage: node test/region-coverage.js
 //        node test/region-coverage.js --report   (print measurements, never fail)
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, listenOnEphemeralPort } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -43,7 +43,6 @@ import { fileURLToPath } from "node:url";
 import { characterErrorRate } from "./metrics.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const PORT = 8135;
 const REPORT_ONLY = process.argv.includes("--report");
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".jpeg": "image/jpeg", ".jpg": "image/jpeg", ".png": "image/png", ".wasm": "application/wasm", ".traineddata": "application/octet-stream", ".gz": "application/gzip", ".webmanifest": "application/manifest+json", ".svg": "image/svg+xml" };
 
@@ -57,7 +56,8 @@ const server = createServer(async (req, res) => {
     res.writeHead(404);
     res.end("nf");
   }
-}).listen(PORT);
+});
+const PORT = await listenOnEphemeralPort(server);
 
 // Slack above the recorded ceiling before a region is called a regression.
 // Recognition on this path is deterministic run to run (test/TUNING-2.md §1

@@ -31,14 +31,13 @@
 //
 // Usage: node test/guided-path.js   (exits non-zero if anything regressed)
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, listenOnEphemeralPort } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const PORT = 8131;
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".jpeg": "image/jpeg", ".jpg": "image/jpeg", ".png": "image/png", ".wasm": "application/wasm", ".traineddata": "application/octet-stream", ".gz": "application/gzip", ".webmanifest": "application/manifest+json", ".svg": "image/svg+xml" };
 
 const server = createServer(async (req, res) => {
@@ -51,7 +50,8 @@ const server = createServer(async (req, res) => {
     res.writeHead(404);
     res.end("nf");
   }
-}).listen(PORT);
+});
+const PORT = await listenOnEphemeralPort(server);
 
 // A drag has to clear beginObjectDrag's 3px "is this really a drag" threshold by
 // a wide margin, and land somewhere still inside the image.

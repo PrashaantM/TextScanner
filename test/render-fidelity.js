@@ -13,7 +13,7 @@
 //
 // Usage: node test/render-fidelity.js   (writes PNGs to test/manual-output/)
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, listenOnEphemeralPort } from "./browser.js";
 import { createServer } from "node:http";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { extname, join } from "node:path";
@@ -22,7 +22,9 @@ import { FIXTURES } from "./make-mlkit-fixture.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const OUT = join(ROOT, "test/manual-output");
-const PORT = 8124;
+// Assigned by serveStatic() below, once the OS has picked a free port.
+// See listenOnEphemeralPort in test/browser.js for why nothing here is fixed.
+let PORT;
 
 // Placement error budget for the ML Kit fixture replay, as a percentage of the
 // image's own width/height. The numbers this actually produces are ~1e-13 (the
@@ -66,8 +68,8 @@ const MIN_TIGHT_FIT = 0.94;
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".jpeg": "image/jpeg", ".jpg": "image/jpeg", ".png": "image/png" };
 
-function serveStatic() {
-  return createServer(async (req, res) => {
+async function serveStatic() {
+  const server = createServer(async (req, res) => {
     try {
       const urlPath = decodeURIComponent(req.url.split("?")[0]);
       const filePath = join(ROOT, urlPath === "/" ? "index.html" : urlPath);
@@ -78,7 +80,9 @@ function serveStatic() {
       res.writeHead(404);
       res.end("not found");
     }
-  }).listen(PORT);
+  });
+  PORT = await listenOnEphemeralPort(server);
+  return server;
 }
 
 // Drawn in the page: a poster-shaped image mixing display-sized headlines with
@@ -366,7 +370,7 @@ async function replayMlkitFixtures(page) {
 }
 
 async function main() {
-  const server = serveStatic();
+  const server = await serveStatic();
   await mkdir(OUT, { recursive: true });
   const browser = await launchBrowser({ headless: true });
   const page = await browser.newPage({ viewport: { width: 900, height: 1400 }, deviceScaleFactor: 2 });

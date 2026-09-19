@@ -12,14 +12,13 @@
 //
 // Usage: node test/library-documents.js
 
-import { launchBrowser, blobStorageWorks, noteBlobSkip, expectConsoleErrors } from "./browser.js";
+import { launchBrowser, blobStorageWorks, noteBlobSkip, expectConsoleErrors, listenOnEphemeralPort } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const PORT = 8133;
 const MIME = {
   ".html": "text/html",
   ".js": "text/javascript",
@@ -42,7 +41,8 @@ const server = createServer(async (req, res) => {
     res.writeHead(404);
     res.end("nf");
   }
-}).listen(PORT);
+});
+const PORT = await listenOnEphemeralPort(server);
 
 const failures = [];
 const check = (name, condition, detail = "") => {

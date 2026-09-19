@@ -46,22 +46,21 @@
 //
 // Usage: node test/touch-interactions.js   (exits non-zero if anything regressed)
 
-import { chromium } from "playwright-core";
-import { skipUnlessChromium } from "./browser.js";
+import { launchBrowser, skipUnlessChromium, listenOnEphemeralPort } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const PORT = 8126;
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".jpeg": "image/jpeg", ".png": "image/png", ".gz": "application/gzip" };
 const server = createServer(async (req, res) => {
   try { const p = decodeURIComponent(req.url.split("?")[0]);
     const body = await readFile(join(ROOT, p === "/" ? "index.html" : p));
     res.writeHead(200, { "Content-Type": MIME[extname(p)] || "application/octet-stream" }); res.end(body);
   } catch { res.writeHead(404); res.end("nf"); }
-}).listen(PORT);
+});
+const PORT = await listenOnEphemeralPort(server);
 
 // CHROMIUM-PINNED ON PURPOSE - do not "fix" this to honour BROWSER=webkit.
 //
@@ -85,7 +84,14 @@ if (skipUnlessChromium("needs CDP Input.dispatchTouchEvent for genuine trusted t
   process.exit(0);
 }
 
-const browser = await chromium.launch({ headless: true });
+// launchBrowser, NOT chromium.launch: this gate skipped straight past the
+// console-error capture in test/browser.js, which only attaches to pages
+// created through it. It installed page.on("pageerror") like the other 25
+// gates and was the one file cedffae could not reach, so every handled
+// console.error on a touch path - withBusy in js/scanDoc.js catches, logs
+// and alerts - stayed invisible here after it was fixed everywhere else.
+// The engine is already known to be chromium: the skip above exits first.
+const browser = await launchBrowser({ headless: true });
 const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 3 });
 const page = await context.newPage();
 const errors = [];

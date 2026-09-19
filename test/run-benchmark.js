@@ -78,7 +78,7 @@
 // still measured and printed, for visibility and continuity, but never
 // compared to a tolerance. See test/partialGroundTruth.js for the shared set.
 
-import { launchBrowser, BROWSER_NAME } from "./browser.js";
+import { launchBrowser, BROWSER_NAME, listenOnEphemeralPort } from "./browser.js";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join, basename } from "node:path";
@@ -87,7 +87,9 @@ import { characterErrorRate, wordErrorRate, referenceLengths } from "./metrics.j
 import { PARTIAL_GROUND_TRUTH } from "./partialGroundTruth.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const PORT = 8123;
+// Assigned by serveStatic() below, once the OS has picked a free port.
+// See listenOnEphemeralPort in test/browser.js for why nothing here is fixed.
+let PORT;
 // The benchmark corpus and its ground truth live side by side under test/ (the
 // corpus used to sit in a folder named legacy-opencv-scripts/, which hid it).
 const IMAGE_DIR = join(ROOT, "test/images");
@@ -105,8 +107,8 @@ const MIME = {
   ".gz": "application/gzip",
 };
 
-function serveStatic() {
-  return createServer(async (req, res) => {
+async function serveStatic() {
+  const server = createServer(async (req, res) => {
     try {
       const urlPath = decodeURIComponent(req.url.split("?")[0]);
       const filePath = join(ROOT, urlPath === "/" ? "index.html" : urlPath);
@@ -117,7 +119,9 @@ function serveStatic() {
       res.writeHead(404);
       res.end("not found");
     }
-  }).listen(PORT);
+  });
+  PORT = await listenOnEphemeralPort(server);
+  return server;
 }
 
 async function scanImage(page, imagePath) {
@@ -205,7 +209,7 @@ async function main() {
     const replay = JSON.parse(await readFile(replayPath, "utf8"));
     rows = replay.images;
   } else {
-    const server = serveStatic();
+    const server = await serveStatic();
     const files = (await readdir(GROUNDTRUTH_DIR)).filter((f) => f.endsWith(".txt")).sort();
 
     const browser = await launchBenchmarkBrowser();

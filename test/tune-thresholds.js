@@ -32,7 +32,7 @@
 // three. Growing the corpus (Phase 3 step 1, blocked on new source photos) is
 // what would make finer distinctions trustworthy.
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, listenOnEphemeralPort } from "./browser.js";
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join, basename } from "node:path";
@@ -46,7 +46,9 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const TUNABLE_FILES = [join(ROOT, "js/ocrEngine.js"), join(ROOT, "js/preprocess.js")];
 const IMAGE_DIR = join(ROOT, "test/images");
 const GROUNDTRUTH_DIR = join(ROOT, "test/groundtruth");
-const PORT = 8124;
+// Assigned by serveStatic() below, once the OS has picked a free port.
+// See listenOnEphemeralPort in test/browser.js for why nothing here is fixed.
+let PORT;
 
 // Each variant is a set of constant overrides applied together. Chosen around
 // the levers the completion plan names: the thresholds gating each pipeline
@@ -89,8 +91,8 @@ const MIME = {
   ".wasm": "application/wasm", ".gz": "application/gzip",
 };
 
-function serveStatic() {
-  return createServer(async (req, res) => {
+async function serveStatic() {
+  const server = createServer(async (req, res) => {
     try {
       const urlPath = decodeURIComponent(req.url.split("?")[0]);
       const filePath = join(ROOT, urlPath === "/" ? "index.html" : urlPath);
@@ -106,7 +108,9 @@ function serveStatic() {
       res.writeHead(404);
       res.end("not found");
     }
-  }).listen(PORT);
+  });
+  PORT = await listenOnEphemeralPort(server);
+  return server;
 }
 
 // Applies overrides across the tunable files, and insists every named constant
@@ -177,7 +181,7 @@ async function main() {
     process.exit(130);
   });
 
-  const server = serveStatic();
+  const server = await serveStatic();
   const browser = await launchBrowser({ headless: true });
   const page = await browser.newPage();
 

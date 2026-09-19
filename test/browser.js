@@ -210,6 +210,41 @@ export async function launchBrowser(options = {}) {
   return watchBrowser(await engine.launch(options));
 }
 
+// ---------------------------------------------------------------------------
+// Binds a gate's static server to a port the OS picks, and resolves with the
+// port it actually got.
+//
+// WHY NOT A FIXED PORT. Every gate used to declare `const PORT = 81xx` and
+// `.listen(PORT)`. Twenty-eight files were sharing twenty numbers, so eight
+// PAIRS collided outright - render-fidelity/tune-thresholds on 8124,
+// move-inpaint/non-latin-limitation on 8129, guided-path/web-tier-smoke on
+// 8131, editor-delete/pdf-export on 8132, library-documents/replacement-size
+// on 8133, chrome-reorganization/document-creation on 8140,
+// radial-call-sites/redaction-destroys-original on 8149, and
+// inpaint-fidelity/pii-redaction on 8151.
+//
+// Renumbering would have fixed those eight and left the real defect in place:
+// a FIXED port means two runs of the SAME gate collide too. That is not
+// hypothetical - it cost one session a run when 8140 was taken, and another a
+// full benchmark run on 8123. Two sessions on one machine, a stale server from
+// an interrupted run, a dev server that happens to want 8131: all the same bug.
+//
+// Port 0 asks the OS for a free port, so a gate can never collide with anything
+// - including itself. The port is only knowable after the socket binds, hence
+// the promise: `server.address()` returns null until the "listening" event.
+//
+// The `error` listener is once-only and paired with the success path so a real
+// bind failure (EACCES, EMFILE) still rejects rather than hanging forever.
+export function listenOnEphemeralPort(server) {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, () => {
+      server.removeListener("error", reject);
+      resolve(server.address().port);
+    });
+  });
+}
+
 // True when the current engine is NOT the one a gate requires. A gate that
 // genuinely cannot run elsewhere should say so and skip with exit 0 rather than
 // fail - a skip with a stated reason is information; a red build for a test that

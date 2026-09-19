@@ -40,14 +40,13 @@
 //
 // Usage: node test/replacement-size.js   (exits non-zero if anything regressed)
 
-import { launchBrowser, BROWSER_NAME } from "./browser.js";
+import { launchBrowser, BROWSER_NAME, listenOnEphemeralPort } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const PORT = 8133;
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".jpeg": "image/jpeg", ".jpg": "image/jpeg", ".png": "image/png", ".wasm": "application/wasm", ".traineddata": "application/octet-stream", ".gz": "application/gzip", ".webmanifest": "application/manifest+json", ".svg": "image/svg+xml" };
 
 const server = createServer(async (req, res) => {
@@ -70,7 +69,8 @@ const server = createServer(async (req, res) => {
     res.writeHead(404);
     res.end("nf");
   }
-}).listen(PORT);
+});
+const PORT = await listenOnEphemeralPort(server);
 
 // MAX_SPILL (1.1) and MIN_TIGHT_FIT (0.94) used to sit here as a band around
 // 1.0. Both are gone, and it is worth saying why out loud rather than quietly

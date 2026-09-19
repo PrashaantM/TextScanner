@@ -31,7 +31,7 @@
 //
 // Usage: node test/non-latin-limitation.js   (exits non-zero only on 1, 2 or 4)
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, listenOnEphemeralPort } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -39,7 +39,6 @@ import { fileURLToPath } from "node:url";
 import { characterErrorRate } from "./metrics.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const PORT = 8129;
 const MIME = {
   ".html": "text/html",
   ".js": "text/javascript",
@@ -78,7 +77,8 @@ const server = createServer(async (req, res) => {
     res.writeHead(404);
     res.end("nf");
   }
-}).listen(PORT);
+});
+const PORT = await listenOnEphemeralPort(server);
 
 const browser = await launchBrowser({ headless: true });
 const failures = [];

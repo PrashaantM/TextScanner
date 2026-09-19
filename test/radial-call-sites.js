@@ -28,14 +28,13 @@
 //
 // Usage: node test/radial-call-sites.js   (BROWSER= to pick an engine)
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, listenOnEphemeralPort } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const PORT = 8149;
 const MIME = {
   ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png",
   ".jpeg": "image/jpeg", ".jpg": "image/jpeg", ".gz": "application/gzip", ".wasm": "application/wasm",
@@ -54,7 +53,8 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": MIME[extname(p)] || "application/octet-stream" });
     res.end(body);
   } catch { res.writeHead(404); res.end("nf"); }
-}).listen(PORT);
+});
+const PORT = await listenOnEphemeralPort(server);
 
 const failures = [];
 const check = (name, condition, detail = "") => {

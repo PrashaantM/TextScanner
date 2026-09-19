@@ -30,10 +30,10 @@ session is a chance to move a number the doc just fixed. Say in one sentence
 in the commit message whether the commit touches any of the three; if it
 does, the same commit carries the doc update.
 
-**Three of those numbers are now gated rather than promised.** `node
-test/repo-contract.js` (gate 4) parses the module count, the line count and
-the CI-gate count back OUT of this section and fails if any disagrees with
-the tree - so the standing rule above is now enforced for them by CI instead
+**Three of those numbers are now gated rather than promised, in three
+documents.** `node test/repo-contract.js` (gate 4) parses the module count,
+the line count and the CI-gate count back OUT of this section - and out of
+`README.md` and `ANALYSIS.md` - and fails if any disagrees with the tree - so the standing rule above is now enforced for them by CI instead
 of by whoever remembers it. The counts are parsed, not duplicated in the test
 file: this section stays the single source and the gate only checks it. Every
 place §0 states one of the three is checked, not just the fact table, so a
@@ -43,6 +43,31 @@ fact table above it, and gate 4 failed on that line before it failed on
 anything else. The id count is deliberately NOT handled this way;
 `EXPECTED_ID_COUNT` in `test/dom-contract.js` stays a hand-edited number,
 because changing the id contract SHOULD cost a deliberate edit.
+
+**A number that is deliberately history says so, in the document.** Extending
+the gate past this section meant deciding, per number, whether a document was
+making a live claim or recording what was true at some past revision -
+`ANALYSIS.md` does both. Inferring that from context is what the first version
+did (it treated a markdown blockquote as meaning "historical", which is not
+what a blockquote means), and it is unreviewable. So the document declares it:
+`<!-- count-snapshot: why -->` at the end of a line, or a
+`<!-- count-snapshot-begin: why -->` / `<!-- count-snapshot-end -->` pair
+around a fenced block where an inline comment would render instead of hiding.
+Marked numbers are never checked; unmarked ones must be true now. The marker
+carries a reason rather than being a bare flag, and a marker sitting over text
+that no longer states a count is itself a failure. It is a declaration, not a
+proof: someone can freeze a live number with it, exactly as someone can add a
+wrong entry to `EXEMPT_HELPERS`. The reason text in the diff is what makes
+that reviewable.
+
+**Two further checks live in the same gate, both about the suite rather than
+this section.** No file in `test/` may bind a fixed TCP port - 28 files were
+sharing 20 numbers and eight pairs collided, and a fixed port also means two
+runs of the SAME gate collide, which renumbering cannot fix. And every browser
+gate must be able to see *handled* console errors, not only uncaught ones: 25
+gates installed `page.on("pageerror")` and none watched the console, so every
+`console.error` inside a `catch` - `withBusy` in `js/scanDoc.js` catches, logs
+and alerts - was invisible to the whole suite.
 
 Checked today rather than carried forward from `HANDOFF.md`:
 
@@ -172,13 +197,19 @@ the count was gated: `font-match.js` and `chrome-reorganization.js` had been
 running in CI with no row at all, which is how the heading said 28 while the
 workflow ran 30.
 
-**Gate numbers in §1's risk notes are stale and were not renumbered.** "gates
-12, 13 and 14" (W5), "gate 12" (W7) and "gate 8" (W14) are anchored to the
-table as it stood in `b57854c`, where they meant `pdf-export.js`,
-`library-documents.js`, `document-creation.js` and `render-fidelity.js`. They
-had already drifted seven places before this change and re-deriving which
-gate each risk note actually meant is guesswork, so they were left alone
-rather than shifted by three and made confidently wrong.
+**§1's risk notes name gate FILES, not table positions, and that is
+deliberate.** They used to read "gates 12, 13 and 14" (W5), "gate 12" (W7) and
+"gate 8" (W14), anchored to the table as it stood in `b57854c` - and they had
+already drifted seven places by the time anyone noticed, because a row
+inserted anywhere above shifts every number below it. Renumbering them would
+have bought one correct revision and the same drift again at the next insert;
+leaving them stale was honest but useless. Resolving them against `b57854c`
+(`git show b57854c:WEB-COMPLETION-PLAN.md`) gives `pdf-export.js`,
+`library-documents.js`, `document-creation.js` and `render-fidelity.js`, and a
+filename cannot drift. W7's claim that its gate "leans on `js/store.js`
+hardest" is reproduced as the author wrote it: the archaeology settles WHICH
+gate was meant, not whether that was the right thing to say about it, and
+re-deciding that would be the guessing this replacement exists to end.
 
 **What gate 29 is protecting.** PII detection runs over `page.words` (a scan
 document page's real OCR result), not `state.editorObjects` (the separate,
@@ -692,8 +723,8 @@ returns focus to its trigger, and W5's gate still passes after being rewritten
 against the new controls.
 
 **Risk.** **This is the highest-risk item on the list for the id contract.** It adds
-ids to `index.html` and rewires handlers in four modules that gates 12, 13 and 14
-drive. Do W3 and W5 first: W3 turns an accidental id rename into a red build, and
+ids to `index.html` and rewires handlers in four modules that `pdf-export.js`,
+`library-documents.js` and `document-creation.js` drive. Do W3 and W5 first: W3 turns an accidental id rename into a red build, and
 W5 gives you a test of the old behaviour to port. The existing `#folder-picker`
 markup is the pattern to copy — it already exists and already works.
 
@@ -761,7 +792,7 @@ local, there is no server." On the web that means:
    page both come back.
 3. `README.md` says what persistence actually guarantees per browser.
 
-**Risk.** Medium. It touches `js/store.js`, which gate 12 leans on hardest, and it
+**Risk.** Medium. It touches `js/store.js`, which `pdf-export.js` leans on hardest, and it
 adds Settings ids (mitigated by W3). The export format is the decision worth making
 deliberately — a single JSON with base64 page images is simplest and roughly
 inflates blobs by a third; a zip needs a vendored library, which this repo has
@@ -1061,7 +1092,7 @@ tripwire fires for the scripts still unsupported and *asserts success* for the o
 now shipped — otherwise the gate that exists to catch "it started working" fails
 the moment you make it work.
 
-**Risk.** Medium, mostly on size and on gate 8. `eng` alone is 2.9 MB;
+**Risk.** Medium, mostly on size and on `render-fidelity.js`. `eng` alone is 2.9 MB;
 `chi_sim` is larger. GitHub Pages' published-site soft limit is 1 GB so there is
 headroom, but each language is a real first-scan download for every user. A
 language picker adds ids (W3 first). **Scope decision, not a defect** — I am

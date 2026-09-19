@@ -13,7 +13,7 @@
 
 ## 0. Executive summary
 
-TextScanner is a **zero-build, dependency-light, local-first OCR and image-text-editing app**: 5,709 lines of vanilla ES-module JavaScript across 24 modules, deployed straight to GitHub Pages, wrapped in a Capacitor iOS shell that dispatches between Tesseract.js and native Google ML Kit, plus two features (Coherence Filter, translate-in-place) that dispatch between Apple's on-device Foundation Models and a BYOK Claude fallback.
+TextScanner is a **zero-build, dependency-light, local-first OCR and image-text-editing app**: 17,597 lines of vanilla ES-module JavaScript across 49 modules, deployed straight to GitHub Pages, wrapped in a Capacitor iOS shell that dispatches between Tesseract.js and native Google ML Kit, plus two features (Coherence Filter, translate-in-place) that dispatch between Apple's on-device Foundation Models and a BYOK Claude fallback.
 
 The headline of this revision is not a feature. It is that **the oldest open bug in the project is closed, and was closed without a device** — by generating recognition fixtures with exact ground truth rather than waiting for a device dump that would have had none.
 
@@ -63,6 +63,7 @@ Long words inflate worst and overlap their neighbours. That matches the reported
 
 ### 1.1 Layout — what this revision added
 
+<!-- count-snapshot-begin: this diagram records what the third revision CHANGED, and each left-hand figure is only meaningful beside its own "(was ...)" delta - updating one half would assert a jump that never happened in one revision. Live counts: WEB-COMPLETION-PLAN.md §0, gated by test/repo-contract.js. -->
 ```
 TextScanner/
 ├── ANALYSIS.md                     ← this file, third revision
@@ -88,6 +89,7 @@ TextScanner/
     ├── APP-STORE-SUBMISSION.md              ← NEW (Phase 6)
     └── CUSTOM-DOMAIN-MIGRATION.md           ← NEW (Phase 5, blocked)
 ```
+<!-- count-snapshot-end -->
 
 ### 1.2 The one-source-of-truth rule — held, and exercised
 
@@ -138,7 +140,7 @@ Rotation is applied as a CSS transform. `.image-format-word` already carried `tr
 
 The `quad`/`frame` fields are additive and optional. `js/recognize.js`'s dispatch is unchanged, and the renderer's fallback is the same branch that serves Tesseract. The single-seam pattern absorbed an engine-specific geometry concept without either engine learning about the other.
 
-### 2.9 Testing — 12 CI gates, and one that wasn't gating
+### 2.9 Testing — 12 CI gates, and one that wasn't gating <!-- count-snapshot: this section narrates what THIS revision did to CI ("grew from 6 test gates to 10"); the heading number is the subject of that narrative, so raising it would contradict the body. Live count: WEB-COMPLETION-PLAN.md §0's gate table. -->
 
 CI grew from 6 test gates to 10 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), on top of the two setup steps:
 
@@ -409,7 +411,7 @@ Written after §§0–7. Everything above describes the app at `4ae7cfd`: a sing
 capture-recognize-edit flow. This section records what `ca341d7` added and, more
 usefully, what it deliberately left alone.
 
-**Scale:** 14 new modules, ~4,500 lines, taking `js/` from 24 modules / 5,709
+**Scale:** 14 new modules, ~4,500 lines, taking `js/` from 24 modules / 5,709 <!-- count-snapshot: §8 opens "Everything above describes the app at 4ae7cfd ... this section records what ca341d7 added"; this is the FROM side of a measured delta, not a claim about the tree. Live counts: WEB-COMPLETION-PLAN.md §0. -->
 lines to 38 / 11,469. Two new CI gates, taking the suite from 10 to 12.
 
 ### 8.1 What was added

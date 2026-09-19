@@ -27,14 +27,13 @@
 // minified file, so it's allowlisted below by exact message rather than
 // ignored silently.
 
-import { launchBrowser, expectConsoleErrors } from "./browser.js";
+import { launchBrowser, expectConsoleErrors, listenOnEphemeralPort } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const PORT = 8127;
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".jpeg": "image/jpeg", ".jpg": "image/jpeg", ".png": "image/png", ".wasm": "application/wasm", ".traineddata": "application/octet-stream", ".gz": "application/gzip" };
 const server = createServer(async (req, res) => {
   try {
@@ -46,7 +45,8 @@ const server = createServer(async (req, res) => {
     res.writeHead(404);
     res.end("nf");
   }
-}).listen(PORT);
+});
+const PORT = await listenOnEphemeralPort(server);
 
 const browser = await launchBrowser({ headless: true });
 const failures = [];

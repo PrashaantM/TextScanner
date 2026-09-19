@@ -29,7 +29,7 @@
 //
 // Usage: node test/pdf-export.js
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, listenOnEphemeralPort } from "./browser.js";
 import { readFile, writeFile, mkdir, rm, readdir } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -42,7 +42,6 @@ const execFileAsync = promisify(execFile);
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const OUT = join(ROOT, "test/manual-output/pdf");
-const PORT = 8132;
 
 const MIME = {
   ".html": "text/html",
@@ -63,7 +62,8 @@ const server = createServer(async (req, res) => {
     res.writeHead(404);
     res.end("nf");
   }
-}).listen(PORT);
+});
+const PORT = await listenOnEphemeralPort(server);
 
 const failures = [];
 const check = (name, condition, detail = "") => {

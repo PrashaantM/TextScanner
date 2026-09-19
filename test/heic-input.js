@@ -41,14 +41,13 @@
 //
 // Usage: node test/heic-input.js   (exits non-zero if the failure is not graceful)
 
-import { launchBrowser, expectConsoleErrors } from "./browser.js";
+import { launchBrowser, expectConsoleErrors, listenOnEphemeralPort } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const PORT = 8130;
 const HEIC = join(ROOT, "test/images/format-checks/camera-roll.heic");
 
 const MIME = {
@@ -74,7 +73,8 @@ const server = createServer(async (req, res) => {
     res.writeHead(404);
     res.end("nf");
   }
-}).listen(PORT);
+});
+const PORT = await listenOnEphemeralPort(server);
 
 const browser = await launchBrowser({ headless: true });
 const page = await browser.newPage();
