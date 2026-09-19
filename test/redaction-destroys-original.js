@@ -172,18 +172,44 @@ const openDoc = async (docId) => {
 // bounding box rather than being guessed, and the draft-box count is asserted
 // straight afterwards so a coordinate mismatch fails here, loudly, instead of
 // silently producing a redaction of nothing.
+//
+// Where the drag actually happened is kept in `lastDrag`, because counting the
+// boxes is NOT enough - see the section after the first call site.
+let lastDrag = null;
 async function drawRedactionBox() {
   await page.click('[data-scan-action="redact"]');
   await page.waitForSelector("#scan-redact-panel:not(.hidden)", { timeout: 5000 });
   const overlay = await page.$("#scan-redact-overlay");
   const box = await overlay.boundingBox();
-  await page.mouse.move(box.x + box.width * 0.1, box.y + box.height * 0.42);
+  const from = { x: box.x + box.width * 0.1, y: box.y + box.height * 0.42 };
+  const to = { x: box.x + box.width * 0.9, y: box.y + box.height * 0.58 };
+  await page.mouse.move(from.x, from.y);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.58, { steps: 8 });
+  await page.mouse.move(to.x, to.y, { steps: 8 });
   await page.mouse.up();
   await page.waitForTimeout(250);
+  lastDrag = { x: Math.min(from.x, to.x), y: Math.min(from.y, to.y), width: Math.abs(to.x - from.x), height: Math.abs(to.y - from.y) };
   return ev(() => document.querySelectorAll("#scan-redact-overlay .redact-box").length);
 }
+
+// What the draft box is ACTUALLY doing on screen, in viewport coordinates, so
+// it can be compared against the drag that produced it.
+const draftBoxGeometry = () =>
+  ev(() => {
+    const box = document.querySelector("#scan-redact-overlay .redact-box");
+    if (!box) return null;
+    const rect = box.getBoundingClientRect();
+    const computed = getComputedStyle(box);
+    return {
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+      computedWidth: computed.width,
+      computedHeight: computed.height,
+      applyDisabled: document.getElementById("scan-redact-apply").disabled,
+    };
+  });
 
 // ---- 1. A page whose original is real, readable and distinct ----
 
@@ -207,6 +233,113 @@ console.log("\nCancelling");
 answerCancel();
 let drawn = await drawRedactionBox();
 check("dragging across the preview draws one draft box", drawn === 1, `drew ${drawn}`);
+
+// ---- 1b. The draft box is actually ON SCREEN, where the drag was ----
+//
+// THE ASSERTION THIS FILE WAS MISSING, and the one that would have caught a
+// release-long defect. Everything else here asserts against STORES.BLOBS and
+// the page record - correctly - and so stayed green while renderDraftBoxes
+// built each box with a literal style attribute that the page's own
+// `style-src 'self'` refuses to apply (CSP exempts style ATTRIBUTES from
+// hashes and nonces alike). `.redact-box` carries no geometry in style.css, so
+// every box rendered 0x0 and invisible while draftBoxes, "N boxes drawn", Undo
+// and Apply all reported it existed. Counting the boxes could not see it:
+// the element was in the DOM, it just had no size.
+//
+// That is the worst place in the app for an invisible preview. Applying this
+// draft DESTROYS the page's unredacted original, which is what the rest of
+// this file exists to prove - so the draft was an irreversible action over
+// something nobody could see.
+const geometry = await draftBoxGeometry();
+check("the draft box rendered at a non-zero size", !!geometry && geometry.width > 0 && geometry.height > 0, JSON.stringify(geometry));
+check(
+  "...with a real computed width and height, not a collapsed style attribute",
+  !!geometry && geometry.computedWidth !== "0px" && geometry.computedHeight !== "0px",
+  JSON.stringify(geometry && { w: geometry.computedWidth, h: geometry.computedHeight })
+);
+
+// Position, not just size: a box that renders at the wrong END of the page
+// would redact content nobody selected, and that is indistinguishable from
+// this bug if only the dimensions are checked. Tolerance is a few pixels for
+// sub-pixel layout and the endpoint rounding in boxFromDrag.
+const TOLERANCE = 4;
+const offBy =
+  geometry && lastDrag
+    ? {
+        x: Math.abs(geometry.x - lastDrag.x),
+        y: Math.abs(geometry.y - lastDrag.y),
+        width: Math.abs(geometry.width - lastDrag.width),
+        height: Math.abs(geometry.height - lastDrag.height),
+      }
+    : null;
+check(
+  "...at the place the drag actually happened",
+  !!offBy && offBy.x <= TOLERANCE && offBy.y <= TOLERANCE && offBy.width <= TOLERANCE && offBy.height <= TOLERANCE,
+  `drag ${JSON.stringify(lastDrag)} vs box ${JSON.stringify(geometry && { x: geometry.x, y: geometry.y, width: geometry.width, height: geometry.height })}`
+);
+
+// The destructive control must not be offered over a draft that is not
+// rendering. js/scanDoc.js's renderDraftBoxes measures the box it just created
+// and refuses to enable Apply if it came back 0x0.
+check("Apply is enabled for a draft that is genuinely on screen", geometry && geometry.applyDisabled === false, JSON.stringify(geometry));
+
+// ---- 1c. ...and DISABLED when the box is not on screen ----
+//
+// The check above passes both before and after the fix - Apply used to be
+// enabled by draftBoxes.length alone, so it was enabled over the invisible box
+// too. This is the one that discriminates, and it is the regression test for
+// the guard rather than for the CSP bug: collapse .redact-box through CSSOM
+// (a rule inserted into an existing same-origin stylesheet - addStyleTag would
+// itself be refused by style-src 'self') and confirm the app notices.
+//
+// A stylesheet rule is a stand-in for any future cause of the same end state.
+// The specific cause is fixed; the class of failure - a box in draftBoxes that
+// is not on the screen - is what must never again reach an irreversible button.
+const collapsed = await ev(() => {
+  const sheet = [...document.styleSheets].find((s) => { try { return !!s.cssRules; } catch { return false; } });
+  if (!sheet) return null;
+  const index = sheet.insertRule(".redact-box { width: 0 !important; height: 0 !important; }", sheet.cssRules.length);
+  return index;
+});
+
+if (collapsed === null) {
+  check("a stylesheet was reachable to simulate a non-rendering box", false, "no same-origin stylesheet found");
+} else {
+  // A second drag, so renderDraftBoxes measures under the collapsing rule.
+  const overlayNow = await page.$("#scan-redact-overlay");
+  const boxNow = await overlayNow.boundingBox();
+  await page.mouse.move(boxNow.x + boxNow.width * 0.2, boxNow.y + boxNow.height * 0.7);
+  await page.mouse.down();
+  await page.mouse.move(boxNow.x + boxNow.width * 0.8, boxNow.y + boxNow.height * 0.8, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForTimeout(250);
+
+  const guarded = await ev(() => ({
+    boxes: document.querySelectorAll("#scan-redact-overlay .redact-box").length,
+    applyDisabled: document.getElementById("scan-redact-apply").disabled,
+    message: document.getElementById("scan-redact-count").textContent,
+  }));
+  check("a draft box that renders 0x0 disables Apply", guarded.applyDisabled === true, JSON.stringify(guarded));
+  check(
+    "...and says why, rather than leaving a dead button",
+    /isn't displaying/.test(guarded.message),
+    guarded.message
+  );
+
+  // Put the page back exactly as the rest of this file expects it: rule gone,
+  // the extra box dropped, one real box on screen with Apply live again.
+  await ev((i) => {
+    const sheet = [...document.styleSheets].find((s) => { try { return !!s.cssRules; } catch { return false; } });
+    sheet?.deleteRule(i);
+  }, collapsed);
+  await page.click("#scan-redact-undo");
+  await page.waitForTimeout(250);
+  const restored = await ev(() => ({
+    boxes: document.querySelectorAll("#scan-redact-overlay .redact-box").length,
+    applyDisabled: document.getElementById("scan-redact-apply").disabled,
+  }));
+  check("removing the cause re-enables Apply and leaves one box", restored.boxes === 1 && restored.applyDisabled === false, JSON.stringify(restored));
+}
 
 await page.click("#scan-redact-apply");
 await page.waitForTimeout(800);

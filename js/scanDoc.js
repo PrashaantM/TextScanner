@@ -408,21 +408,79 @@ function positionRedactOverlay() {
   elements.redactOverlay.style.height = `${rect.height}px`;
 }
 
+// EVERY DIMENSION IS SET THROUGH CSSOM, NEVER THROUGH A style ATTRIBUTE, and
+// that is a correctness requirement rather than a style preference.
+//
+// This function used to build each box as an innerHTML string carrying a
+// literal style attribute (left/top/width/height, as percentages). index.html
+// ships
+// `style-src 'self'`, and **CSP blocks style ATTRIBUTES** - the spec exempts
+// them from hashes and nonces alike unless 'unsafe-hashes' is present, and the
+// browser says so in as many words: "The action has been blocked." A property
+// assignment like the four below is not inline CSS and is never blocked, which
+// is why positionRedactOverlay fifteen lines above always landed correctly and
+// only its contents did not.
+//
+// `.redact-box` carries no geometry of its own in style.css - only
+// `position: absolute` - so with the attribute dropped, every box rendered
+// **0x0 and invisible** while draftBoxes, "N boxes drawn", Undo and Apply all
+// reported it was there. Measured, on a real drag: attribute present in the
+// DOM reading `left:11.1%;top:8.3%;width:44.4%;height:16.7%`, computed
+// left/top/width/height all `0px`.
+//
+// That made this the worst possible bug in this file's subject. Applying a
+// redaction DESTROYS the page's unredacted original (see this section's header)
+// - the one irreversible operation in the document layer - and it was being
+// offered over a preview that showed nothing. Both CI gates over this path
+// passed throughout, because one asserts against STORES.BLOBS and the other
+// against OCR coordinates, and neither had ever asked whether the box was on
+// screen. test/redaction-destroys-original.js now asks.
+//
+// The same applies to the PII picker, which is not a second rendering path:
+// redactSelectedPii hands its boxes to setRedactMode, which assigns them to
+// draftBoxes and calls this function. Every PII-detected box was invisible too.
 function renderDraftBoxes() {
   if (!elements.redactOverlay) return;
-  elements.redactOverlay.innerHTML = draftBoxes
-    .map(
-      (b) =>
-        `<span class="redact-box" style="left:${b.x * 100}%;top:${b.y * 100}%;` +
-        `width:${b.width * 100}%;height:${b.height * 100}%"></span>`
-    )
-    .join("");
+
+  elements.redactOverlay.replaceChildren(
+    ...draftBoxes.map((b) => {
+      const span = document.createElement("span");
+      span.className = "redact-box";
+      span.style.left = `${b.x * 100}%`;
+      span.style.top = `${b.y * 100}%`;
+      span.style.width = `${b.width * 100}%`;
+      span.style.height = `${b.height * 100}%`;
+      return span;
+    })
+  );
+
+  // The boxes exist in the model; this asks whether the last one reached the
+  // screen. A draft that is not rendering must not be applied, because applying
+  // it destroys an original over a preview nobody can see - the exact state
+  // this file spent a release in. Disabling a destructive control on a bad
+  // measurement is a safe failure; enabling it on one is not.
+  //
+  // Measured only when a drag is NOT in progress, so the reflow costs one
+  // layout per completed box rather than one per pointermove sample. Both ways
+  // in are covered: endRedactDrag clears dragStart before calling back in, and
+  // the PII picker seeds through setRedactMode, where it is already null.
+  let rendered = true;
+  if (draftBoxes.length && !dragStart) {
+    const last = elements.redactOverlay.lastElementChild;
+    rendered = !!last && last.offsetWidth > 0 && last.offsetHeight > 0;
+  }
+
   if (elements.redactUndo) elements.redactUndo.disabled = draftBoxes.length === 0;
-  if (elements.redactApply) elements.redactApply.disabled = draftBoxes.length === 0;
+  if (elements.redactApply) elements.redactApply.disabled = draftBoxes.length === 0 || !rendered;
   if (elements.redactCount) {
-    elements.redactCount.textContent = draftBoxes.length
-      ? `${draftBoxes.length} box${draftBoxes.length === 1 ? "" : "es"} drawn`
-      : "Drag across anything that should not leave this device.";
+    if (draftBoxes.length && !rendered) {
+      elements.redactCount.textContent =
+        "This box isn't displaying, so it can't be applied - applying a redaction you can't see would destroy the original for nothing.";
+    } else {
+      elements.redactCount.textContent = draftBoxes.length
+        ? `${draftBoxes.length} box${draftBoxes.length === 1 ? "" : "es"} drawn`
+        : "Drag across anything that should not leave this device.";
+    }
   }
 }
 

@@ -627,7 +627,7 @@ means a new gate inherits the *failure* and not merely the listener. A gate
 that drives an error path deliberately declares it with `expectConsoleErrors`,
 per pattern and with a stated reason, rather than switching the check off.
 
-### 8.3.3 What the console capture found on its first run — OPEN, not fixed
+### 8.3.3 What the console capture found on its first run — including a live data-destruction bug
 
 Landing it turned six gates red at once. Four were the capture working as
 designed and are now declared: `malformed-input.js` (the app catching and
@@ -679,13 +679,43 @@ coordinates. Both are right to — and neither ever asked whether the box was
 on screen. The CSP is enforced by the `<meta>` tag in `index.html`, so this is
 live on GitHub Pages and inside the iOS WKWebView, not a test artifact.
 
-**Scope is one line.** A grep of `js/` finds exactly one site building a
-`style` attribute in markup; every other dynamic style in the codebase goes
-through CSSOM (`el.style.left = …`), which CSP permits — including
-`positionRedactOverlay` four lines above, which is why the overlay lands
-correctly and only its contents do not. `test/redaction-destroys-original.js`
-and `test/pii-redaction.js` stay red until it is fixed, which is the intended
-state: the gate is telling the truth.
+**The PII picker shared it, and that was checked rather than assumed.**
+`redactSelectedPii` is not a second rendering path: it hands its boxes to
+`setRedactMode`, which assigns them to `draftBoxes` and calls the same
+`renderDraftBoxes`. Confirmed in a browser — one detected candidate, one box,
+`0 × 0` before the fix and `100 × 10` after. So the one-tap "Redact selected"
+flow was also offering destruction over an invisible preview.
+
+**Fixed the same day, in its own commit.** `renderDraftBoxes` now creates each
+element and sets `.style.left`/`.top`/`.width`/`.height` through CSSOM, exactly
+as `positionRedactOverlay` fifteen lines above always did — which is why the
+overlay landed correctly while its contents did not. A CSSOM property
+assignment is not inline CSS and CSP never blocks it. `grep -rn 'style="'
+js/*.js` now returns nothing, and it was one site: every other dynamic style in
+the codebase already went through CSSOM.
+
+**The assertion that was missing is the real content of that commit.** Both
+gates were right about what they covered and neither had ever asked whether
+the box was on screen. `test/redaction-destroys-original.js` now asserts, after
+a real drag, that the draft box has non-zero computed width and height *and
+that its rect corresponds to where the drag happened* — position as well as
+size, because a box rendering at the wrong end of the page would redact content
+nobody selected and is indistinguishable from this bug if only dimensions are
+checked. Against the parent commit those fail with
+`width: 0, height: 0, computedWidth: "0px"` at `x: 362, y: 146` while the drag
+was `259 × 69` at `x: 394, y: 327`.
+
+**One defensive change came with it.** Apply was enabled by
+`draftBoxes.length` alone, so the UI would offer an irreversible action over a
+preview that was not rendering — which is exactly what it did for a release.
+`renderDraftBoxes` now measures the box it just created and refuses to enable
+Apply if it came back `0 × 0`, saying why in the count line instead of leaving
+a dead button. It measures only when a drag is *not* in progress, so the reflow
+costs one layout per completed box rather than one per `pointermove` sample.
+The guard is gated by its own assertion — the test collapses `.redact-box`
+through an inserted stylesheet rule and confirms Apply goes disabled — because
+the specific cause is fixed but the class of failure, a box in `draftBoxes`
+that is not on the screen, is what must never again reach that button.
 
 ### 8.4 The PDF writer, and why it is hand-written
 

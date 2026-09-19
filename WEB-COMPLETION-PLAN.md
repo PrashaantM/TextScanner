@@ -54,7 +54,7 @@ Checked today rather than carried forward from `HANDOFF.md`:
 | 81 unit tests pass | `node --test test/unit/*.test.js` — 81 pass, 0 fail |
 | The newest browser gate passes | `node test/font-match.js` — all 7 checks green |
 | Last CI run on `main` green | run `34673998815`, 3m30s |
-| 49 modules, 17,539 lines in `js/` | `wc -l js/*.js`, `ls js/*.js \| wc -l` |
+| 49 modules, 17,597 lines in `js/` | `wc -l js/*.js`, `ls js/*.js \| wc -l` |
 | 32 gates in `ci.yml`'s per-push `test:` job | `awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml \| grep -c '^      - run: node'` |
 | Tracked repo 8.87 MiB; `vendor/tesseract` is 11 MB of it on disk | `git count-objects -vH`, `du` |
 
