@@ -239,6 +239,21 @@ jobs:
   #
   # touch-interactions.js skips itself here with a stated reason: it needs CDP
   # Input.dispatchTouchEvent for genuine trusted touch, and CDP is Chromium-only.
+  #
+  # MEASURED STATE OF THIS JOB, 2026-09-19, on a local WebKit run of every gate
+  # below: 16 pass, 5 fail. The 5 are PRE-EXISTING WebKit divergences, not
+  # regressions - each was reproduced at ebb119d with the same failure text:
+  #
+  #   move-inpaint, render-fidelity  - `Refused to apply a stylesheet ...
+  #     style-src`, the same CSP-vs-style family as ebb119d's redaction boxes
+  #   library-documents              - "noise is refused rather than guessed at"
+  #   document-creation, destructive-actions - assertion failures
+  #
+  # Separately, the Tesseract wasm `data:` URI connect-src violation that used
+  # to fail EVERY OCR gate here is now allowed by one exact pattern in
+  # test/browser.js, which carries the measurement showing recognition is
+  # byte-identical with and without it. So a red nightly means one of the five
+  # above (or something new) - it no longer means "WebKit logged a CSP line".
   cross-browser:
     name: ${{ matrix.browser }} (nightly)
     runs-on: ubuntu-latest

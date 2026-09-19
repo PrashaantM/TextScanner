@@ -111,10 +111,76 @@ export const engine = ENGINES[BROWSER_NAME];
 // ENUMERATE these; a gate's pages live as long as its process anyway.
 const watchedPages = new Map();
 
+// The ONE console error every page is allowed to log, and the only allowance
+// that is not declared by the gate that provokes it. It is scoped to a single
+// pattern, not to a category: any other CSP violation, on any engine, still
+// fails the run.
+//
+// WHAT IT IS. index.html:55 sets `connect-src 'self' https://api.anthropic.com
+// blob:` with no `data:`. Tesseract's Emscripten core
+// (vendor/tesseract/core/tesseract-core-simd-lstm.wasm.js, and the non-SIMD
+// sibling) embeds its wasm as a base64 `data:application/octet-stream` URI and
+// its loader tries `fetch()` on that URI. WebKit and Firefox enforce
+// connect-src against it and log a violation; Chromium logs nothing, so this
+// is invisible per-push and only ever appears in the nightly cross-browser job.
+//
+// WHY IT IS NOT A DEFECT, measured rather than assumed. The loader's own code
+// is fetch-then-fall-back:
+//
+//     function Na(a){ ... fetch(a,...).then(...).catch(()=>Ma(a)) }   // async
+//     function Ma(a){ ... var c=na(a); if(c) return c; ... }          // sync
+//     function na(a){ if(a.startsWith("data:...base64,")){ ...decode... } }
+//
+// so the blocked fetch rejects, `.catch` runs the synchronous path, and `na`
+// base64-decodes the URI THAT IS ALREADY IN MEMORY. The bytes never needed the
+// network. Nothing is degraded and no fallback engine is substituted.
+//
+// The evidence, complexPic2 scanned end to end with connect-src patched to
+// allow `data:` as the only variable:
+//
+//     engine    CSP            CER%     WER%    chars  secs  csp-errs
+//     chromium  data: BLOCKED  36.2162  71.4286   406   4.2     0
+//     chromium  data: ALLOWED  36.2162  71.4286   406   4.2     0
+//     webkit    data: BLOCKED  36.7568  69.8413   403   3.3     1
+//     webkit    data: ALLOWED  36.7568  69.8413   403   3.2     0
+//     firefox   data: BLOCKED  37.0270  76.1905   409  23.8     1
+//     firefox   data: ALLOWED  37.0270  76.1905   409  24.0     0
+//
+// Per engine, the recognized text is BYTE-IDENTICAL blocked vs allowed, the
+// timing is unchanged, and all six runs load the same
+// tesseract-core-simd-lstm.wasm.js - no fallback to the non-SIMD core. The
+// CER spread ACROSS engines (36.2/36.8/37.0) is engine-level image decoding,
+// not this: each engine matches itself exactly either way. Firefox's 24s is
+// Firefox, for the same reason - allowing `data:` does not move it.
+//
+// WHY NOT JUST ADD `data:` TO connect-src. Because the fetch is redundant: the
+// bytes are in the file already, so widening a real security control buys no
+// functional change at all and opens a `data:` channel the app otherwise does
+// not permit. Suppressing the log is the proportionate fix; loosening the CSP
+// is not.
+//
+// WHY IT IS SEEDED HERE RATHER THAN DECLARED PER GATE, unlike the four
+// expectConsoleErrors() calls in malformed-input, heic-input, web-tier-smoke
+// and library-documents. Those are gates driving THEIR OWN error path on
+// purpose. This is a vendored loader doing the same redundant fetch on every
+// page that starts recognition, so a per-gate declaration would mean pasting
+// an identical line into every OCR gate - the copy-paste design this file
+// exists to avoid.
+//
+// TO REMOVE IT: upgrade Tesseract.js to a build that instantiates the embedded
+// wasm without a fetch, or vendor the cores as real .wasm files, then delete
+// this and watch the nightly job stay green.
+const VENDORED_WASM_DATA_URI_CSP = [
+  // WebKit: Refused to connect to data:application/octet-stream;base64,AGFzbQ...
+  /Refused to connect to data:application\/octet-stream;base64,/i,
+  // Firefox: ...blocked the loading of a resource (connect-src) at data:application/octet-stream;base64,AGF...
+  /blocked the loading of a resource \(connect-src\) at data:application\/octet-stream;base64,/i,
+];
+
 function watchPage(page) {
   if (watchedPages.has(page)) return page;
 
-  const record = { errors: [], allowed: [] };
+  const record = { errors: [], allowed: VENDORED_WASM_DATA_URI_CSP.map((pattern) => ({ pattern })) };
   watchedPages.set(page, record);
 
   page.on("console", (message) => {
