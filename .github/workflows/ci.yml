@@ -45,6 +45,15 @@ jobs:
       # js/state.js's APP_VERSION is the one source of truth, and this fails
       # if the footer's rendered value drifts from it.
       - run: node test/site-metadata.js
+      # This section's OWN numbers, and this workflow's own coverage - the last
+      # of the browser-free gates, still seconds. Two things that were kept by
+      # hand and drifted every time: WEB-COMPLETION-PLAN.md §0's module/line/
+      # gate counts (parsed OUT of the markdown, so the doc stays the single
+      # source), and the rule that a test/*.js gate must appear below. The
+      # second half exists because test/chrome-reorganization.js sat in the
+      # tree for a full commit cycle with no `run:` line and gated nothing,
+      # and test/paste-placement.js had done the same since b823567.
+      - run: node test/repo-contract.js
       - run: npm ci
         working-directory: test
       # playwright-core, NOT playwright. test/package.json depends on
@@ -106,6 +115,14 @@ jobs:
       # ignores a selection where Copy honours it, and the move handle is a
       # move icon rather than a dot indistinguishable from the resize square.
       - run: node test/chrome-reorganization.js
+      # Phase 2's copy/paste: Ctrl/Cmd+C on a selected, non-editing word records
+      # its RESOLVED font/size/colour and Ctrl/Cmd+V clones all of it, not just
+      # the text; the same shortcut INSIDE an edited word is left to the
+      # browser's own native copy/paste; and a touch long-press reaches the
+      # same two actions through #text-clipboard-menu. Written in b823567 and
+      # never given a `run:` line until test/repo-contract.js started failing
+      # on it - it had been passing locally and gating nothing for two commits.
+      - run: node test/paste-placement.js
       # The confirm in front of deleting a region OCR probably misread as a word
       # (a logo, an icon, a decorative rule), and the affordance that says so
       # first. Confidence cannot flag these - the map pin on complexPic1 comes
@@ -172,7 +189,7 @@ jobs:
       # PII detection over a scan-doc page's real OCR words (page.words), the
       # bridge that turns a detected candidate's bbox into a redaction box in
       # the page's own normalized coordinate space, and the one-tap flow that
-      # hands selected candidates to the SAME redact/destroy path gate 24
+      # hands selected candidates to the SAME redact/destroy path gate 28
       # already covers - no second, parallel redaction mechanism. Detection
       # accuracy is checked against the real 11-image benchmark corpus first
       # (one image, complexPic3, has real PII-shaped ground truth; the gate

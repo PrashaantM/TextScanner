@@ -30,6 +30,20 @@ session is a chance to move a number the doc just fixed. Say in one sentence
 in the commit message whether the commit touches any of the three; if it
 does, the same commit carries the doc update.
 
+**Three of those numbers are now gated rather than promised.** `node
+test/repo-contract.js` (gate 4) parses the module count, the line count and
+the CI-gate count back OUT of this section and fails if any disagrees with
+the tree - so the standing rule above is now enforced for them by CI instead
+of by whoever remembers it. The counts are parsed, not duplicated in the test
+file: this section stays the single source and the gate only checks it. Every
+place §0 states one of the three is checked, not just the fact table, so a
+restatement in prose cannot drift away from the table above it - which had
+already happened: the "unbundled ES modules" line below was one behind the
+fact table above it, and gate 4 failed on that line before it failed on
+anything else. The id count is deliberately NOT handled this way;
+`EXPECTED_ID_COUNT` in `test/dom-contract.js` stays a hand-edited number,
+because changing the id contract SHOULD cost a deliberate edit.
+
 Checked today rather than carried forward from `HANDOFF.md`:
 
 | Fact | How it was checked |
@@ -40,7 +54,8 @@ Checked today rather than carried forward from `HANDOFF.md`:
 | 81 unit tests pass | `node --test test/unit/*.test.js` — 81 pass, 0 fail |
 | The newest browser gate passes | `node test/font-match.js` — all 7 checks green |
 | Last CI run on `main` green | run `34673998815`, 3m30s |
-| 49 modules, 17,394 lines in `js/` | `wc -l js/*.js` |
+| 49 modules, 17,402 lines in `js/` | `wc -l js/*.js`, `ls js/*.js \| wc -l` |
+| 32 gates in `ci.yml`'s per-push `test:` job | `awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml \| grep -c '^      - run: node'` |
 | Tracked repo 8.87 MiB; `vendor/tesseract` is 11 MB of it on disk | `git count-objects -vH`, `du` |
 
 **Jekyll is not eating anything.** Its default excludes cover `vendor/bundle`,
@@ -54,7 +69,7 @@ empirically by the 200s above, so no `.nojekyll` is needed.
 > to 49/17,394 in the same commit that added `js/fontMatch.js` — the rule
 > applied, one commit late for the module before it.
 
-**48 unbundled ES modules over HTTP/2 is not a load problem.** 584 KB raw across
+**49 unbundled ES modules over HTTP/2 is not a load problem.** 584 KB raw across
 `js/`, gzipped per-file, multiplexed on one connection. Don't add a bundler; the
 no-build-step property is worth more than the milliseconds.
 
@@ -98,10 +113,10 @@ have meant hoisting a scan-doc-local control into `js/dom.js` purely to make a
 number change, which is the opposite of what that gate is for. The figure that
 moved is the total: 154 → 160.
 
-### The 28 CI gates, and which ones a change can actually break
+### The 32 CI gates, and which ones a change can actually break
 
-`.github/workflows/ci.yml` runs gate 1 immediately (it needs nothing), gates
-2 and 3 right after (also nothing - see their own comments), then `npm ci` +
+`.github/workflows/ci.yml` runs gates 1-4 immediately (none of them needs a
+browser or an `npm install` - see their own comments), then `npm ci` +
 `playwright-core install chromium`, then the rest, in the order the workflow
 file actually runs them:
 
@@ -110,41 +125,62 @@ file actually runs them:
 | 1 | `dom-contract.js` — **added by W3** | It *is* the id contract |
 | 2 | `motion-contract.js` | No — also browser-free, greps `style.css` |
 | 3 | `site-metadata.js` — **added by W12/W11** | No — also browser-free, checks the version stamp and og:/404 metadata as text |
-| 4 | `node --test test/unit/*.test.js` | No — pure functions |
-| 5 | `run-benchmark.js --check-regression --baseline test/baseline-2026-08-28.json --tolerance 2.0` | Yes, the scan flow |
-| 6 | `region-coverage.js` | Yes, the same scan flow, scored area by area |
-| 7 | `touch-interactions.js` | Yes — **and CDP-only, see W2** |
-| 8 | `malformed-input.js` | Yes |
-| 9 | `exif-orientation.js` | Yes |
-| 10 | `move-inpaint.js` | Yes |
-| 11 | `guided-path.js` | Yes — the buttons the UI itself points people at, not the raw mode toggles |
-| 12 | `editor-delete.js` | Yes |
-| 13 | `replacement-size.js` | Yes |
-| 14 | `not-text-warning.js` | Yes |
-| 15 | `render-fidelity.js` | Yes, plus `import("/js/dom.js")` directly |
-| 16 | `non-latin-limitation.js` | Yes |
-| 17 | `heic-input.js` | Yes |
-| 18 | `web-tier-smoke.js` | Yes, plus `import("/js/dom.js")` |
-| 19 | `pdf-export.js` | Partly; `qlmanage` leg is macOS-only and skipped on CI |
-| 20 | `library-documents.js` | **Mostly no** — imports `/js/documents.js` and drives the model |
-| 21 | `document-creation.js` | Yes, through the real nav/action sheet |
-| 22 | `interaction-layer.js` | Yes |
-| 23 | `destructive-actions.js` | Yes, through the real dialog-gated controls |
-| 24 | `redaction-destroys-original.js` — **added by the redaction change** | Yes — the real Redact button, a real drag, and both confirms; asserts against `STORES.BLOBS` directly |
-| 25 | `pii-redaction.js` — **added by the PII-detection change** | Yes — the real "Find PII"/"Redact selected" buttons, plus one real OCR pass on the corpus and two on synthetic-but-real-OCR fixtures |
-| 26 | `radial-call-sites.js` | Yes |
-| 27 | `inpaint-fidelity.js` | No — imports `/js/inpaint.js` and drives the algorithm directly |
-| 28 | `backup-roundtrip.js` | Partly - mostly imports `/js/store.js`, `/js/documents.js` and `/js/backup.js` directly, but "Delete all local data" goes through the real `#settings-delete-all` button |
+| 4 | `repo-contract.js` — **added by this change** | No — browser-free. Parses this section's own counts out of the markdown and checks every `test/*.js` gate is wired into the workflow |
+| 5 | `node --test test/unit/*.test.js` | No — pure functions |
+| 6 | `run-benchmark.js --check-regression --baseline test/baseline-2026-08-28.json --tolerance 2.0` | Yes, the scan flow |
+| 7 | `region-coverage.js` | Yes, the same scan flow, scored area by area |
+| 8 | `touch-interactions.js` | Yes — **and CDP-only, see W2** |
+| 9 | `malformed-input.js` | Yes |
+| 10 | `exif-orientation.js` | Yes |
+| 11 | `move-inpaint.js` | Yes |
+| 12 | `guided-path.js` | Yes — the buttons the UI itself points people at, not the raw mode toggles |
+| 13 | `editor-delete.js` | Yes |
+| 14 | `replacement-size.js` | Yes |
+| 15 | `font-match.js` — **added by the per-word font-matching change** | Yes — draws words in a known face, hands the pixels to the real matcher and scores what comes back |
+| 16 | `chrome-reorganization.js` — **added by F4, and gated nothing for a full commit cycle** | Yes — the filter row's Text-mode-only inertness, the corner download menu's anchoring under scroll, and the move handle |
+| 17 | `paste-placement.js` — **written in `b823567`, wired into CI by this change** | Yes — Ctrl/Cmd+C/V clone a word's resolved font/size/colour, in-place editing is left to the browser, and a touch long-press reaches the same two actions |
+| 18 | `not-text-warning.js` | Yes |
+| 19 | `render-fidelity.js` | Yes, plus `import("/js/dom.js")` directly |
+| 20 | `non-latin-limitation.js` | Yes |
+| 21 | `heic-input.js` | Yes |
+| 22 | `web-tier-smoke.js` | Yes, plus `import("/js/dom.js")` |
+| 23 | `pdf-export.js` | Partly; `qlmanage` leg is macOS-only and skipped on CI |
+| 24 | `library-documents.js` | **Mostly no** — imports `/js/documents.js` and drives the model |
+| 25 | `document-creation.js` | Yes, through the real nav/action sheet |
+| 26 | `interaction-layer.js` | Yes |
+| 27 | `destructive-actions.js` | Yes, through the real dialog-gated controls |
+| 28 | `redaction-destroys-original.js` — **added by the redaction change** | Yes — the real Redact button, a real drag, and both confirms; asserts against `STORES.BLOBS` directly |
+| 29 | `pii-redaction.js` — **added by the PII-detection change** | Yes — the real "Find PII"/"Redact selected" buttons, plus one real OCR pass on the corpus and two on synthetic-but-real-OCR fixtures |
+| 30 | `radial-call-sites.js` | Yes |
+| 31 | `inpaint-fidelity.js` | No — imports `/js/inpaint.js` and drives the algorithm directly |
+| 32 | `backup-roundtrip.js` | Partly - mostly imports `/js/store.js`, `/js/documents.js` and `/js/backup.js` directly, but "Delete all local data" goes through the real `#settings-delete-all` button |
 
-This table drifts every time a gate is added, and it has now moved five
-times in five sessions - **recount `.github/workflows/ci.yml`'s `test:` job
-directly before trusting this number again**, rather than carrying this one
-forward. The 28 above was counted that way
+This table drifted every time a gate was added, and it moved six times in
+six sessions before the count became a gate. The 32 above is the literal
+output of
 (`awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml | grep -c
-'^      - run: node'`), not by adding one to the 27 that was here. See this
-section's standing rule at the top of §0.
+'^      - run: node'`), not 30 plus two, and gate 4 now fails if it is ever
+anything else - including if someone edits this heading without touching the
+workflow. It counts gate 5 (`node --test test/unit/*.test.js`) as a gate,
+which is what this table has always done.
 
-**What gate 25 is protecting.** PII detection runs over `page.words` (a scan
+**The ROWS are still hand-maintained, and the gate does not check them.** It
+pins the count, not the descriptions, so a 33rd gate added without a row here
+fails the count and tells you to write one - but a row whose description goes
+stale is still only caught by reading it. Two rows were missing entirely when
+the count was gated: `font-match.js` and `chrome-reorganization.js` had been
+running in CI with no row at all, which is how the heading said 28 while the
+workflow ran 30.
+
+**Gate numbers in §1's risk notes are stale and were not renumbered.** "gates
+12, 13 and 14" (W5), "gate 12" (W7) and "gate 8" (W14) are anchored to the
+table as it stood in `b57854c`, where they meant `pdf-export.js`,
+`library-documents.js`, `document-creation.js` and `render-fidelity.js`. They
+had already drifted seven places before this change and re-deriving which
+gate each risk note actually meant is guesswork, so they were left alone
+rather than shifted by three and made confidently wrong.
+
+**What gate 29 is protecting.** PII detection runs over `page.words` (a scan
 document page's real OCR result), not `state.editorObjects` (the separate,
 disconnected OCR/image-format editor in `js/main.js`'s VIEWS.SCAN) - the two
 were checked, not assumed, to have no existing bridge between them at all
@@ -155,10 +191,10 @@ before anything OCRs them - so the bridge is one division, not a transform -
 and the gate proves that against a page that has actually been rotated, using
 an independent pixel-darkness scan as ground truth rather than checking the
 code against its own output. Selected candidates are converted to boxes and
-handed to the EXISTING `applyRedaction` draft/confirm/destroy path (gate 24);
+handed to the EXISTING `applyRedaction` draft/confirm/destroy path (gate 28);
 this gate does not re-prove destruction, only that the bridge reaches it.
 
-**What gate 24 is protecting, since it is a contract change rather than a new
+**What gate 28 is protecting, since it is a contract change rather than a new
 feature.** Redaction used to keep the page's untouched original in IndexedDB
 under `originalBlobKey`, deliberately, so the person who drew it could undo it -
 `js/annotate.js` said so in as many words. That made the "redacted" badge true
