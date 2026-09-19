@@ -244,10 +244,38 @@ jobs:
   # below: 16 pass, 5 fail. The 5 are PRE-EXISTING WebKit divergences, not
   # regressions - each was reproduced at ebb119d with the same failure text:
   #
-  #   move-inpaint, render-fidelity  - `Refused to apply a stylesheet ...
-  #     style-src`, the same CSP-vs-style family as ebb119d's redaction boxes
-  #   library-documents              - "noise is refused rather than guessed at"
-  #   document-creation, destructive-actions - assertion failures
+  #   move-inpaint, render-fidelity  - NOT an app defect. Playwright's own
+  #     screenshotter injects `<style>body {}</style>` to force a style recalc
+  #     before an ELEMENT screenshot (screenshotter.ts,
+  #     inPagePrepareForScreenshots, the syncAnimations branch), and
+  #     `style-src 'self'` refuses it. These two gates are the only ones here
+  #     that call locator.screenshot(); the other 19 take none, which is
+  #     exactly the failure set. Isolated: page.screenshot() does NOT fire it,
+  #     locator.screenshot() does, and Chromium does not fire it at all.
+  #     The violation reports blockedURI "inline",
+  #     effectiveDirective "style-src-elem", and no <style> element is in the
+  #     DOM when it fires - the element is refused, and it carries no
+  #     declarations anyway.
+  #
+  #     CORRECTION, recorded rather than quietly replaced: the first version of
+  #     this comment called these "the same CSP-vs-style family as ebb119d's
+  #     redaction boxes". That was a guess and it was wrong. ebb119d fixed an
+  #     inline style ATTRIBUTE in app code (style-src-attr); this is a
+  #     style ELEMENT injected by the test harness (style-src-elem). Different
+  #     directive, different source, and nothing in js/ or index.html is
+  #     involved - index.html has no <style>, and its only stylesheet is the
+  #     same-origin <link href="style.css"> that style-src 'self' permits.
+  #
+  #   library-documents              - X4. The failing assertion is
+  #     test/library-documents.js:513, check("noise is refused rather than
+  #     guessed at", edges.noiseFound === false). This is the tracked item in
+  #     WEB-COMPLETION-PLAN.md §X4 ("Edge detection hallucinates a page in pure
+  #     noise, on every engine but Chromium", plan line 451), which §0 at plan
+  #     line 447 calls out as "new and real". Fixing it is a threshold change
+  #     under test/TUNING-2.md's merge rule - do not tighten it here.
+  #
+  #   document-creation, destructive-actions - assertion failures, source not
+  #     investigated.
   #
   # Separately, the Tesseract wasm `data:` URI connect-src violation that used
   # to fail EVERY OCR gate here is now allowed by one exact pattern in
