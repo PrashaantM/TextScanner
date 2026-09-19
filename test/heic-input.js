@@ -41,7 +41,7 @@
 //
 // Usage: node test/heic-input.js   (exits non-zero if the failure is not graceful)
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, expectConsoleErrors } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -78,6 +78,12 @@ const server = createServer(async (req, res) => {
 
 const browser = await launchBrowser({ headless: true });
 const page = await browser.newPage();
+
+// CI has no HEIC codec and this gate exists to prove the failure is graceful,
+// so the caught-and-logged decode failure is the thing being asserted. The
+// other half - that it SUCCEEDS on a device, where WKWebView does have the
+// codec - is in docs/DEVICE-VERIFICATION-CHECKLIST.md.
+expectConsoleErrors(page, [/TextScanner scan failed:/], "no HEIC codec here is the premise of this gate");
 const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(e.message));
 

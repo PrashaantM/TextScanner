@@ -17,7 +17,7 @@
 //
 // Usage: node test/web-tier-smoke.js   (exits non-zero on any failure)
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, expectConsoleErrors } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -61,6 +61,16 @@ const check = (name, condition, detail = "") => {
 
 const browser = await launchBrowser({ headless: true });
 const page = await browser.newPage();
+
+// The mocked api.anthropic.com tiers deliberately answer 401, 429 and 503 -
+// you cannot ask the real API for a 429 on demand, which is half the reason
+// this gate mocks it. The browser logs every non-2xx response as a console
+// error; those three ARE the test.
+expectConsoleErrors(
+  page,
+  [/Failed to load resource.*40[13]/, /Failed to load resource.*429/, /Failed to load resource.*503/],
+  "the mocked API tiers answer 401/429/503 on purpose"
+);
 const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(e.message));
 

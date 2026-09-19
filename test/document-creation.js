@@ -50,7 +50,7 @@
 //
 // Usage: node test/document-creation.js
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, takeConsoleErrors } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -111,11 +111,14 @@ page.on("requestfailed", (r) => failedRequests.push(`${r.url().slice(0, 80)} (${
 // broke every button on this screen was never an UNCAUGHT error, and a
 // pageerror-only listener watched all six filter chips fail in a row and
 // reported six clean passes. Verified by running this file against the commit
-// before the fix: without this line it went green on exactly the defect it was
+// before the fix: without this, it went green on exactly the defect it was
 // written for.
-page.on("console", (message) => {
-  if (message.type() === "error") pageErrors.push(`console.error: ${message.text().slice(0, 300)}`);
-});
+//
+// The listener itself now lives in test/browser.js and is attached to every
+// page in the suite - see note 1 in that file's header. takeConsoleErrors
+// DRAINS it, which is what lets this file attribute an error to the step that
+// caused it; anything left undrained fails the run from browser.js's exit hook,
+// so the two cannot disagree about whether something was reported.
 
 // An uncaught rejection is not a pageerror in every Playwright build, and the
 // bugs Part 6 exists for live in async click handlers, where a rejection is the
@@ -131,7 +134,11 @@ await page.addInitScript(() => {
 // Drains both error channels and reports what came out of them, so a failure is
 // attributed to the step that caused it rather than to the end of the file.
 const noErrorsDuring = (label) => {
-  const problems = [...pageErrors.map((e) => `uncaught: ${e}`), ...failedRequests.map((r) => `failed request: ${r}`)];
+  const problems = [
+    ...pageErrors.map((e) => `uncaught: ${e}`),
+    ...takeConsoleErrors(page).map((e) => `console.error: ${e.slice(0, 300)}`),
+    ...failedRequests.map((r) => `failed request: ${r}`),
+  ];
   pageErrors.length = 0;
   failedRequests.length = 0;
   check(`no console errors ${label}`, problems.length === 0, problems.join(" | "));
@@ -302,15 +309,12 @@ check("Undo restored the document", true);
 // 6. "Add as document page", end to end, through real clicks.
 // ---------------------------------------------------------------------------
 //
-// EVERY WAIT BELOW IS A waitForFunction, NEVER A FIXED SLEEP, and that is not
-// only about flake. Playwright's waitForFunction polls inside the page (rAF by
-// default), which keeps the renderer producing frames; a node-side sleep does
-// not. Chromium encodes canvas.toBlob on an idle task, and a headless renderer
-// that nobody is waking has no idle periods - so a commit that calls toBlob
-// twice stalls forever on the second one, mid-flow, with no error. That stall
-// is an artifact of headless plus a node-side sleep, NOT app behaviour: the
-// identical flow completes without pause in a headed browser. Keep the polling
-// waits and it never arises.
+// EVERY WAIT BELOW IS A waitForFunction, NEVER A FIXED SLEEP. This flow commits
+// a page through four canvasToBlob calls, and a waitForTimeout here does not
+// merely flake - it HANGS, forever, with no error. The full explanation is note
+// 2 in test/browser.js's header, where the next person writing a gate will find
+// it; the short version is that Chromium encodes toBlob on an idle task and a
+// headless renderer nobody is waking never gets one.
 
 console.log("\nAdd as document page: opening the flow");
 
@@ -672,6 +676,7 @@ await page.waitForFunction(() => document.body.dataset.activeView === "document"
 await page.waitForFunction(() => document.querySelectorAll("#page-strip [data-page]").length === 1, null, { timeout: 15000 });
 pageErrors.length = 0;
 failedRequests.length = 0;
+takeConsoleErrors(page);
 
 await page.click('#scan-doc [data-scan-action="add-page"]');
 await page.waitForFunction(() => document.body.dataset.activeView === "scan", null, { timeout: 10000 });
@@ -740,6 +745,7 @@ await page.goto(`http://localhost:${PORT}/index.html#document/${emptyState}`);
 await page.waitForFunction(() => document.body.dataset.activeView === "document", null, { timeout: 15000 });
 pageErrors.length = 0;
 failedRequests.length = 0;
+takeConsoleErrors(page);
 
 check(
   "a document with no pages says so and disables everything that needs one",

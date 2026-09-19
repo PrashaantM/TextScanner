@@ -27,7 +27,7 @@
 // minified file, so it's allowlisted below by exact message rather than
 // ignored silently.
 
-import { launchBrowser } from "./browser.js";
+import { launchBrowser, expectConsoleErrors } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -65,6 +65,11 @@ const CASES = [
 
 for (const { file, expect } of CASES) {
   const page = await browser.newPage();
+  // This gate's entire subject is what the app does with input it cannot read,
+  // and what it does - correctly - is catch, log and show a friendly message.
+  // The log line is the PASS condition, not a defect. Scoped to this one
+  // message so an unrelated error on the same page still fails the run.
+  expectConsoleErrors(page, [/TextScanner scan failed:/], "malformed input is supposed to fail, loudly and caught");
   const pageErrors = [];
   page.on("pageerror", (e) => pageErrors.push(e.message));
 

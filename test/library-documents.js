@@ -12,7 +12,7 @@
 //
 // Usage: node test/library-documents.js
 
-import { launchBrowser, blobStorageWorks, noteBlobSkip } from "./browser.js";
+import { launchBrowser, blobStorageWorks, noteBlobSkip, expectConsoleErrors } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
@@ -56,6 +56,15 @@ const check = (name, condition, detail = "") => {
 
 const browser = await launchBrowser({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+
+// The note-paste fixtures feed hostile HTML - including a style attribute -
+// through sanitizeHtml, which parses it into an inert <template> before
+// stripping it. The page's own CSP (style-src 'self') refuses that attribute
+// as it is parsed, which is the CSP doing exactly its job to content that is
+// about to be thrown away. Not a defect, and NOT the same thing as the
+// js/scanDoc.js:416 violation this capture also found, which IS one - see
+// ANALYSIS.md §8.3.3.
+expectConsoleErrors(page, [/Applying inline style violates/], "sanitizeHtml parses hostile pasted markup on purpose");
 const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(e.message));
 
