@@ -129,6 +129,43 @@
 //   of the above has a recovery path that does not touch IndexedDB.
 //
 // ---------------------------------------------------------------------------
+// THE WORKER SCRIPT ITSELF ARRIVES LATE, AND THAT IS PAGES, NOT THIS FILE.
+// READ THIS BEFORE TRYING TO VERIFY A CHANGE TO sw.js ON THE LIVE SITE, because
+// the obvious check - push, reload twice, look - is the one that does not work.
+//
+// GitHub Pages serves /sw.js with `cache-control: max-age=600`, exactly as it
+// serves every other asset. WEB-COMPLETION-PLAN.md §0 records that header as an
+// asset-loading fact about /js/main.js; it is not special-cased for workers, and
+// the update check a navigation triggers goes through the HTTP cache like any
+// other request. So for about ten minutes after a deploy, a plain reload keeps
+// running the worker the browser already has. Re-checked 2026-09-20:
+// `curl -I https://prashaantm.github.io/TextScanner/sw.js` -> cache-control: max-age=600.
+//
+// MEASURED AGAINST THE LIVE ORIGIN, not reasoned from the spec:
+//
+//   app CONTENT           updated on the FIRST reload. Network-first works.
+//   the WORKER SCRIPT     OLD at t=0, OLD at t=2min, OLD at t=6min, NEW at t=11min
+//   registration.update() bypasses the throttle and installs the new worker at once
+//
+// The probe that confirmed the fetch was reaching the origin rather than being
+// answered from somewhere closer returned:
+//
+//   {"ok":true,"bytes":87501,"ms":8006}
+//
+// IT HAS ALREADY PRODUCED ONE FALSE NEGATIVE, which is why it is written here
+// rather than left to be rediscovered. The first live redeploy check reported
+// the OLD worker still in control after two reloads and read as a stale-cache
+// lockout - the exact failure the strategy above is built against - and it was
+// the throttle. The two are distinguishable, but only by the clock: a throttle
+// clears on its own by about t=11min, and a lockout does not clear at all.
+//
+// WHAT FOLLOWS FOR ANYONE CHANGING THIS FILE. Two reloads immediately after a
+// push prove nothing either way. A worker change that carries no visible
+// discriminator - no SW_VERSION bump, no observable behaviour difference -
+// cannot be checked behaviourally at all until the throttle expires; give it one
+// before deploying if you intend to check it, or wait out the ten minutes.
+//
+// ---------------------------------------------------------------------------
 // CSP: NO CHANGE NEEDED, CONFIRMED RATHER THAN ASSUMED. index.html:55 already
 // carries worker-src 'self' blob: (which covers registering a same-origin
 // worker script) and default-src 'self' (which covers the same-origin fetches

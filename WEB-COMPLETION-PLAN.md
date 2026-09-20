@@ -358,6 +358,39 @@ one is still outstanding. Also still owed: real Safari with Wi-Fi genuinely off
 (a different code path from DevTools offline, and §4.3's hardware limit), and the
 `capacitor://` non-registration reasoned above.
 
+**Running that check is not as simple as reloading twice, and the first attempt
+returned a false negative.** It reported the **old** worker still in control
+after two reloads, which reads as precisely the stale-cache lockout this
+section's strategy is built against. It was neither the strategy nor a lockout:
+it was GitHub Pages' cache header. `/sw.js` is served with
+`cache-control: max-age=600` — the same header §0's fact table records for
+`/js/main.js`, not a worker special case — and the soft update check a
+navigation triggers is answered from the HTTP cache until that expires. Re-checked
+2026-09-20 against the live origin: `curl -I
+https://prashaantm.github.io/TextScanner/sw.js` → `cache-control: max-age=600`.
+
+Measured against the live origin rather than reasoned from the spec, and quoted
+rather than rounded into prose so the next person can tell a throttle from a real
+failure:
+
+| What | Observed |
+|---|---|
+| App **content** | Updates on the **first** reload. Network-first is working. |
+| The **worker script**, plain navigation | OLD at `t=0`, OLD at `t=2min`, OLD at `t=6min`, **NEW at `t=11min`** |
+| `registration.update()` | Bypasses the throttle and installs the new worker **at once** |
+| The probe confirming the fetch reached the origin | `{"ok":true,"bytes":87501,"ms":8006}` |
+
+**So, operationally:** after deploying a worker change, **two reloads
+immediately after a push prove nothing** — in either direction — and a commit
+with **no visible discriminator** (no `SW_VERSION` bump, no observable behaviour
+difference) **cannot be checked behaviourally at all** until the throttle
+expires. Give the change something observable *before* deploying it, or wait the
+ten minutes out; `registration.update()` settles it sooner. A throttle clears
+itself by about `t=11min`; a lockout never clears. This does not close the owed
+check above — it says how to run it. The same measurements are in `sw.js`'s
+header, next to the stale-cache reasoning, because that is the file someone
+about to change the worker actually opens.
+
 **The problem, as originally recorded.** `README.md` said *"the web app works
 offline outright."* It did not. There was no service worker anywhere in the repo
 (`grep -rn "serviceWorker" index.html js/` returned nothing), so opening the app

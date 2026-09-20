@@ -32,6 +32,16 @@ element for element.
 14 new modules, ~4,500 lines. `js/` went from 24 modules / 5,709 lines to 38 /
 11,469. Storage is IndexedDB, device-local, no sync, no account.
 
+> **Every count in this file is deliberately historical, and this file is not a
+> gating candidate.** The numbers above record the `ca341d7` transition; the
+> annotations below record later dates. The live counts live in
+> `WEB-COMPLETION-PLAN.md` §0, where `test/repo-contract.js` (CHECK 1) gates
+> them. Adding `HANDOFF.md` to that gate's `GATED_DOCS` would force these
+> numbers to be rewritten as today's and destroy the record they exist to keep —
+> so it has been considered and rejected, rather than being an ungated
+> remainder anyone still needs to close. This file annotates; it does not
+> overwrite.
+
 **The constraint that shaped all of it:** the scan flow's element ids are the
 app's de-facto public interface — ten CI gates drive it through them. So its
 markup moved inside a view wrapper unchanged, and `js/views.js` keeps every

@@ -747,6 +747,36 @@ pageErrors.length = 0;
 failedRequests.length = 0;
 takeConsoleErrors(page);
 
+// KNOWN TO FLAKE ON CHROMIUM IN CI, and recorded as UNEXPLAINED rather than
+// diagnosed, because that is what it is. It failed once in CI on 834e703; a
+// rerun of the SAME commit, byte for byte, passed. Nobody has reproduced it
+// since.
+//
+// The evidence, such as it is:
+//
+//   CI, 834e703          FAILED
+//   CI, 834e703 (rerun)  passed  - identical commit, identical bytes
+//   local, 1bbc46e       passes
+//   local, 834e703       passes
+//   local, 4428fa9       passes
+//   local, 89f0da6       passes
+//
+// The service-worker work across those commits does not touch this flow: this
+// step opens an empty scan document and reads #page-preview-empty and the
+// [data-needs-pages] controls, none of which sw.js or
+// js/serviceWorkerRegistration.js goes near.
+//
+// So there is no root cause to write down here, and none is invented. What is
+// written down is that it happened, on which commit, and that a rerun of the
+// same bytes disagreed with itself - so a second failure is something to
+// investigate against this note rather than a fresh regression to bisect, and
+// loosening the assertion is not the response: a flake with no known cause is
+// not evidence that the property is wrong.
+//
+// DISTINCT from the document-creation failure in the nightly cross-browser job
+// (ci.yml:317, "assertion failures, source not investigated"). That one is a
+// deterministic assertion failure on a DIFFERENT ENGINE - WebKit - reproducible
+// at will. This is chromium, per-push, once.
 check(
   "a document with no pages says so and disables everything that needs one",
   await page.evaluate(() => {
