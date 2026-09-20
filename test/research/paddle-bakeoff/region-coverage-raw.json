@@ -1,0 +1,222 @@
+{
+  "rows": [
+    {
+      "id": "headline",
+      "maxCer": 0.3,
+      "tCer": 0.3,
+      "pCer": 0.3,
+      "tWords": 1,
+      "pBoxes": 1,
+      "verdict": "same"
+    },
+    {
+      "id": "popsicles",
+      "maxCer": 1,
+      "tCer": 1,
+      "pCer": 1,
+      "tWords": 0,
+      "pBoxes": 0,
+      "verdict": "same"
+    },
+    {
+      "id": "chawk-drawings",
+      "maxCer": 0,
+      "tCer": 0,
+      "pCer": 0.625,
+      "tWords": 3,
+      "pBoxes": 1,
+      "verdict": "PaddleOCR WORSE by 63pt"
+    },
+    {
+      "id": "address-line-1",
+      "maxCer": 0.06,
+      "tCer": 0.05263157894736842,
+      "pCer": 0.05263157894736842,
+      "tWords": 3,
+      "pBoxes": 1,
+      "verdict": "same"
+    },
+    {
+      "id": "address-line-2",
+      "maxCer": 0,
+      "tCer": 0,
+      "pCer": 0.06666666666666667,
+      "tWords": 3,
+      "pBoxes": 1,
+      "verdict": "PaddleOCR WORSE by 7pt"
+    },
+    {
+      "id": "teal-panel",
+      "maxCer": 0.61,
+      "tCer": 0.6086956521739131,
+      "pCer": 0.08695652173913043,
+      "tWords": 2,
+      "pBoxes": 4,
+      "verdict": "PaddleOCR better by 52pt"
+    },
+    {
+      "id": "date-panel",
+      "maxCer": 1,
+      "tCer": 1,
+      "pCer": 0.1111111111111111,
+      "tWords": 0,
+      "pBoxes": 1,
+      "verdict": "PaddleOCR better by 89pt"
+    },
+    {
+      "id": "time-panel",
+      "maxCer": 0.2,
+      "tCer": 0.2,
+      "pCer": 0,
+      "tWords": 1,
+      "pBoxes": 1,
+      "verdict": "PaddleOCR better by 20pt"
+    },
+    {
+      "id": "footer",
+      "maxCer": 0.15,
+      "tCer": 0.14285714285714285,
+      "pCer": 0.09523809523809523,
+      "tWords": 7,
+      "pBoxes": 3,
+      "verdict": "PaddleOCR better by 5pt"
+    }
+  ],
+  "tesseract": {
+    "regions": [
+      {
+        "id": "headline",
+        "wordCount": 1,
+        "text": "CICHAWK"
+      },
+      {
+        "id": "popsicles",
+        "wordCount": 0,
+        "text": ""
+      },
+      {
+        "id": "chawk-drawings",
+        "wordCount": 3,
+        "text": "& CHAWK DRAWINGS"
+      },
+      {
+        "id": "address-line-1",
+        "wordCount": 3,
+        "text": "LOWER RESIJENT LANE"
+      },
+      {
+        "id": "address-line-2",
+        "wordCount": 3,
+        "text": "BUILDING D AREA"
+      },
+      {
+        "id": "teal-panel",
+        "wordCount": 2,
+        "text": "SUNNY DAY"
+      },
+      {
+        "id": "date-panel",
+        "wordCount": 0,
+        "text": ""
+      },
+      {
+        "id": "time-panel",
+        "wordCount": 1,
+        "text": "5-7pM"
+      },
+      {
+        "id": "footer",
+        "wordCount": 7,
+        "text": "60OD COMPANY, COOL TREATS. CREATIVE VIBES. ()"
+      }
+    ],
+    "unassigned": [
+      {
+        "text": "Q",
+        "xPct": 22.9,
+        "yPct": 33
+      },
+      {
+        "text": "=",
+        "xPct": 93.8,
+        "yPct": 93.7
+      }
+    ]
+  },
+  "paddle": {
+    "regions": [
+      {
+        "id": "headline",
+        "wordCount": 1,
+        "text": "POCHAWK"
+      },
+      {
+        "id": "popsicles",
+        "wordCount": 0,
+        "text": ""
+      },
+      {
+        "id": "chawk-drawings",
+        "wordCount": 1,
+        "text": "POPSICLES& CHAWK DRAWNGS"
+      },
+      {
+        "id": "address-line-1",
+        "wordCount": 1,
+        "text": "LOWER RESIDENTLANE"
+      },
+      {
+        "id": "address-line-2",
+        "wordCount": 1,
+        "text": "BUILDINGD AREA"
+      },
+      {
+        "id": "teal-panel",
+        "wordCount": 4,
+        "text": "RELAXING ON A 2 SUNNY DAY"
+      },
+      {
+        "id": "date-panel",
+        "wordCount": 1,
+        "text": "JULY31ST"
+      },
+      {
+        "id": "time-panel",
+        "wordCount": 1,
+        "text": "5-7PM"
+      },
+      {
+        "id": "footer",
+        "wordCount": 3,
+        "text": "GOOD COMPANY.COOL TREATS. CREATIVEVIBES. 3"
+      }
+    ],
+    "unassigned": [
+      {
+        "text": "Q",
+        "xPct": 53.1,
+        "yPct": 40.1
+      },
+      {
+        "text": ":",
+        "xPct": 56.1,
+        "yPct": 44
+      },
+      {
+        "text": "2",
+        "xPct": 83.8,
+        "yPct": 48
+      },
+      {
+        "text": "A",
+        "xPct": 56.8,
+        "yPct": 53.5
+      },
+      {
+        "text": "9",
+        "xPct": 70.7,
+        "yPct": 49.8
+      }
+    ]
+  }
+}

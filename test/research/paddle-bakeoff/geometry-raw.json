@@ -1,0 +1,88 @@
+{
+  "synthetic": {
+    "gtWords": 30,
+    "gtLines": 10,
+    "tesseractBoxes": 28,
+    "paddleBoxes": 10,
+    "tesseractTokensPerBox": 1,
+    "paddleTokensPerBox": 2.7,
+    "word": {
+      "tesseract": {
+        "label": "t",
+        "truthCount": 30,
+        "meanIou": 0.8350884752993516,
+        "iouOver50": 25,
+        "iouOver10": 29,
+        "medianCentreErrorPx": 0.4419040379239273,
+        "medianHeightRatio": 1.0159933657149627
+      },
+      "paddle": {
+        "label": "p",
+        "truthCount": 30,
+        "meanIou": 0.26031709216734217,
+        "iouOver50": 4,
+        "iouOver10": 23,
+        "medianCentreErrorPx": 105.62828589500775,
+        "medianHeightRatio": 1.1499582566807782
+      }
+    },
+    "line": {
+      "tesseract": {
+        "label": "t",
+        "truthCount": 10,
+        "meanIou": 0.3546541090444692,
+        "iouOver50": 2,
+        "iouOver10": 9,
+        "medianCentreErrorPx": 78.43782785719443,
+        "medianHeightRatio": 1.0177386945530758
+      },
+      "paddle": {
+        "label": "p",
+        "truthCount": 10,
+        "meanIou": 0.8445405314901114,
+        "iouOver50": 10,
+        "iouOver10": 10,
+        "medianCentreErrorPx": 1.9411253083043536,
+        "medianHeightRatio": 1.1233394849760885
+      }
+    }
+  },
+  "corpus": {
+    "complexPic1": {
+      "tesseractBoxes": 22,
+      "paddleBoxes": 18,
+      "tesseractTokensPerBox": 1,
+      "paddleTokensPerBox": 1.4444444444444444
+    },
+    "complexPic2": {
+      "tesseractBoxes": 83,
+      "paddleBoxes": 30,
+      "tesseractTokensPerBox": 1,
+      "paddleTokensPerBox": 2.1666666666666665
+    },
+    "complexPic4": {
+      "tesseractBoxes": 214,
+      "paddleBoxes": 31,
+      "tesseractTokensPerBox": 1,
+      "paddleTokensPerBox": 6.612903225806452
+    },
+    "complexPic5": {
+      "tesseractBoxes": 115,
+      "paddleBoxes": 33,
+      "tesseractTokensPerBox": 1,
+      "paddleTokensPerBox": 3.727272727272727
+    },
+    "complexPic8": {
+      "tesseractBoxes": 109,
+      "paddleBoxes": 44,
+      "tesseractTokensPerBox": 1,
+      "paddleTokensPerBox": 2.3863636363636362
+    },
+    "complexPic9": {
+      "tesseractBoxes": 54,
+      "paddleBoxes": 46,
+      "tesseractTokensPerBox": 1,
+      "paddleTokensPerBox": 1.5434782608695652
+    }
+  }
+}
