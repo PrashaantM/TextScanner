@@ -1,25 +1,62 @@
 # PaddleOCR bake-off — how to re-run it
 
-**Branch only.** Nothing here is wired into `ci.yml`, imported by `js/`, or
-reachable from the app. The shipping pipeline is untouched; this branch exists
-to hold a measurement and its evidence. Results are in
-[`PADDLEOCR-BAKEOFF.md`](../../../PADDLEOCR-BAKEOFF.md).
+**Research only.** Nothing here is wired into `ci.yml`, imported by `js/`, or
+reachable from the app, and no gate was modified to produce any of it. Results
+are in [`paddleocr-bakeoff.md`](paddleocr-bakeoff.md).
 
-## One-time setup
+## Where things are, and what a `main` checkout can and cannot do
 
-`node_modules/` here is gitignored — ~430 MB of ONNX Runtime binaries for three
-platforms, which is not something to commit even on a branch. The models it
-scores **are** committed, under `vendor-candidate/paddle/`, because they are the
-artifact being evaluated and because committing them is what proves the offline
-claim: no run below makes a network request.
+| | |
+|---|---|
+| The write-up and these harnesses | on **`main`**, in this directory |
+| The PP-OCRv6 ONNX models (~6 MB) | **only** on branch `spike/paddleocr-bakeoff`, commit **`5855505`**, under `vendor-candidate/paddle/models/` |
+| `node_modules/` (~430 MB) | gitignored everywhere; installed per checkout |
+
+**A plain `main` checkout cannot run any of these scripts.** The models are not
+on `main` and should not be — this is a rejected candidate, and `main` carries
+the finding, not the engine. The scripts are here so the method can be read
+next to the claim, which is what `test/research/` is for.
+
+## The exact sequence to re-run
+
+Pinned by SHA rather than branch name: a branch ref moves or gets deleted, a
+commit does not.
 
 ```sh
-cd test/research/paddle-bakeoff
-npm install
+# 1. Get the commit that carries the models. The branch tip is 5855505 today;
+#    the SHA is what matters if it ever moves.
+git fetch origin spike/paddleocr-bakeoff
+git worktree add /tmp/bakeoff 5855505        # or: git checkout 5855505
+
+# 2. Install the harness dependencies. package.json lives in this directory
+#    ON THAT COMMIT, not at the repo root.
+cd /tmp/bakeoff/test/research/paddle-bakeoff
+npm install                                   # ppu-paddle-ocr, onnxruntime-web,
+                                              # onnxruntime-node - all MIT, pinned
+
+# 3. Point playwright-core at the browser this repo already has.
+#    REQUIRED, and the one step that is easy to miss: package.json asks for
+#    playwright-core ^1.62.1, and npm will happily resolve a NEWER one whose
+#    browser revision is not installed, which fails at launch with
+#    "Executable doesn't exist at .../chromium_headless_shell-<rev>".
+#    The repo's own test/node_modules has the pinned 1.62.1 with its browser.
+rm -rf node_modules/playwright-core
+ln -s "$(git rev-parse --show-toplevel)/test/node_modules/playwright-core" \
+      node_modules/playwright-core
+
+# 4. Run any of the five. Models resolve from vendor-candidate/paddle/models
+#    on local disk - no run makes a network request.
+node score-paddle.mjs
 ```
 
-That pulls `ppu-paddle-ocr` (MIT), `onnxruntime-web` (MIT) and
-`onnxruntime-node` (MIT). Versions are pinned in `package.json`.
+Only the browser harnesses (`browser-bakeoff.mjs`, `geometry-bakeoff.mjs`,
+`region-coverage-bakeoff.mjs`, `detector-probe.mjs`) need step 3;
+`score-paddle.mjs` runs on `onnxruntime-node` and does not launch a browser.
+
+`geometry-bakeoff.mjs` and `region-coverage-bakeoff.mjs` also drive the **real
+app** through Playwright to get Tesseract's side, so they need the repo checkout
+they are sitting in — another reason to use a worktree of `5855505` rather than
+copying the scripts somewhere.
 
 ## The four measurements
 
@@ -40,7 +77,7 @@ missed-region counts, a second Tesseract pass inside proposed regions, the
 reverse difference — was deliberately **not** measured, because the design is
 dead at the download.
 
-The last two are the ones that decided it — see PADDLEOCR-BAKEOFF.md's Geometry
+The last two are the ones that decided it — see [`paddleocr-bakeoff.md`](paddleocr-bakeoff.md)'s Geometry
 section. Neither runs `test/render-fidelity.js` or `test/region-coverage.js`
 against the candidate, because neither gate can be: render-fidelity is
 deliberately engine-independent (it feeds *perfect* boxes to the renderer, and

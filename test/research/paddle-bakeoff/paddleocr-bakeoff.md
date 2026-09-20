@@ -2,22 +2,24 @@
 
 **Measured 2026-09-18 to 2026-09-20.** The shipping pipeline is untouched:
 nothing here is imported by `js/`, wired into `ci.yml`, or reachable from the
-app.
+app. This is the measurement
+[`RECOGNITION-SPIKE.md`](../../RECOGNITION-SPIKE.md) §5 costed at 2–3 days and
+§6 made the cloud-tier decision conditional on.
 
-> **This is the record on `main`. The harnesses beside it are byte-identical to
-> the ones that produced every number below, but they do NOT run from this
-> checkout** — they need `ppu-paddle-ocr`, `onnxruntime-web` and the ~6 MB of
-> PP-OCRv6 ONNX models, none of which is on `main` and none of which should be.
-> The models live on branch **`spike/paddleocr-bakeoff`** under
-> `vendor-candidate/paddle/`, which is also where `npm install` has a
-> `package.json` to read. To re-run: check out that branch and follow
-> [`README.md`](README.md). Kept here anyway because a write-up whose method
-> cannot be inspected is an assertion, and `test/research/` is where this
-> repo keeps the script next to the claim. This is the measurement
-[`RECOGNITION-SPIKE.md`](../../RECOGNITION-SPIKE.md) §5 costed at 2–3 days and §6
-recommended running before any cloud-tier decision.
-
-Re-run it with [`test/research/paddle-bakeoff/README.md`](README.md).
+> **This is the record on `main`, and it does not run from a `main` checkout.**
+> The harnesses beside it are byte-identical to the ones that produced every
+> number below, but they need `ppu-paddle-ocr`, `onnxruntime-web` and ~6 MB of
+> PP-OCRv6 ONNX models — none of which is on `main`, and none of which should
+> be.
+>
+> **Everything needed to re-run lives at commit `5855505` on branch
+> `spike/paddleocr-bakeoff`** (pinned by SHA because a branch ref moves or gets
+> deleted and a commit does not). [`README.md`](README.md) has the exact
+> sequence.
+>
+> Kept here anyway because a write-up whose method cannot be inspected is an
+> assertion, and `test/research/` is where this repo keeps the script next to
+> the claim.
 
 ---
 
@@ -500,6 +502,85 @@ better than roughly 0.5 IoU against the word ground truth in this document —
 every other number here is favourable and the decision flips. That is a research
 spike, not an integration, and nothing in this bake-off bears on whether it
 would work.
+
+### HYPOTHESIS, not a finding: why the coverage-rescue pass may already reach those two regions
+
+PP-OCR reads `date-panel` and `popsicles` — two of the three regions
+`test/groundtruth/complexPic1.regions.json` pins at `maxCer: 1.0`, "still missed
+entirely", with pins that exist to "go red the moment they start working".
+Tesseract does not read them. The detector that does is dead on payload, so the
+useful question is whether **Tesseract's own coverage-rescue pass** could reach
+them instead. What follows is a **hypothesis from reading `js/ocrEngine.js` and
+one existing measurement. It is not a finding, and it should not be acted on
+without the check named below.**
+
+**What the code does.** The rescue runs a whole-image `PSM.SPARSE_TEXT` pass and
+appends only words that `novelRegions()` judges novel. `isNovel` is **per word**
+and requires *both*:
+
+```js
+word.confidence >= COVERAGE_RESCUE_MIN_CONFIDENCE          // 70
+&& !existingWordBoxes.some((box) =>
+     overlapFraction(box, word.bbox) > COVERAGE_RESCUE_MAX_OVERLAP)  // 0.30
+```
+
+**What the existing measurement says.** `test/research/ocr-instrument.mjs`
+recorded complexPic1's four `recognize()` calls:
+
+| # | PSM | words | mean confidence |
+|---|---|---|---|
+| 1 | 3 (AUTO) | 20 | 80.2 |
+| 2 | **11 (the rescue)** | **31** | **70.4** |
+| 3–4 | 6 (one region, two candidates) | 8, 8 | 74.0, 74.1 |
+
+The rescue pass **finds 31 words where AUTO found 20**, and the final output
+carries 22 — so roughly two survived `isNovel` and about 29 were dropped. Many
+of those are legitimately "already covered" by the overlap clause. But the
+confidence floor is **70** and the sparse pass's own mean is **70.4**: the
+threshold sits almost exactly at the middle of that pass's confidence
+distribution, so about half its output is discarded on confidence alone. The
+words the code's own header records as rescued — `CICHAWK` 77, `SUNNY` 96,
+`DAY` 96, `5-7pM` 88 — are all comfortably above it, which is what a floor
+admitting only the top half would look like.
+
+**The hypothesis:** the sparse pass already detects text in `popsicles` and
+`date-panel`, and those words are discarded by `isNovel` — most likely by the
+confidence floor, and for `popsicles` possibly by the overlap clause instead,
+since its line-mates `& CHAWK DRAWINGS` *were* read by AUTO and a sparse pass
+that merges boxes differently could overlap them past 0.30. The overlap clause
+cannot explain `date-panel`, where AUTO read nothing adjacent.
+
+**What is NOT established:** that those words exist in the sparse output at all.
+A mean of 70.4 over 31 words says nothing about which words sit where, and the
+nearest available comparison actively argues against a simple story —
+`time-panel` (`5-7PM`) and `date-panel` (`JULY 31ST`) are adjacent, on the same
+red band, in the same white bold type, and one was rescued at 88 while the other
+was not rescued at all. No environmental explanation I can construct from the
+code separates them.
+
+**The single check that confirms or kills it.** Dump the rescue pass's 31 words
+with their text, confidence and bbox **before** `novelRegions()` filters them,
+and look for `POPSICLES`, `JULY` and `31ST`. Three outcomes, all decisive:
+
+| what the dump shows | conclusion |
+|---|---|
+| present, confidence **≥ 70** | the **overlap clause** dropped them; the floor is not the mechanism |
+| present, confidence **< 70** | the **confidence floor** is the mechanism — hypothesis confirmed |
+| **absent** | the rescue is not the mechanism at all; PSM 11 cannot see them either, and PP-OCR's detector finds something Tesseract's sparse mode genuinely cannot |
+
+That is diagnostic, not tuning: it moves no threshold and changes no output.
+
+**And tuning is the wrong move even if the check confirms it.** `complexPic1` is
+the image `COVERAGE_RESCUE_MIN_CONFIDENCE = 70` was *itself* measured on — the
+code's header says the thresholds were "measured on the novel words that merge
+produces", on this image — and it is also the image every `maxCer` ceiling in
+`complexPic1.regions.json` was measured on. Lowering 70 until `popsicles` turns
+green would fit the threshold to the one image that produced both the threshold
+and the target, and the gate would go green by construction. That is the same
+circularity that keeps the threshold sweep unrun
+([`RECOGNITION-SPIKE.md`](../../RECOGNITION-SPIKE.md) §0, `test/TUNING-2.md` §3),
+and it is why **the 14 photographs are the real next step**: a floor that has to
+hold on low light, steep skew and a receipt cannot be chosen on a poster.
 
 **Ordered: take the photographs for the incumbent → leave the cloud tier where
 §6 left it.** The detector-for-coverage idea was the third item here; it was

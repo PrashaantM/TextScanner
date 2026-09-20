@@ -373,9 +373,29 @@ build step — a bar that is much higher than "is the accuracy better".
 | Candidate | Payload | License | Vendorable like `vendor/tesseract`? | Published accuracy | Verdict |
 |---|---|---|---|---|---|
 | **Tesseract.js 6.x** (version bump) | ~6.75 MB, unchanged | Apache-2.0 | Yes — same shape | **None claimed.** Release notes describe memory-leak fixes and lower runtime/memory, **not accuracy** | **Not an accuracy lever.** And it is a *breaking* change here — see below |
-| **PaddleOCR (PP-OCRv5/v6) via onnxruntime-web** | **~18–20 MB** (ort wasm 12–14 MB + tiny models ~6 MB); small tier ~30 MB, medium ~139 MB | Apache-2.0 (models + PaddleOCR); MIT (the `ppu-paddle-ocr` JS SDK) | **Yes in principle** — ONNX files are static assets and can be served from this origin; the "fetches from CDN" default is a base-path setting, not a constraint | 99.2–99.5% char accuracy — **on one reference receipt**. PP-OCRv6 reports 83.2% recognition / 86.2% detection Hmean on *in-house* benchmarks and **no Tesseract comparison at all** | **The only serious candidate.** ~3× the payload for an accuracy claim that is not measured on anything resembling this corpus |
+| **PaddleOCR (PP-OCRv5/v6) via onnxruntime-web** | **MEASURED: 19.9 MB** full, **15.52 MB** detection-only (ort wasm **13.58 MB** + PP-OCRv6-tiny det **1.80 MB** + rec 4.32 MB) — *estimated here as ~18–20 MB, see the calibration note below* | Apache-2.0 (models + PaddleOCR); MIT (the `ppu-paddle-ocr` JS SDK) | **Yes — demonstrated, not assumed.** Vendored and run from local disk with no network request | **MEASURED on this corpus: 36.4% macro CER vs Tesseract's 41.6%**, 6 of 8 images better. The receipt/in-house figures below turned out not to transfer either way | **BAKE-OFF RUN, 2026-09-19/20 — REJECTED.** Wins on text, **cannot place a word** (10 boxes for 30 words), and detection alone costs 2.3× the whole incumbent pipeline → [`test/research/paddle-bakeoff/paddleocr-bakeoff.md`](test/research/paddle-bakeoff/paddleocr-bakeoff.md) |
 | **Transformers.js** (TrOCR, Donut, GOT-OCR2) | GOT-OCR2 is 580M params — **hundreds of MB even quantized** | Apache-2.0 / MIT varies | Technically yes; practically no at this size | Strong on documents; TrOCR is **single-line only** and needs a separate text detector | **Rejected on size.** 50–100× the current payload for a phone web app |
 | **Browser-native `TextDetector`** (Shape Detection API) | **0 MB** | Platform | N/A — no asset | Platform-dependent, unspecified | **Rejected.** Moved to an *informative* spec as "not stable enough across platforms or character sets"; Chrome flag-only, regressed in Safari 18.x. Not shippable |
+
+### Calibration: the payload estimate was right on the total, wrong on the split
+
+Recorded because this repo tracks that kind of miss on purpose. The row above
+estimated **~18–20 MB** and the measurement came in at **19.9 MB** — inside the
+range. That accuracy was luck at the component level, and the component level is
+what the verdict turned on:
+
+| | estimated | measured |
+|---|---|---|
+| ONNX runtime (wasm) | 12–14 MB | **13.58 MB** ✓ |
+| models | ~6 MB | **1.80 MB** detector (+4.32 MB recognizer) ✗ |
+
+The detector model is **3.3× smaller** than guessed. So the cost is **87%
+runtime, 12% model**, where the estimate implied something nearer a two-thirds /
+one-third split. That inversion is the whole verdict: an 87%-model payload is a
+"pick a smaller model" problem with an obvious next move, and an 87%-runtime
+payload is a dead end, because every ONNX graph pays the same 13.58 MB no matter
+how small it is. Estimating a total correctly while getting its composition
+backwards would have produced exactly the wrong follow-up.
 
 ### The Tesseract.js 6 finding is a warning, not an upgrade path
 
@@ -389,7 +409,25 @@ as a change that can silently cost more accuracy than anything in §3 could
 recover. This was not verified against a real v6 build — it is read from release
 notes — and it should be verified before anyone bumps.
 
-### What a PaddleOCR bake-off would actually cost
+### What a PaddleOCR bake-off would actually cost — **RUN, 2026-09-19/20. REJECTED.**
+
+> **This section is superseded and is kept only as a record of the estimate.**
+> The bake-off was built and run; the result is in [`test/research/paddle-bakeoff/paddleocr-bakeoff.md`](test/research/paddle-bakeoff/paddleocr-bakeoff.md).
+> It cost roughly what is predicted below, the engine seam did absorb it as
+> cheaply as step 2 claims — and the candidate was rejected twice over, on
+> grounds this estimate did not think to price:
+>
+> - **It cannot place a word.** 10 boxes for 30 words; median per-word centre
+>   error 105.6 px against Tesseract's 0.4 px. A DB detector emits text-*line*
+>   polygons, so there are no word boxes to expose — and `renderImageFormatView`
+>   and `js/fontMatch.js` have nothing to anchor a replacement to.
+> - **Detection alone costs 15.52 MB**, 2.30× Tesseract's entire 6.75 MB
+>   pipeline, of which 87% is the ONNX runtime and 12% the model.
+>
+> Step 3 below says the decision it would inform is "is the gap large enough to
+> be visible through an 11-image corpus at all". It was: 5.2 macro CER points,
+> 6 of 8 images. The gap was real and it did not matter, because the cost was
+> somewhere this estimate never looked.
 
 Roughly **2–3 days**, and it does not need new photographs:
 
@@ -453,11 +491,16 @@ Tesseract.js reaches the low 30s.** Reasoning:
   chrome are the two things it is architecturally worst at, and no PSM or filter
   changes the architecture.
 - A detector-based engine (PaddleOCR's DB detector + CRNN recogniser) is built
-  for exactly that distribution, which is the honest reason it is the only
-  candidate in §5 worth a bake-off. **I would guess** it lands somewhere in the
-  high 20s to mid 30s on this corpus — and I want to be explicit that this is a
-  guess from architecture, not a measurement, and §5 shows its published numbers
-  are from a single receipt.
+  for exactly that distribution, which is the honest reason it was the only
+  candidate in §5 worth a bake-off. **That guess has since been measured, and it
+  was roughly right on accuracy and irrelevant to the outcome.** Guessed "high
+  20s to mid 30s"; measured **36.4% macro CER**, against Tesseract's 41.6% —
+  inside the range, and better on 6 of 8 images. It was rejected anyway: the same
+  architecture that makes a detector good at scene text is what stops it
+  producing **word** boxes, which is the thing this app is built on. The
+  architectural argument was sound and incomplete — it reasoned about what an
+  engine *reads* and not about what shape it *reports*. Full result:
+  [`test/research/paddle-bakeoff/paddleocr-bakeoff.md`](test/research/paddle-bakeoff/paddleocr-bakeoff.md).
 
 ### Confidence
 
@@ -485,23 +528,56 @@ What the measurements support is narrower and more useful than a verdict:
 1. **Local configuration is exhausted.** Nothing further will come from tuning
    Tesseract.js. That part is settled, and it is the question the spike was
    asked to settle.
-2. **Local *engines* are not exhausted.** Exactly one untried local option
-   (PaddleOCR via ONNX) is architecturally suited to this corpus, is
-   Apache-2.0, is vendorable the way `vendor/tesseract` is, and has never been
-   measured here. **Reaching for a cloud tier before spending 2–3 days on that
-   bake-off would be buying a recurring cost, a privacy regression, and a
-   network dependency to solve a problem that may have a local answer.** For an
-   app whose entire pitch is local-first, that ordering matters.
+2. ~~**Local *engines* are not exhausted.**~~ **SUPERSEDED — the bake-off ran,
+   and local engines are now exhausted too.** This point made the cloud tier
+   conditional on measuring PaddleOCR-via-ONNX first. That condition has
+   resolved, and it resolved against the candidate on two independent grounds:
+   it **cannot place a word** (10 boxes for 30 words; 105.6 px median per-word
+   centre error, architectural to a line-based detector), and **detection alone
+   costs 2.30× the whole incumbent pipeline**, 87% of that being the ONNX
+   runtime rather than the model. Full result: [`test/research/paddle-bakeoff/paddleocr-bakeoff.md`](test/research/paddle-bakeoff/paddleocr-bakeoff.md).
+
+   **What that leaves, stated as an input and not as a decision.** The condition
+   has resolved in a way that cuts both directions at once, and it is worth being
+   precise about which:
+
+   - **Against the cloud tier:** a local engine did read this corpus's hardest
+     images materially better than the incumbent — 36.4% vs 41.6% macro CER, 6
+     of 8 images, offline, at 11.5× the speed. The local *ceiling* is demonstrably
+     not as low as the fear behind a cloud tier assumes. Something local can read
+     this corpus better than what ships today.
+   - **For the cloud tier:** that engine is nevertheless unusable here, so the
+     path from "a local engine can read it better" to "this app reads it better"
+     is currently blocked. §3 exhausted local *configuration*; the bake-off
+     exhausted local *engines*, in the sense that the only serious alternative
+     is dead twice over. There is no third local candidate identified.
+
+   **This is not a session's decision to make, and it is not made here.** What
+   changed is that the conditional is no longer pending: anyone deciding the
+   cloud tier now has the bake-off result rather than an IOU. The decision stays
+   open.
 3. **The corpus still gates everything.** Even if the bake-off shows PaddleOCR
    ahead, eight images cannot tell you *how far* ahead. The 14 photographs in
    `HANDOFF.md` §5.2 remain the highest-value unblocked-by-engineering item in
    the project, and §4.4's argument that a cloud decision needs them is
    unchanged by anything here.
 
-My recommendation, in order: **run the PaddleOCR bake-off; take the
-photographs; decide the cloud tier last, with both results in hand.** A cloud
-tier is a reasonable answer to "the local ceiling is too low" — but the local
-ceiling has not actually been established yet, only Tesseract's.
+~~My recommendation, in order: **run the PaddleOCR bake-off; take the
+photographs; decide the cloud tier last, with both results in hand.**~~
+
+**Updated 2026-09-20. The first item is done and returned a rejection**
+([`test/research/paddle-bakeoff/paddleocr-bakeoff.md`](test/research/paddle-bakeoff/paddleocr-bakeoff.md)), so the order collapses to one live step:
+
+**Take the 14 photographs.** They are the only remaining item that is blocked on
+nothing but someone with a phone, and they gate every accuracy claim in this
+document — including the bake-off's, whose 5.2-point margin was measured on the
+same 8 scoring images that cannot resolve a 1-point difference.
+
+The sentence this replaces said "the local ceiling has not actually been
+established yet, only Tesseract's." It has now been established for the one
+serious alternative as well, and the answer is that the alternative reads better
+and cannot be used. That is a genuine input to the cloud-tier decision in both
+directions, set out above, and it is deliberately left as an input.
 
 ---
 

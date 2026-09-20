@@ -297,11 +297,22 @@ drafted and ready to paste.
 - **`oem 3` (LSTM + legacy) is unmeasured, not rejected.** Only LSTM cores and
   LSTM traineddata are vendored, so the comparison cannot run offline. Expected
   impact is low; that is an expectation, not a measurement.
-- **Recognition accuracy is Tesseract-exhausted, not engine-exhausted.**
+- **Recognition accuracy is exhausted locally — configuration *and* engines.**
   Seventeen categorical engine/preprocessing variants were swept over the full
-  corpus and none helps without also hurting (`RECOGNITION-SPIKE.md` §3). The
+  corpus and none helps without also hurting (`RECOGNITION-SPIKE.md` §3). ~~The
   open local option is a PaddleOCR-via-ONNX bake-off; the cloud-tier decision
-  should wait for it.
+  should wait for it.~~ **That bake-off has been run (2026-09-19/20) and the
+  candidate was rejected twice over** — it reads this corpus better (36.4% vs
+  41.6% macro CER, 6 of 8 images) and **cannot place a word** (10 boxes for 30
+  words; a line detector has no word boxes to expose, and the in-place editor
+  is built on them), while **detection alone costs 2.30× the entire Tesseract
+  pipeline**, 87% of it the ONNX runtime rather than the model. Full result and
+  both harnesses:
+  [`test/research/paddle-bakeoff/paddleocr-bakeoff.md`](test/research/paddle-bakeoff/paddleocr-bakeoff.md).
+  No third local candidate is identified. The cloud-tier decision is no longer
+  waiting on a pending measurement — it now has the result, in both directions,
+  set out in `RECOGNITION-SPIKE.md` §6 — and remains open. **The 14 photographs
+  in §5.2 are the only live next step.**
 - **`script: "LATIN"`** — now *asserted* rather than merely known, with measured
   CER per script and a tripwire that fires if it ever starts working.
 - **ML Kit telemetry** — now precisely quantified from Google's own manifests
