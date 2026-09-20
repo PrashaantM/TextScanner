@@ -32,10 +32,10 @@
 // three. Growing the corpus (Phase 3 step 1, blocked on new source photos) is
 // what would make finer distinctions trustworthy.
 
-import { launchBrowser, listenOnEphemeralPort } from "./browser.js";
+import { launchBrowser, listenOnEphemeralPort, contentTypeFor } from "./browser.js";
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname, join, basename } from "node:path";
+import { join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { characterErrorRate, wordErrorRate } from "./metrics.js";
 import { PARTIAL_GROUND_TRUTH } from "./partialGroundTruth.js";
@@ -85,11 +85,6 @@ const SWEEP = [
   { label: "raw region candidate + region pass always (95)", overrides: { REGION_INCLUDE_RAW_CANDIDATE: true, SKIP_REGION_PASS_OVERALL_THRESHOLD: 95 } },
 ];
 
-const MIME = {
-  ".html": "text/html", ".js": "text/javascript", ".css": "text/css",
-  ".jpeg": "image/jpeg", ".jpg": "image/jpeg", ".png": "image/png",
-  ".wasm": "application/wasm", ".gz": "application/gzip",
-};
 
 async function serveStatic() {
   const server = createServer(async (req, res) => {
@@ -98,7 +93,7 @@ async function serveStatic() {
       const filePath = join(ROOT, urlPath === "/" ? "index.html" : urlPath);
       const body = await readFile(filePath);
       res.writeHead(200, {
-        "Content-Type": MIME[extname(filePath)] || "application/octet-stream",
+        "Content-Type": contentTypeFor(filePath),
         // The point of this harness is that the page re-reads a file we just
         // rewrote, so nothing may be cached.
         "Cache-Control": "no-store",

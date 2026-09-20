@@ -29,10 +29,10 @@
 //
 // Usage: node test/pdf-export.js
 
-import { launchBrowser, listenOnEphemeralPort } from "./browser.js";
+import { launchBrowser, listenOnEphemeralPort, contentTypeFor } from "./browser.js";
 import { readFile, writeFile, mkdir, rm, readdir } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -43,20 +43,13 @@ const execFileAsync = promisify(execFile);
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const OUT = join(ROOT, "test/manual-output/pdf");
 
-const MIME = {
-  ".html": "text/html",
-  ".js": "text/javascript",
-  ".css": "text/css",
-  ".png": "image/png",
-  ".jpeg": "image/jpeg",
-  ".jpg": "image/jpeg",
-};
 
 const server = createServer(async (req, res) => {
   try {
     const p = decodeURIComponent(req.url.split("?")[0]);
-    const body = await readFile(join(ROOT, p === "/" ? "index.html" : p));
-    res.writeHead(200, { "Content-Type": MIME[extname(p)] || "application/octet-stream" });
+    const filePath = p === "/" ? "index.html" : p;
+    const body = await readFile(join(ROOT, filePath));
+    res.writeHead(200, { "Content-Type": contentTypeFor(filePath) });
     res.end(body);
   } catch {
     res.writeHead(404);

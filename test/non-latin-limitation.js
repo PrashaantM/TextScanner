@@ -31,25 +31,14 @@
 //
 // Usage: node test/non-latin-limitation.js   (exits non-zero only on 1, 2 or 4)
 
-import { launchBrowser, listenOnEphemeralPort } from "./browser.js";
+import { launchBrowser, listenOnEphemeralPort, contentTypeFor } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { characterErrorRate } from "./metrics.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const MIME = {
-  ".html": "text/html",
-  ".js": "text/javascript",
-  ".css": "text/css",
-  ".png": "image/png",
-  ".jpeg": "image/jpeg",
-  ".jpg": "image/jpeg",
-  ".wasm": "application/wasm",
-  ".traineddata": "application/octet-stream",
-  ".gz": "application/gzip",
-};
 
 // The Latin control has to clear this for the run to mean anything. Generous:
 // the point is "the pipeline demonstrably works on this exact shape of image",
@@ -70,8 +59,9 @@ const SAMPLES = [
 const server = createServer(async (req, res) => {
   try {
     const p = decodeURIComponent(req.url.split("?")[0]);
-    const body = await readFile(join(ROOT, p === "/" ? "index.html" : p));
-    res.writeHead(200, { "Content-Type": MIME[extname(p)] || "application/octet-stream" });
+    const filePath = p === "/" ? "index.html" : p;
+    const body = await readFile(join(ROOT, filePath));
+    res.writeHead(200, { "Content-Type": contentTypeFor(filePath) });
     res.end(body);
   } catch {
     res.writeHead(404);

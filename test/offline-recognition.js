@@ -34,23 +34,13 @@
 //
 // Usage: node test/offline-recognition.js
 
-import { launchBrowser, listenOnEphemeralPort, takeConsoleErrors, expectConsoleErrors } from "./browser.js";
+import { launchBrowser, listenOnEphemeralPort, contentTypeFor, takeConsoleErrors, expectConsoleErrors } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const MIME = {
-  ".html": "text/html",
-  ".js": "text/javascript",
-  ".css": "text/css",
-  ".jpeg": "image/jpeg",
-  ".png": "image/png",
-  ".gz": "application/gzip",
-  ".webmanifest": "application/manifest+json",
-  ".ttf": "font/ttf",
-};
 
 // Same stub as test/offline.js STEP 7: the real sw.js behind a prelude that makes
 // every cache.put reject, so the quota branch is exercised against production code
@@ -80,7 +70,7 @@ const server = createServer(async (req, res) => {
   try {
     let body = await readFile(join(ROOT, filePath));
     if (failPut && filePath.endsWith("sw.js")) body = Buffer.from(FAIL_PUT_PRELUDE + String(body));
-    res.writeHead(200, { "Content-Type": MIME[extname(filePath)] || "application/octet-stream" });
+    res.writeHead(200, { "Content-Type": contentTypeFor(filePath) });
     res.end(body);
   } catch {
     res.writeHead(404);

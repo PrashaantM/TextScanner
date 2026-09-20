@@ -54,26 +54,13 @@
 //
 // Usage: node test/offline.js
 
-import { launchBrowser, listenOnEphemeralPort, takeConsoleErrors } from "./browser.js";
+import { launchBrowser, listenOnEphemeralPort, contentTypeFor, takeConsoleErrors } from "./browser.js";
 import { readFile, readdir } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const MIME = {
-  ".html": "text/html",
-  ".js": "text/javascript",
-  ".css": "text/css",
-  ".jpeg": "image/jpeg",
-  ".jpg": "image/jpeg",
-  ".png": "image/png",
-  ".wasm": "application/wasm",
-  ".gz": "application/gzip",
-  ".webmanifest": "application/manifest+json",
-  ".ttf": "font/ttf",
-  ".svg": "image/svg+xml",
-};
 
 // The server-side witness. Every served path is recorded WITH THE PHASE it
 // arrived in, so the output says not just that something reached the server but
@@ -115,16 +102,12 @@ const server = createServer(async (req, res) => {
   const failPut = req.url.includes("failput=1");
   served.push({ path, phase });
   // The directory URL resolves to index.html for the CONTENT TYPE as well as
-  // the bytes, and that is not a detail. Every other gate in this suite maps
-  // "/" to index.html's bytes while taking the MIME from extname("/") - which
-  // is "" - so "/" is served as application/octet-stream. No existing gate
-  // notices, because they all navigate to /index.html explicitly. This one
-  // navigates to the bare directory URL (what a bookmark opens), the worker
-  // precached that octet-stream response, and replaying it offline made
-  // Chromium DOWNLOAD the app instead of rendering it: "page.goto: Download is
-  // starting". The deployment itself is fine - GitHub Pages returns text/html
-  // for /TextScanner/ - so this is the test server being less faithful than the
-  // real one, and it has to be fixed here or the gate fails on its own fixture.
+  // the bytes, and that is not a detail: this is the one gate that navigates to
+  // the bare directory URL a bookmark opens, so it is the one that found the
+  // whole suite serving "/" as application/octet-stream and made Chromium
+  // DOWNLOAD the app instead of rendering it. The full account, and the
+  // resolver every gate now shares, are in test/browser.js's contentTypeFor -
+  // moved there because the defect was never specific to this file.
   const filePath = path.endsWith("/") ? `${path}index.html` : path;
   try {
     let body = await readFile(join(ROOT, filePath));
@@ -141,7 +124,7 @@ const server = createServer(async (req, res) => {
     if (failPut && filePath.endsWith("sw.js")) {
       body = Buffer.from(FAIL_PUT_PRELUDE + String(body));
     }
-    res.writeHead(200, { "Content-Type": MIME[extname(filePath)] || "application/octet-stream" });
+    res.writeHead(200, { "Content-Type": contentTypeFor(filePath) });
     res.end(body);
   } catch {
     res.writeHead(404);

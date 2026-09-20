@@ -46,18 +46,18 @@
 //
 // Usage: node test/touch-interactions.js   (exits non-zero if anything regressed)
 
-import { launchBrowser, skipUnlessChromium, listenOnEphemeralPort } from "./browser.js";
+import { launchBrowser, skipUnlessChromium, listenOnEphemeralPort, contentTypeFor } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".jpeg": "image/jpeg", ".png": "image/png", ".gz": "application/gzip" };
 const server = createServer(async (req, res) => {
   try { const p = decodeURIComponent(req.url.split("?")[0]);
-    const body = await readFile(join(ROOT, p === "/" ? "index.html" : p));
-    res.writeHead(200, { "Content-Type": MIME[extname(p)] || "application/octet-stream" }); res.end(body);
+    const filePath = p === "/" ? "index.html" : p;
+    const body = await readFile(join(ROOT, filePath));
+    res.writeHead(200, { "Content-Type": contentTypeFor(filePath) }); res.end(body);
   } catch { res.writeHead(404); res.end("nf"); }
 });
 const PORT = await listenOnEphemeralPort(server);

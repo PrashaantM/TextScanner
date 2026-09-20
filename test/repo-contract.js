@@ -1,9 +1,9 @@
 // repo-contract.js: the repository's own bookkeeping, asserted instead of
-// maintained by hand. Five checks, all about claims this repo makes ABOUT itself
+// maintained by hand. Six checks, all about claims this repo makes ABOUT itself
 // rather than about how the app behaves. (This line read "Two checks" through the
 // additions of CHECK 3, CHECK 4 and CHECK 5 - a header miscounting the file it
 // heads, in the one gate whose whole subject is numbers that drift. CHECK 1 and
-// CHECK 2 are documented here; 3, 4 and 5 at their own sites below.)
+// CHECK 2 are documented here; 3, 4, 5 and 6 at their own sites below.)
 //
 // WHY THIS IS A SEPARATE FILE FROM dom-contract.js. That gate's header calls
 // its scope "deliberately narrow": js/dom.js's ids, and nothing else. The two
@@ -667,6 +667,68 @@ if (!swSource.includes("vendor/tesseract/README.md")) {
 }
 
 // ---------------------------------------------------------------------------
+// CHECK 6: no gate may carry its own extension-to-content-type map.
+//
+// Measured at 89f0da6: 30 files in test/ declared `const MIME = {...}`, and 25
+// of them resolved the type from the REQUEST path - MIME[extname(p)] - while
+// serving a file they had already resolved to something else. extname("/") is
+// "", so the bare directory URL went out as application/octet-stream carrying
+// index.html's bytes. Every one of those 25 gates navigated to /index.html
+// explicitly, so none of them could see it. test/offline.js navigates to the
+// directory URL a bookmark opens, its service worker precached the
+// octet-stream response, and replaying it offline made Chromium DOWNLOAD the
+// app rather than render it ("page.goto: Download is starting").
+//
+// WHY THE FIX IS A GATE AND NOT 25 EDITS. Correcting 25 files leaves the 26th
+// to be written wrong - the same shape as CHECK 3's fixed ports and CHECK 4's
+// missing console capture, both of which were fixed by moving the thing into
+// test/browser.js and then gating the property rather than the instances. The
+// resolver is contentTypeFor() there, the map is the union of all 30 it
+// replaced, and this check removes the raw material: with no local map left to
+// copy, the next gate's author reaches for the import.
+//
+// The check is absolute - no exemption list. That is deliberate, and it is why
+// all 30 were converted rather than only the 25 that were wrong: an exemption
+// list here would need an entry per "this one is fine really", and CHECK 2's
+// EXEMPT_HELPERS shows what that costs to keep honest. test/browser.js itself
+// is the one file that must declare the map, and it is excluded by name below
+// for that reason, exactly as CHECK 4 treats it as the home of the capture.
+//
+// SCOPE: top-level test/*.js, the same glob as every other check here. The
+// research harnesses under test/research/ are .mjs files in a subdirectory and
+// are not gates; they are outside this and always have been.
+const EXTENSION_TYPE_PAIR = /"\.[a-z0-9]{2,12}"\s*:\s*"[a-z]+\/[a-z0-9.+-]+"/i;
+const RESOLVER_EXPORT = /export\s+function\s+contentTypeFor\s*\(/;
+
+if (!RESOLVER_EXPORT.test(codeOnly(browserSource))) {
+  failures.push(
+    `test/browser.js no longer exports contentTypeFor(), so the gates that import it cannot ` +
+      `run and this check would pass by having nothing left to find. Restore the resolver - ` +
+      `see this file's CHECK 6 comment and test/browser.js's own.`
+  );
+}
+
+for (const name of testFiles) {
+  // The one file that has to hold the map, for the same reason it holds the
+  // console capture: it is where the gates get it from.
+  if (name === "browser.js") continue;
+  // Raw lines with a per-line comment skip, like CHECK 3 and unlike CHECK 4's
+  // codeOnly(): a whole-file strip renumbers everything, and a failure here has
+  // to name the line someone can open.
+  const source = await readFile(join(ROOT, "test", name), "utf8");
+  for (const [i, line] of source.split("\n").entries()) {
+    if (line.trimStart().startsWith("//")) continue;
+    if (!EXTENSION_TYPE_PAIR.test(line)) continue;
+    failures.push(
+      `test/${name}:${i + 1} maps a file extension to a content type of its own. Import ` +
+        `contentTypeFor from test/browser.js and pass it the path whose BYTES you are ` +
+        `serving - never req.url, which is "/" for the directory URL and has no extension ` +
+        `at all. See CHECK 6 in this file.`
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 console.log(`js/ holds ${actualModuleCount} modules and ${actualLineCount.toLocaleString("en-US")} lines (wc -l).`);
 console.log(`ci.yml's per-push test: job runs ${actualGateCount} node steps.`);
@@ -685,6 +747,7 @@ console.log(
   "\nCounts in " +
     GATED_DOCS.map((d) => d.path).join(", ") +
     " match the tree (or are marked as snapshots), every gate in test/ is wired into CI,\n" +
-    "no gate binds a fixed port, every browser gate can see handled console errors, and sw.js's\n" +
-    "record of the vendored tesseract.js version still matches the bytes."
+    "no gate binds a fixed port, every browser gate can see handled console errors, no gate carries\n" +
+    "a content-type map of its own, and sw.js's record of the vendored tesseract.js version still\n" +
+    "matches the bytes."
 );

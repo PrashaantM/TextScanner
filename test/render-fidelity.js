@@ -13,10 +13,10 @@
 //
 // Usage: node test/render-fidelity.js   (writes PNGs to test/manual-output/)
 
-import { launchBrowser, listenOnEphemeralPort } from "./browser.js";
+import { launchBrowser, listenOnEphemeralPort, contentTypeFor } from "./browser.js";
 import { createServer } from "node:http";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FIXTURES } from "./make-mlkit-fixture.js";
 
@@ -66,7 +66,6 @@ const MAX_INK_OVERFLOW = 0.06;
 // both, with nothing to say so.
 const MIN_TIGHT_FIT = 0.94;
 
-const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".jpeg": "image/jpeg", ".jpg": "image/jpeg", ".png": "image/png" };
 
 async function serveStatic() {
   const server = createServer(async (req, res) => {
@@ -74,7 +73,7 @@ async function serveStatic() {
       const urlPath = decodeURIComponent(req.url.split("?")[0]);
       const filePath = join(ROOT, urlPath === "/" ? "index.html" : urlPath);
       const body = await readFile(filePath);
-      res.writeHead(200, { "Content-Type": MIME[extname(filePath)] || "application/octet-stream" });
+      res.writeHead(200, { "Content-Type": contentTypeFor(filePath) });
       res.end(body);
     } catch {
       res.writeHead(404);

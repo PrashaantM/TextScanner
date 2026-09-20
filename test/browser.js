@@ -90,6 +90,7 @@
 //    no assertion to point at.
 // ---------------------------------------------------------------------------
 
+import { extname } from "node:path";
 import { chromium, firefox, webkit } from "playwright-core";
 
 const ENGINES = { chromium, firefox, webkit };
@@ -309,6 +310,73 @@ export function listenOnEphemeralPort(server) {
       resolve(server.address().port);
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// THE CONTENT TYPE A GATE'S STATIC SERVER SENDS, decided in one place.
+//
+// Every gate stands up its own little static server, and they differ for real
+// reasons - one injects a failure prelude and rewrites bytes, others serve
+// fixtures from different roots - so this file deliberately does NOT try to own
+// the servers. It owns the one line they all got wrong.
+//
+// THE BUG THIS EXISTS TO END, measured at 89f0da6: 30 files declared their own
+// `const MIME` map, and 25 of them took the type from the REQUEST path rather
+// than the file they had decided to serve:
+//
+//     const body = await readFile(join(ROOT, p === "/" ? "index.html" : p));
+//     res.writeHead(200, { "Content-Type": MIME[extname(p)] || ... });
+//                                                  ^ the request, not the file
+//
+// extname("/") is "", so the bare directory URL was served as
+// application/octet-stream WITH index.html's bytes in the body. No gate noticed,
+// because all of them navigate to /index.html explicitly. test/offline.js
+// navigates to the bare directory URL - what a bookmark opens - its service
+// worker precached that octet-stream response, and replaying it offline made
+// Chromium DOWNLOAD the app instead of rendering it:
+//
+//     page.goto: Download is starting
+//
+// The deployment itself is fine: GitHub Pages returns text/html for
+// /TextScanner/. This was the test server being less faithful than the real one,
+// which is the worst kind of fixture bug - it only shows up in the gate that
+// finally tests the real thing, and it shows up as a symptom that looks nothing
+// like its cause.
+//
+// WHY A CENTRAL RESOLVER RATHER THAN 25 PATCHES. Patching 25 files leaves the
+// 26th to be written wrong, which is exactly how the fixed ports and the missing
+// console capture happened - both fixed by centralising here and then gating the
+// property (test/repo-contract.js CHECK 3 and CHECK 4). CHECK 6 now gates this
+// one: no test/*.js may declare an extension-to-type map of its own, so there is
+// no map to copy into file 31 and the exemption list that would rot does not
+// exist. Pass the path you are ACTUALLY READING, never req.url.
+//
+// THE MAP IS THE UNION OF ALL 30 IT REPLACED, not a fresh minimal list: they
+// were not identical (.webmanifest was in 8, .svg in 6, .ttf in 2, .heic in 1),
+// and quietly dropping one would have been a silent regression in whichever gate
+// needed it. No two of the 30 disagreed about a type, so every file keeps the
+// exact mapping it had and gains the rest.
+export const CONTENT_TYPES = {
+  ".html": "text/html",
+  ".js": "text/javascript",
+  ".css": "text/css",
+  ".png": "image/png",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".svg": "image/svg+xml",
+  ".heic": "image/heic",
+  ".webmanifest": "application/manifest+json",
+  ".wasm": "application/wasm",
+  ".gz": "application/gzip",
+  ".ttf": "font/ttf",
+  ".traineddata": "application/octet-stream",
+};
+
+// `filePath` is the path whose BYTES are being sent - after "/" has been
+// resolved to index.html, not before. That distinction is the whole point of
+// this function; see the note above.
+export function contentTypeFor(filePath) {
+  return CONTENT_TYPES[extname(filePath)] || "application/octet-stream";
 }
 
 // True when the current engine is NOT the one a gate requires. A gate that

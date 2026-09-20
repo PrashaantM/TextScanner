@@ -78,10 +78,10 @@
 // still measured and printed, for visibility and continuity, but never
 // compared to a tolerance. See test/partialGroundTruth.js for the shared set.
 
-import { launchBrowser, BROWSER_NAME, listenOnEphemeralPort } from "./browser.js";
+import { launchBrowser, BROWSER_NAME, listenOnEphemeralPort, contentTypeFor } from "./browser.js";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname, join, basename } from "node:path";
+import { join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { characterErrorRate, wordErrorRate, referenceLengths } from "./metrics.js";
 import { PARTIAL_GROUND_TRUTH } from "./partialGroundTruth.js";
@@ -95,17 +95,6 @@ let PORT;
 const IMAGE_DIR = join(ROOT, "test/images");
 const GROUNDTRUTH_DIR = join(ROOT, "test/groundtruth");
 
-const MIME = {
-  ".html": "text/html",
-  ".js": "text/javascript",
-  ".css": "text/css",
-  ".jpeg": "image/jpeg",
-  ".jpg": "image/jpeg",
-  ".png": "image/png",
-  ".wasm": "application/wasm",
-  ".traineddata": "application/octet-stream",
-  ".gz": "application/gzip",
-};
 
 async function serveStatic() {
   const server = createServer(async (req, res) => {
@@ -113,7 +102,7 @@ async function serveStatic() {
       const urlPath = decodeURIComponent(req.url.split("?")[0]);
       const filePath = join(ROOT, urlPath === "/" ? "index.html" : urlPath);
       const body = await readFile(filePath);
-      res.writeHead(200, { "Content-Type": MIME[extname(filePath)] || "application/octet-stream" });
+      res.writeHead(200, { "Content-Type": contentTypeFor(filePath) });
       res.end(body);
     } catch {
       res.writeHead(404);

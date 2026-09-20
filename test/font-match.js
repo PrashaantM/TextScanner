@@ -24,14 +24,13 @@
 //
 // Usage: node test/font-match.js   (exits non-zero if anything regressed)
 
-import { launchBrowser, listenOnEphemeralPort } from "./browser.js";
+import { launchBrowser, listenOnEphemeralPort, contentTypeFor } from "./browser.js";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".jpeg": "image/jpeg", ".png": "image/png", ".wasm": "application/wasm", ".traineddata": "application/octet-stream", ".gz": "application/gzip" };
 
 // Floors. See the header for why weight's is expressed against 50%.
 const MIN_WEIGHT_ACCURACY = 0.9;
@@ -48,8 +47,9 @@ const MAX_ITALIC_FALSE_POSITIVE = 0.02;
 const server = createServer(async (req, res) => {
   try {
     const p = decodeURIComponent(req.url.split("?")[0]);
-    const body = await readFile(join(ROOT, p === "/" ? "index.html" : p));
-    res.writeHead(200, { "Content-Type": MIME[extname(p)] || "application/octet-stream" });
+    const filePath = p === "/" ? "index.html" : p;
+    const body = await readFile(join(ROOT, filePath));
+    res.writeHead(200, { "Content-Type": contentTypeFor(filePath) });
     res.end(body);
   } catch {
     res.writeHead(404);
