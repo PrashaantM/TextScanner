@@ -1,0 +1,32 @@
+detector initialized in 167ms; detect() on complexPic1 -> 26 boxes in 347ms
+
+detection-only browser payload, counted byte by byte:
+   13.58 MB  /nm/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm
+    1.80 MB  /models/PP-OCRv6_tiny_det.ort
+    0.05 MB  /nm/onnxruntime-web/dist/ort.wasm.min.mjs
+    0.02 MB  /nm/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs
+    0.01 MB  /nm/ppu-paddle-ocr/model-catalogue.js
+    0.01 MB  /nm/ppu-paddle-ocr/core/recognition/strategies.js
+    0.01 MB  /nm/ppu-paddle-ocr/core/base-detection.service.js
+    0.01 MB  /nm/ppu-paddle-ocr/core/base-paddle-ocr.service.js
+    0.01 MB  /nm/ppu-paddle-ocr/core/recognition/line-grouping.js
+    0.01 MB  /nm/ppu-paddle-ocr/core/base-recognition.service.js
+    0.01 MB  /nm/ppu-paddle-ocr/web/paddle-ocr.service.web.js
+    0.00 MB  /nm/ppu-paddle-ocr/core/recognition/ctc.js
+    0.00 MB  /nm/ppu-ocv/canvas-processor.js
+    0.00 MB  /nm/ppu-paddle-ocr/utils.js
+    0.00 MB  /nm/ppu-paddle-ocr/core/detection/box-geometry.js
+    0.00 MB  /nm/ppu-paddle-ocr/core/recognition/image-tensor.js
+    0.00 MB  /nm/ppu-paddle-ocr/core/recognition/batched.js
+    0.00 MB  /nm/ppu-paddle-ocr/core/batch.js
+  (+17 files under 2 KB)
+
+  TOTAL (detection only, no recognizer): 15.52 MB
+  Tesseract's ENTIRE pipeline today:      6.75 MB
+  ratio:                                  2.30x
+  hybrid total (Tesseract + detector):    22.27 MB
+
+VERDICT: STOP. Detection alone costs more than the whole incumbent pipeline.
+The hybrid is additive - the detector ships ALONGSIDE Tesseract, not instead
+of it - so adopting it means shipping the sum above. Nothing downstream of
+this number is worth measuring until a smaller runtime exists.

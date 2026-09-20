@@ -29,7 +29,16 @@ node score-paddle.mjs --engine opencv  # the same, with the OpenCV preprocessing
 node browser-bakeoff.mjs               # payload + cold start, in real Chromium
 node geometry-bakeoff.mjs              # per-word box accuracy vs exact ground truth
 node region-coverage-bakeoff.mjs       # complexPic1 area by area, both engines
+node detector-probe.mjs                # detection-only payload: the hybrid's price
 ```
+
+`detector-probe.mjs` is the last one and it ends the spike. It strips the
+recognizer and measures what a detection-only build costs in a browser:
+**15.52 MB against Tesseract's entire 6.75 MB pipeline**, 87% of it the ONNX
+runtime rather than the 1.80 MB model. Everything that would have followed —
+missed-region counts, a second Tesseract pass inside proposed regions, the
+reverse difference — was deliberately **not** measured, because the design is
+dead at the download.
 
 The last two are the ones that decided it — see PADDLEOCR-BAKEOFF.md's Geometry
 section. Neither runs `test/render-fidelity.js` or `test/region-coverage.js`

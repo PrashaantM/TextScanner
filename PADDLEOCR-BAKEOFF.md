@@ -376,6 +376,65 @@ CER table is confirmed and amplified by the geometry.
 
 ---
 
+## The hybrid was priced, and it dies on payload
+
+**Measured 2026-09-20, before building anything** — `node
+test/research/paddle-bakeoff/detector-probe.mjs`.
+
+The recommendation below names one idea worth taking without the engine: use
+PP-OCR's DB detector **only** to find regions Tesseract's layout analysis
+misses, keeping Tesseract's word boxes inside them. That idea was priced first,
+because it is **additive** — the detector ships *alongside* the entire Tesseract
+payload, not instead of it — so its download is pure addition.
+
+The recognizer was stripped: no rec model, no dictionary, just the DB detection
+graph and the minimum `onnxruntime-web/wasm` entry (not the default WebGPU entry
+this document prices at 27 MB).
+
+| | |
+|---|---|
+| `ort-wasm-simd-threaded.wasm` | **13.58 MB** |
+| `PP-OCRv6_tiny_det.ort` | 1.80 MB |
+| `ort.wasm.min.mjs` + glue + JS (30 files) | 0.14 MB |
+| **detection only, total** | **15.52 MB** |
+| Tesseract's **entire** pipeline today | **6.75 MB** |
+| ratio | **2.30×** |
+| hybrid total (Tesseract + detector) | **22.27 MB** |
+
+The detector itself works: 26 boxes on complexPic1, 167 ms to create the
+session, 347 ms to detect.
+
+**STOP. Detection alone costs 2.3× the whole incumbent pipeline.**
+
+The decisive detail is *where* the cost is. **The model is 1.80 MB — 12% of the
+total. The ONNX runtime is 13.58 MB — 87%.** So this is not a "pick a smaller
+model" problem, and PP-OCRv6's tiny detector is already the small one. Shipping
+any ONNX graph in this app means shipping ORT's wasm core, and that core alone
+is twice Tesseract's entire footprint.
+
+**Everything downstream of this number was therefore not measured**, exactly as
+scoped: no missed-region counts, no second-pass word-box check, no reverse
+difference. They would have been work spent on a design already dead at the
+download. That is a deliberate stop, not an omission.
+
+### The one thing that would change this, and why it is out of scope
+
+ONNX Runtime supports a **custom minimal build** that prunes the operator set to
+whatever one model actually uses, which for a single DB detector would be a
+small fraction of 13.58 MB. That is a C++/emscripten build from source, pinned
+and re-run on every ORT bump. This repo has **no build step at all** and treats
+that as a property worth protecting (`WEB-COMPLETION-PLAN.md` §0: *"Don't add a
+bundler; the no-build-step property is worth more than the milliseconds"*). So
+it is not a small follow-up — it is a different kind of project, and it should
+not be started on the strength of a coverage gain measured on one poster.
+
+**Hard limit, stated rather than worked around:** producing that build needs an
+emscripten toolchain and a from-source ORT checkout. I did not build one, so the
+figure a pruned runtime would reach is **unmeasured** — I can say 13.58 MB is
+not the floor, and I cannot say what the floor is.
+
+---
+
 ## Recommendation
 
 **Do not spend the 14 photographs on this candidate.** That is a change from
@@ -411,14 +470,13 @@ Three things follow, and the third is the one worth acting on:
    question is still open, and 8 scoring images still cannot close it.
 3. **Two capabilities here are worth stealing without adopting the engine.**
    Both are measured above and neither needs a replacement recognizer:
-   - PP-OCR reads `date-panel` and `teal-panel`, two areas
-     `test/region-coverage.js` has pinned as *never recognized at all*. The
-     coverage-rescue pass (`RECOGNITION-SPIKE.md` §4.3) is Tesseract's existing
-     mechanism for exactly this and is already worth +3.6 CER points. A detector
-     used **only to find regions Tesseract's layout analysis misses**, with
-     Tesseract still doing word-level recognition inside them, would keep
-     word boxes and gain the coverage. That is a real design, it is not what
-     this bake-off tested, and it should not be built on this evidence alone.
+   - ~~A detector used only to find regions Tesseract's layout analysis
+     misses.~~ **Priced 2026-09-20 and killed: 15.52 MB for detection alone,
+     2.30× Tesseract's entire pipeline, 87% of it the ONNX runtime rather than
+     the model.** See the section above. The coverage gap it would have closed
+     is real — `date-panel` and `teal-panel` are pinned as never recognized —
+     but the mechanism for closing it has to come from somewhere that is not an
+     ONNX graph.
    - Tesseract emits far more junk on the partial-GT images (166% and 143% CER
      — it writes more than exists). PaddleOCR's detector simply declines to box
      those areas. That is a *filtering* signal, not a recognition one.
@@ -432,6 +490,9 @@ every other number here is favourable and the decision flips. That is a research
 spike, not an integration, and nothing in this bake-off bears on whether it
 would work.
 
-**Ordered: take the photographs for the incumbent → treat the detector-for-
-coverage idea as a separate, smaller spike → leave the cloud tier where §6 left
-it.**
+**Ordered: take the photographs for the incumbent → leave the cloud tier where
+§6 left it.** The detector-for-coverage idea was the third item here; it was
+priced above and it is dead at 15.52 MB. **This spike is finished.** It produced
+two durable negatives — the candidate cannot place a word, and its detector
+cannot be afforded on its own — and neither needs revisiting until either a
+pruned ONNX runtime exists or someone wants the CTC word-box research spike.
