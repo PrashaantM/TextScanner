@@ -46,6 +46,7 @@ import {
 import { initCropView, openCropForPage, openCropForImage, closeCrop } from "./cropView.js";
 import { canvasFromSource } from "./scanFilters.js";
 import { clearHistory, historyStats } from "./translateHistory.js";
+import { recognitionCacheState, warmRecognitionCache, RECOGNITION_PAYLOAD_LABEL } from "./offlineRecognition.js";
 import { hapticLight, hapticMedium } from "./haptics.js";
 import { cycleTheme, themeLabel } from "./theme.js";
 import { initCommandPalette, openCommandPalette, closeCommandPalette, isCommandPaletteOpen } from "./commandPalette.js";
@@ -283,6 +284,78 @@ async function addCurrentImageAsPage(previewImg) {
 
 // ---- Settings ----
 
+// Says what is ACTUALLY in the worker's recognition cache, per distinguishable
+// state, because a control that claims "saved" when nothing is saved costs
+// somebody a scan somewhere with no signal. The five states come straight from
+// js/offlineRecognition.js rather than being inferred from a boolean here.
+async function renderOfflineRecognition() {
+  const stateLine = elements.offlineRecognitionState;
+  const button = elements.offlineRecognitionBtn;
+  if (!stateLine || !button) return;
+
+  const state = await recognitionCacheState();
+  switch (state.status) {
+    case "unsupported":
+      stateLine.textContent = "This browser cannot store the engine for offline use.";
+      button.disabled = true;
+      button.hidden = true;
+      break;
+    case "uncontrolled":
+      // Not an error and not worth a scary sentence: it is the normal state on a
+      // plain http:// dev server and inside the Capacitor WKWebView, where
+      // js/serviceWorkerRegistration.js deliberately does not register, and on
+      // the very first load before the worker claims the page.
+      stateLine.textContent = "Offline recognition is not active on this page. Reload to enable it.";
+      button.disabled = true;
+      button.hidden = false;
+      break;
+    case "ready":
+      stateLine.textContent = "Saved. Recognition works with no connection.";
+      button.disabled = true;
+      button.hidden = false;
+      break;
+    case "partial":
+      stateLine.textContent = `Partly saved (${state.present.length} of ${state.present.length + state.missing.length} files). Scanning offline would still fail.`;
+      button.disabled = false;
+      button.hidden = false;
+      break;
+    default:
+      stateLine.textContent = "Not saved yet - the first scan on this device needs a connection.";
+      button.disabled = false;
+      button.hidden = false;
+  }
+}
+
+// THE QUOTA BRANCH IS THE POINT OF THIS FUNCTION. Since the cache-write fixes,
+// sw.js survives a failing cache.put silently - correct for a scan, which should
+// not die because the disk is full, but it means "the download finished" says
+// nothing about whether anything was stored. warmRecognitionCache re-reads the
+// cache afterwards, and this is where that distinction reaches the user instead
+// of being swallowed.
+function describeWarmResult(result) {
+  if (result.ok) return "Saved. Recognition now works with no connection.";
+  switch (result.reason) {
+    case "network":
+      return `Couldn't download the engine files: ${result.failures.join("; ")}. Check your connection and try again.`;
+    case "storage": {
+      const room = result.estimate
+        ? ` This device reports ${formatBytes(result.estimate.usage)} used of ${formatBytes(result.estimate.quota)}.`
+        : "";
+      return (
+        `The files downloaded but couldn't be saved - storage is full, so the browser refused them.${room} ` +
+        `Free some space (deleting documents you have backed up is the usual way) and try again. ` +
+        `Scanning still works while you are online.`
+      );
+    }
+    case "unsupported":
+      return "This browser cannot store the engine for offline use.";
+    case "uncontrolled":
+      return "Offline recognition is not active on this page yet. Reload and try again.";
+    default:
+      return "Couldn't save the engine files. Scanning still works while you are online.";
+  }
+}
+
 async function renderSettings() {
   const estimate = await estimateStorage();
   if (estimate) {
@@ -314,6 +387,8 @@ async function renderSettings() {
     elements.persistExplain.textContent =
       "The browser may delete your documents to reclaim space - Safari does this after about 7 days without a visit unless the app is installed to your home screen. Install it, press \u201cKeep storage permanently\u201d above, or back up below.";
   }
+
+  await renderOfflineRecognition();
 
   const stats = await historyStats();
   elements.historyStats.textContent = stats.total
@@ -350,6 +425,14 @@ export async function initApp() {
     backupImport: document.getElementById("settings-backup-import"),
     backupFile: document.getElementById("settings-backup-file"),
     backupStatus: document.getElementById("settings-backup-status"),
+    // Resolved locally, like every other Settings control (settings-persist,
+    // settings-backup-*) rather than in js/dom.js. WEB-COMPLETION-PLAN.md §0
+    // spells out why for the redaction and PII ids: hoisting a panel-local
+    // control into the protected contract purely to move EXPECTED_ID_COUNT is
+    // "the opposite of what that gate is for".
+    offlineRecognitionBtn: document.getElementById("settings-offline-recognition"),
+    offlineRecognitionState: document.getElementById("settings-offline-recognition-state"),
+    offlineRecognitionStatus: document.getElementById("settings-offline-recognition-status"),
   });
 
   storageReady = await isAvailable();
@@ -538,6 +621,26 @@ export async function initApp() {
     } else if (event.key === "[" || event.key === "]") {
       cycleScanView(event.key === "]" ? 1 : -1);
     }
+  });
+
+  // Offline recognition (Settings). The button fills sw.js's cache-first
+  // recognition bucket on demand; the line above it says what is actually stored.
+  document.getElementById("settings-offline-recognition")?.addEventListener("click", async () => {
+    const button = elements.offlineRecognitionBtn;
+    const status = elements.offlineRecognitionStatus;
+    if (!button) return;
+    button.disabled = true;
+    if (status) status.textContent = `Saving ${RECOGNITION_PAYLOAD_LABEL}...`;
+
+    const result = await warmRecognitionCache({
+      onProgress: ({ done, total }) => {
+        if (status) status.textContent = `Saving ${RECOGNITION_PAYLOAD_LABEL}... (${done} of ${total} files)`;
+      },
+    });
+
+    if (status) status.textContent = describeWarmResult(result);
+    button.disabled = false;
+    await renderOfflineRecognition();
   });
 
   // Settings actions.

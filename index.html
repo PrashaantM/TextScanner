@@ -805,6 +805,31 @@
         <p id="settings-persist-explain" class="settings-group__hint"></p>
       </div>
 
+      <!-- Offline recognition. sw.js caches the app shell on first visit but the
+           6.7 MB recognition payload only on the first SUCCESSFUL scan, so that a
+           first visit is not made to pay 11 MB it may never use. The honest
+           consequence - the first scan still needs a connection - was stated in
+           README and acted on nowhere, so someone who installed the app and never
+           scanned online got a failed fetch on a plane. This is the control that
+           lets them decide in advance, and js/offlineRecognition.js reports the
+           real cache state rather than assuming. -->
+      <div class="settings-group">
+        <h2 class="settings-group__heading">Offline recognition</h2>
+        <p class="settings-group__hint">
+          Scanning needs Tesseract's engine and English language data. They ship with the
+          app rather than coming from anyone else's server, but they are saved on this
+          device the first time you scan - so a brand new install needs one connected scan
+          before it can work offline. Saving them now skips that.
+        </p>
+        <!-- Filled by js/app.js from the worker's own cache, so it says what is
+             actually stored rather than what ought to be. -->
+        <p id="settings-offline-recognition-state" class="settings-group__value"></p>
+        <button id="settings-offline-recognition" class="btn btn--secondary btn--small" type="button">
+          Make recognition work offline (6.7 MB)
+        </button>
+        <p id="settings-offline-recognition-status" class="settings-group__hint" role="status"></p>
+      </div>
+
       <div class="settings-group">
         <h2 class="settings-group__heading">Back up everything</h2>
         <p class="settings-group__hint">

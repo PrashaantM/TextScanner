@@ -79,8 +79,8 @@ Checked today rather than carried forward from `HANDOFF.md`:
 | 81 unit tests pass | `node --test test/unit/*.test.js` — 81 pass, 0 fail |
 | The newest browser gate passes | `node test/font-match.js` — all 7 checks green |
 | Last CI run on `main` green | run `34673998815`, 3m30s |
-| 50 modules, 17,689 lines in `js/` | `wc -l js/*.js`, `ls js/*.js \| wc -l` |
-| 33 gates in `ci.yml`'s per-push `test:` job | `awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml \| grep -c '^      - run: node'` |
+| 51 modules, 18,036 lines in `js/` | `wc -l js/*.js`, `ls js/*.js \| wc -l` |
+| 34 gates in `ci.yml`'s per-push `test:` job | `awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml \| grep -c '^      - run: node'` |
 | Tracked repo 8.87 MiB; `vendor/tesseract` is 11 MB of it on disk | `git count-objects -vH`, `du` |
 
 **Jekyll is not eating anything.** Its default excludes cover `vendor/bundle`,
@@ -94,7 +94,7 @@ empirically by the 200s above, so no `.nojekyll` is needed.
 > to 49/17,394 in the same commit that added `js/fontMatch.js` — the rule
 > applied, one commit late for the module before it.
 
-**50 unbundled ES modules over HTTP/2 is not a load problem.** 736 KB raw across
+**51 unbundled ES modules over HTTP/2 is not a load problem.** 752 KB raw across
 `js/`, gzipped per-file, multiplexed on one connection. Don't add a bundler; the
 no-build-step property is worth more than the milliseconds.
 
@@ -112,7 +112,7 @@ no-build-step property is worth more than the milliseconds.
 | UI-REDESIGN-PLAN.md §2.1-§2.5 | 71 | removed `download-image-btn`, `clean-up-text-btn`, `view-on-photo-btn`, `select-multi-btn`, `editor-mode-btn` (merged into other controls or converted to gestures); added `paste-btn`, `download-menu`, `download-menu-backdrop`, `move-handle`. Net −1. |
 | F4 interaction-model rewrite (this session), Phases 1-3 | 71 | Phase 2 removed `copy-btn`, `paste-btn` (deleted outright - Ctrl/Cmd+C/V and a touch long-press menu trigger copy/paste now) and added `text-clipboard-menu`, `text-clipboard-menu-backdrop` (the touch menu's own markup). Phase 3 removed `new-text-btn` (deleted outright, along with the addTextMode plumbing only it drove) and added `filter-toggle-row` (Text-mode-only visibility needed an id to hide/inert as a unit). Net −3, +3 = 0, landing back on 71 again - a third coincidence of arithmetic, not a third instance of nothing changing. Phases 4 and 5 added/removed no ids at all (drag-and-drop and the glass-token migration are both markup-id-neutral). |
 
-Treat **71** as the invariant from here on. `index.html` carries **161** ids in
+Treat **71** as the invariant from here on. `index.html` carries **164** ids in
 total (163 before this session's Phase 3, which additionally deleted
 `add-to-doc-btn` and `save-note-btn` outright rather than moving them - both
 actions live only inside `#download-menu` now, addressed by `data-menu-action`
@@ -138,7 +138,7 @@ have meant hoisting a scan-doc-local control into `js/dom.js` purely to make a
 number change, which is the opposite of what that gate is for. The figure that
 moved is the total: 154 → 160.
 
-### The 33 CI gates, and which ones a change can actually break
+### The 34 CI gates, and which ones a change can actually break
 
 `.github/workflows/ci.yml` runs gates 1-4 immediately (none of them needs a
 browser or an `npm install` - see their own comments), then `npm ci` +
@@ -180,9 +180,10 @@ file actually runs them:
 | 31 | `inpaint-fidelity.js` | No — imports `/js/inpaint.js` and drives the algorithm directly |
 | 32 | `backup-roundtrip.js` | Partly - mostly imports `/js/store.js`, `/js/documents.js` and `/js/backup.js` directly, but "Delete all local data" goes through the real `#settings-delete-all` button |
 | 33 | `offline.js` — **added by W1** | Partly — drives the real `#file-input`/`#scan-btn` and reads the rendered Library, but its subject is `sw.js`: the two cache buckets, the precache manifest against `ls js/*.js` in both directions, and the registration escape hatch |
+| 34 | `offline-recognition.js` — **added by W1's user-facing follow-up** | Yes — the real `#settings-offline-recognition` control in each of its cache states, plus the status text an offline first scan produces. Its hardest assertion warms the cache with no prior scan and then scans offline, which is what proves the wasm core it chose is the one the worker asks for |
 
 This table drifted every time a gate was added, and it moved six times in
-six sessions before the count became a gate. The 33 above is the literal
+six sessions before the count became a gate. The 34 above is the literal
 output of
 (`awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml | grep -c
 '^      - run: node'`), not 30 plus two, and gate 4 now fails if it is ever

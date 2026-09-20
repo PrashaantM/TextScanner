@@ -61,6 +61,7 @@ import {
   diagnosticsStatus,
 } from "./dom.js";
 import { state, MAX_FILE_BYTES, MAX_IMAGE_PIXELS, APP_VERSION } from "./state.js";
+import { describeOfflineRecognitionFailure } from "./offlineRecognition.js";
 // editor.js was split into three modules (Phase 5); main.js imports from each
 // directly rather than through a barrel, so which concern a call belongs to is
 // visible at the import site.
@@ -165,6 +166,21 @@ if (footerVersion) footerVersion.textContent = APP_VERSION;
 // These map the failures that actually happen to a sentence that says what went
 // wrong and what to do about it. The raw error still goes to the console, where
 // it belongs and where it's useful.
+// Consulted BEFORE describeScanError's generic categories. Returns null unless
+// this is specifically the "engine files are not on this device yet" case, in
+// which case the generic advice ("Reload the page and try again") is not just
+// unhelpful but wrong - reloading changes nothing.
+async function describeScanFailure(err) {
+  try {
+    const specific = await describeOfflineRecognitionFailure(err);
+    if (specific) return specific;
+  } catch {
+    // Never let the error REPORTER become the error. Fall through to the
+    // generic categories, which need nothing beyond the message text.
+  }
+  return describeScanError(err);
+}
+
 function describeScanError(err) {
   const raw = String(err?.message || err || "");
 
@@ -455,7 +471,7 @@ scanBtn.addEventListener("click", async () => {
     // The categorized sentence goes to the user; the real error goes to the
     // console, which is where it's actually diagnosable.
     console.error("TextScanner scan failed:", err);
-    const message = describeScanError(err);
+    const message = await describeScanFailure(err);
     state.lastScanError = message;
     setStatus(message, "error");
   } finally {

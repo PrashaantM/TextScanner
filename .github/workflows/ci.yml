@@ -242,6 +242,26 @@ jobs:
       # gates above: a plain http:// load must leave the page uncontrolled with
       # no registration and no cache at all.
       - run: node test/offline.js
+      # The user-facing half of the offline story, which offline.js above does not
+      # cover: sw.js caches the recognition payload on the first SUCCESSFUL scan,
+      # so a fresh PWA install that has never scanned online cannot scan offline.
+      # README said so and the app did nothing about it - the person it happens to
+      # got "Reload the page and try again", advice that is actively wrong because
+      # reloading changes nothing. This pins the specific message, and Settings'
+      # "Make recognition work offline" control reporting the ACTUAL cache state
+      # in each of its five distinguishable situations.
+      # The assertion that makes the rest worth anything: it warms the cache
+      # through the control with NO prior scan, goes offline, and scans. The
+      # worker appends its own core filename after runtime SIMD detection and
+      # js/ocrEngine.js only hands it a directory, so caching the wrong core would
+      # leave a device that had just been told "recognition works offline now"
+      # reaching for the network - invisible to any check that merely counts three
+      # files in a cache, and caught here.
+      # Also the quota path: the cache-write fixes made sw.js survive a refused
+      # put silently, which is right for a scan and means "the download finished"
+      # proves nothing about what was stored. The control re-reads the cache and
+      # must not report success when nothing was saved.
+      - run: node test/offline-recognition.js
 
   # ---------------------------------------------------------------------------
   # Nightly only, and that is a deliberate choice rather than a lack of nerve.

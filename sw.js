@@ -26,7 +26,7 @@
 //                          because a reload of the deployed URL requests "./"
 //                          while the gates and a typed URL request index.html
 //   style.css
-//   js/*.js                all 50 modules - unbundled ES modules, so a missing
+//   js/*.js                all 51 modules - unbundled ES modules, so a missing
 //                          one is a blank screen, not a degraded one
 //   manifest.webmanifest    } W7's install metadata; an installed PWA that
 //   icons/ (4 PNGs)         } cannot paint its own icon offline looks broken
@@ -236,6 +236,7 @@ const SHELL_ASSETS = [
   "js/mlkitEngine.js",
   "js/notesEditor.js",
   "js/ocrEngine.js",
+  "js/offlineRecognition.js",
   "js/pdf.js",
   "js/perspective.js",
   "js/piiDetect.js",
