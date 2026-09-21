@@ -110,7 +110,7 @@ Then open `http://localhost:8000` in your browser.
 ## Project structure
 
 The web app has no build step: `index.html` loads `js/main.js` as an ES module and
-the browser resolves the rest. 50 modules, grouped by what they own.
+the browser resolves the rest. 52 modules, grouped by what they own.
 
 ```
 index.html            Markup and layout. Every view's markup is present at all

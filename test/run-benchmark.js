@@ -57,6 +57,32 @@
 // refChars/refWords ARE recorded, because a character count is a property of
 // the corpus and reproduces anywhere.
 //
+// ---- --cloud: THE HYBRID PATH, WITH api.anthropic.com MOCKED ----
+//
+//   node test/run-benchmark.js --cloud
+//
+// Turns on the opt-in cloud tier (js/cloudVision.js + js/transcriptAlign.js) and
+// answers api.anthropic.com from test/research/cloud-transcripts/<image>.txt
+// instead of calling it. Everything else is the real thing: the real
+// js/ocrEngine.js runs for geometry, the real alignment places the transcript on
+// its boxes, and the score comes off the real #result-text.
+//
+// THE MOCK IS A HARD REQUIREMENT, NOT A CONVENIENCE - the same discipline
+// test/web-tier-smoke.js states and for the same three reasons: a live call
+// needs a real key, bills the account on every run, and fails whenever a third
+// party has an outage. It also makes the measurement reproducible, which a live
+// call is not.
+//
+// WHAT THE MOCK THEREFORE DOES NOT MEASURE, stated rather than implied: run-to-
+// run variation in what the model returns for the same image. The transcripts
+// are a fixed recording, so every --cloud run scores the same transcript. The
+// alignment, the geometry and the scoring are real; the model's variance is not
+// in the loop. See test/research/cloud-transcripts/README.md for how the
+// recording was produced and what that does and does not establish.
+//
+// --cloud is NOT what ci.yml runs. The gated baseline is the local path, which
+// is what every user who has not opted in gets.
+//
 // ---- WHY THE GATE IS THE EIGHT-IMAGE AVERAGE, NOT THE ELEVEN-IMAGE ONE ----
 //
 // complexPic7, complexPic10 and complexPic11 have deliberately partial ground
@@ -94,6 +120,8 @@ let PORT;
 // corpus used to sit in a folder named legacy-opencv-scripts/, which hid it).
 const IMAGE_DIR = join(ROOT, "test/images");
 const GROUNDTRUTH_DIR = join(ROOT, "test/groundtruth");
+// Recorded model transcripts, replayed by --cloud in place of a live API call.
+const CLOUD_TRANSCRIPT_DIR = join(ROOT, "test/research/cloud-transcripts");
 
 
 async function serveStatic() {
@@ -111,6 +139,24 @@ async function serveStatic() {
   });
   PORT = await listenOnEphemeralPort(server);
   return server;
+}
+
+// Turns the opt-in cloud tier on for this page and answers api.anthropic.com
+// locally with `transcript`. Both halves of the opt-in are set the way a real
+// user sets them - the Settings flag and a saved key - rather than by reaching
+// into the engine, so this exercises cloudRecognitionReady() itself.
+async function enableMockedCloud(page, transcript) {
+  await page.route("https://api.anthropic.com/**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ content: [{ type: "text", text: transcript }], usage: { input_tokens: 0, output_tokens: 0 } }),
+    });
+  });
+  await page.addInitScript(() => {
+    localStorage.setItem("textscanner.anthropicApiKey", "sk-ant-test-not-a-real-key");
+    localStorage.setItem("textscanner.cloudRecognition", "1");
+  });
 }
 
 async function scanImage(page, imagePath) {
@@ -143,6 +189,10 @@ async function launchBenchmarkBrowser() {
 async function main() {
   const jsonFlagIndex = process.argv.indexOf("--json");
   const jsonOutPath = jsonFlagIndex !== -1 ? process.argv[jsonFlagIndex + 1] : null;
+
+  // See the --cloud note in this file's header. Off by default, exactly as the
+  // feature it measures is off by default.
+  const cloudMode = process.argv.includes("--cloud");
 
   const checkRegression = process.argv.includes("--check-regression");
   const baselineFlagIndex = process.argv.indexOf("--baseline");
@@ -210,6 +260,15 @@ async function main() {
       const imagePath = join(IMAGE_DIR, `${name}.jpeg`);
       const reference = await readFile(join(GROUNDTRUTH_DIR, gtFile), "utf8");
 
+      if (cloudMode) {
+        // Read per image, and a missing recording is a hard failure rather than
+        // a silent fall-through to the local path - a --cloud run that quietly
+        // scored the local engine on one image would be the worst kind of wrong
+        // number, since it would look like a cloud result.
+        const transcript = await readFile(join(CLOUD_TRANSCRIPT_DIR, `${name}.txt`), "utf8");
+        await enableMockedCloud(page, transcript);
+      }
+
       const start = Date.now();
       let hypothesis;
       try {
@@ -241,6 +300,7 @@ async function main() {
     server.close();
   }
 
+  console.log(`\n${replayPath ? "replayed" : cloudMode ? "HYBRID CLOUD PATH (api.anthropic.com mocked from test/research/cloud-transcripts/)" : "local path"}`);
   console.log("\nimage           CER      WER      time");
   console.log("------------------------------------------");
   for (const r of rows) {

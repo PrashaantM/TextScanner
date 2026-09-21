@@ -26,7 +26,7 @@
 //                          because a reload of the deployed URL requests "./"
 //                          while the gates and a typed URL request index.html
 //   style.css
-//   js/*.js                all 50 modules - unbundled ES modules, so a missing
+//   js/*.js                all 52 modules - unbundled ES modules, so a missing
 //                          one is a blank screen, not a degraded one
 //   manifest.webmanifest    } W7's install metadata; an installed PWA that
 //   icons/ (4 PNGs)         } cannot paint its own icon offline looks broken
@@ -248,6 +248,7 @@ const SHELL_ASSETS = [
   "js/app.js",
   "js/backup.js",
   "js/coherence.js",
+  "js/cloudVision.js",
   "js/coherenceClaude.js",
   "js/coherenceGate.js",
   "js/coherenceOnDevice.js",
@@ -286,6 +287,7 @@ const SHELL_ASSETS = [
   "js/serviceWorkerRegistration.js",
   "js/state.js",
   "js/store.js",
+  "js/transcriptAlign.js",
   "js/toast.js",
   "js/translate.js",
   "js/translateClaude.js",

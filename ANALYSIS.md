@@ -13,7 +13,7 @@
 
 ## 0. Executive summary
 
-TextScanner is a **zero-build, dependency-light, local-first OCR and image-text-editing app**: 17,905 lines of vanilla ES-module JavaScript across 50 modules, deployed straight to GitHub Pages, wrapped in a Capacitor iOS shell that dispatches between Tesseract.js and native Google ML Kit, plus two features (Coherence Filter, translate-in-place) that dispatch between Apple's on-device Foundation Models and a BYOK Claude fallback.
+TextScanner is a **zero-build, dependency-light, local-first OCR and image-text-editing app**: 19,006 lines of vanilla ES-module JavaScript across 52 modules, deployed straight to GitHub Pages, wrapped in a Capacitor iOS shell that dispatches between Tesseract.js and native Google ML Kit, plus two features (Coherence Filter, translate-in-place) that dispatch between Apple's on-device Foundation Models and a BYOK Claude fallback.
 
 The headline of this revision is not a feature. It is that **the oldest open bug in the project is closed, and was closed without a device** — by generating recognition fixtures with exact ground truth rather than waiting for a device dump that would have had none.
 

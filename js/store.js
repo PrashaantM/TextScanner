@@ -42,7 +42,7 @@ const STORE_HISTORY = "history";
 
 // ---- localStorage inventory ----
 //
-// IndexedDB holds the documents; these three keys are everything else the app
+// IndexedDB holds the documents; these four keys are everything else the app
 // persists. They live here rather than in the modules that use them for one
 // reason: clearAll() below promises to delete all local data, and a promise
 // like that cannot be kept from a module that does not know what "all" is.
@@ -72,8 +72,21 @@ export const LOCAL_KEY_COMMAND_FRECENCY = "textscanner.command-frecency";
 // test/destructive-actions.js asserts it is still cleared, which is now the
 // only thing proving the sweep still happens.
 export const LOCAL_KEY_LEGACY_THEME = "textscanner.theme";
+// Whether cloud recognition (js/cloudVision.js) may send the PHOTOGRAPH to
+// Claude. Swept for the same reason the frecency counts are: it is not a secret,
+// but it is a standing permission this device remembers, and leaving a "yes, send
+// my photos" flag behind under a button whose copy says ALL is precisely the
+// half-truth this list exists to prevent. It is a separate key from the API key
+// above on purpose - having entered a key to rewrite TEXT is not consent to
+// upload an IMAGE; see js/cloudVision.js's header.
+export const LOCAL_KEY_CLOUD_RECOGNITION = "textscanner.cloudRecognition";
 
-const CLEARABLE_LOCAL_KEYS = [LOCAL_KEY_ANTHROPIC_API, LOCAL_KEY_COMMAND_FRECENCY, LOCAL_KEY_LEGACY_THEME];
+const CLEARABLE_LOCAL_KEYS = [
+  LOCAL_KEY_ANTHROPIC_API,
+  LOCAL_KEY_COMMAND_FRECENCY,
+  LOCAL_KEY_LEGACY_THEME,
+  LOCAL_KEY_CLOUD_RECOGNITION,
+];
 
 export const STORES = {
   DOCUMENTS: STORE_DOCUMENTS,

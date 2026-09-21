@@ -79,6 +79,19 @@ jobs:
         working-directory: test
       - run: node --test test/unit/*.test.js
       - run: node test/run-benchmark.js --check-regression --baseline test/baseline-2026-08-28.json --tolerance 2.0
+      # How long a scan takes, which nothing in this suite measured until now: 35
+      # gates checked what the pipeline produces and none checked what it costs,
+      # so a change that doubled every scan went in green. It gates a RATIO
+      # between the corpus's worst image and its simplest one, both timed in the
+      # same run on the same machine, rather than a number of milliseconds -
+      # because RECOGNITION-SPIKE.md §2.2 already established that per-image
+      # wall-clock does not reproduce across machines (complexPic6 recorded at
+      # 141,487ms runs in 10.6s at the commit that recorded it), and
+      # run-benchmark.js above now FAILS on a baseline that contains one at all.
+      # Machine speed divides out of a ratio; a new pass in the hard path does
+      # not. A loose absolute ceiling sits behind it for the one failure a ratio
+      # cannot see - both scans getting slower together.
+      - run: node test/scan-latency.js
       # complexPic1, scored one text area at a time rather than averaged. The
       # benchmark above is an average, and an average cannot see a hole: this
       # poster was losing its pink headline AND its whole middle band while

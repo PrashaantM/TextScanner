@@ -79,8 +79,8 @@ Checked today rather than carried forward from `HANDOFF.md`:
 | 81 unit tests pass | `node --test test/unit/*.test.js` — 81 pass, 0 fail |
 | The newest browser gate passes | `node test/font-match.js` — all 7 checks green |
 | Last CI run on `main` green | run `34673998815`, 3m30s |
-| 50 modules, 17,905 lines in `js/` | `wc -l js/*.js`, `ls js/*.js \| wc -l` |
-| 35 gates in `ci.yml`'s per-push `test:` job | `awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml \| grep -c '^      - run: node'` |
+| 52 modules, 19,006 lines in `js/` | `wc -l js/*.js`, `ls js/*.js \| wc -l` |
+| 36 gates in `ci.yml`'s per-push `test:` job | `awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml \| grep -c '^      - run: node'` |
 | Tracked repo 8.87 MiB; `vendor/tesseract` is 11 MB of it on disk | `git count-objects -vH`, `du` |
 
 **Jekyll is not eating anything.** Its default excludes cover `vendor/bundle`,
@@ -94,7 +94,7 @@ empirically by the 200s above, so no `.nojekyll` is needed.
 > to 49/17,394 in the same commit that added `js/fontMatch.js` — the rule
 > applied, one commit late for the module before it.
 
-**50 unbundled ES modules over HTTP/2 is not a load problem.** 752 KB raw across
+**52 unbundled ES modules over HTTP/2 is not a load problem.** 752 KB raw across
 `js/`, gzipped per-file, multiplexed on one connection. Don't add a bundler; the
 no-build-step property is worth more than the milliseconds.
 
@@ -113,8 +113,10 @@ no-build-step property is worth more than the milliseconds.
 | F4 interaction-model rewrite (this session), Phases 1-3 | 71 | Phase 2 removed `copy-btn`, `paste-btn` (deleted outright - Ctrl/Cmd+C/V and a touch long-press menu trigger copy/paste now) and added `text-clipboard-menu`, `text-clipboard-menu-backdrop` (the touch menu's own markup). Phase 3 removed `new-text-btn` (deleted outright, along with the addTextMode plumbing only it drove) and added `filter-toggle-row` (Text-mode-only visibility needed an id to hide/inert as a unit). Net −3, +3 = 0, landing back on 71 again - a third coincidence of arithmetic, not a third instance of nothing changing. Phases 4 and 5 added/removed no ids at all (drag-and-drop and the glass-token migration are both markup-id-neutral). |
 | Theme-system removal | 70 | `theme-btn` deleted outright with the switcher it drove: one fixed colour scheme now, so there is no preference to expose. Net −1, and the first time in five entries this number has actually moved. |
 
-Treat **70** as the invariant from here on. `index.html` carries **163** ids in
-total (164 before the theme-system removal deleted `theme-btn`; 163 before this
+Treat **70** as the invariant from here on. `index.html` carries **164** ids in
+total (163 before this change added `settings-cloud-recognition`, the Settings
+toggle for cloud recognition; 164 before the theme-system removal deleted
+`theme-btn`; 163 before this
 session's Phase 3, which additionally deleted
 `add-to-doc-btn` and `save-note-btn` outright rather than moving them - both
 actions live only inside `#download-menu` now, addressed by `data-menu-action`
@@ -140,7 +142,7 @@ have meant hoisting a scan-doc-local control into `js/dom.js` purely to make a
 number change, which is the opposite of what that gate is for. The figure that
 moved is the total: 154 → 160.
 
-### The 35 CI gates, and which ones a change can actually break
+### The 36 CI gates, and which ones a change can actually break
 
 `.github/workflows/ci.yml` runs gates 1-4 immediately (none of them needs a
 browser or an `npm install` - see their own comments), then `npm ci` +
@@ -156,7 +158,8 @@ file actually runs them:
 | 5 | `repo-contract.js` — **added by this change** | No — browser-free. Parses this section's own counts out of the markdown and checks every `test/*.js` gate is wired into the workflow |
 | 6 | `node --test test/unit/*.test.js` | No — pure functions |
 | 7 | `run-benchmark.js --check-regression --baseline test/baseline-2026-08-28.json --tolerance 2.0` | Yes, the scan flow |
-| 8 | `region-coverage.js` | Yes, the same scan flow, scored area by area |
+| 8 | `scan-latency.js` — **added by this change** | Yes, the real scan flow, twice. The only gate that measures what a scan COSTS rather than what it produces. Gates a ratio against a fixed frame put through the same engine, not a number of milliseconds — see §2.2 of `RECOGNITION-SPIKE.md` for why a wall-clock number in this repo is a property of the machine |
+| 9 | `region-coverage.js` | Yes, the same scan flow, scored area by area |
 | 9 | `touch-interactions.js` | Yes — **and CDP-only, see W2** |
 | 10 | `malformed-input.js` | Yes |
 | 11 | `exif-orientation.js` | Yes |
@@ -186,7 +189,7 @@ file actually runs them:
 | 35 | `offline-recognition.js` — **added by W1's user-facing follow-up** | Yes — the real `#settings-offline-recognition` control in each of its cache states, plus the status text an offline first scan produces. Its hardest assertion warms the cache with no prior scan and then scans offline, which is what proves the wasm core it chose is the one the worker asks for |
 
 This table drifted every time a gate was added, and it moved six times in
-six sessions before the count became a gate. The 35 above is the literal
+six sessions before the count became a gate. The 36 above is the literal
 output of
 (`awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml | grep -c
 '^      - run: node'`), not 30 plus two, and gate 5 now fails if it is ever

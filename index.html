@@ -829,6 +829,33 @@
         <p id="settings-offline-recognition-status" class="settings-group__hint" role="status"></p>
       </div>
 
+      <!-- Cloud recognition (js/cloudVision.js + js/transcriptAlign.js). OFF unless
+           this box is ticked AND an Anthropic key is saved on the result screen -
+           see js/cloudVision.js's header for why a saved key is deliberately not
+           consent on its own. One id, resolved locally by js/recognize.js like
+           every other Settings control, so js/dom.js's protected contract and
+           EXPECTED_ID_COUNT do not move. -->
+      <div class="settings-group">
+        <h2 class="settings-group__heading">Cloud recognition</h2>
+        <p class="settings-group__hint">
+          Local recognition reads clean screenshots well and struggles with photographs,
+          angled signs and dense small print. Turning this on sends <strong>the image
+          itself</strong> to Anthropic's Claude API to read the text, and uses the local
+          engine only to work out where each word sits &mdash; so retyping, moving and
+          deleting words keeps working. It needs the same API key the Coherence Filter
+          uses, it is billed to that key, and every scan that sends an image says so
+          while it runs.
+        </p>
+        <p class="settings-group__hint">
+          Leave it off and nothing changes: recognition stays entirely on this device.
+          If a scan can't reach the API, you get the local result rather than an error.
+        </p>
+        <label class="settings-group__checkbox">
+          <input type="checkbox" id="settings-cloud-recognition" />
+          Send images to Claude for better text
+        </label>
+      </div>
+
       <div class="settings-group">
         <h2 class="settings-group__heading">Back up everything</h2>
         <p class="settings-group__hint">
