@@ -1,5 +1,5 @@
 // repo-contract.js: the repository's own bookkeeping, asserted instead of
-// maintained by hand. Six checks, all about claims this repo makes ABOUT itself
+// maintained by hand. Seven checks, all about claims this repo makes ABOUT itself
 // rather than about how the app behaves. (This line read "Two checks" through the
 // additions of CHECK 3, CHECK 4 and CHECK 5 - a header miscounting the file it
 // heads, in the one gate whose whole subject is numbers that drift. CHECK 1 and
@@ -431,6 +431,122 @@ for (const { path: docPath, section } of GATED_DOCS) {
 
 
 // ---------------------------------------------------------------------------
+// CHECK 7: count claims asserted in SOURCE files, beside the code they describe.
+//
+// CHECK 1 gates three numbers across three markdown files (GATED_DOCS above).
+// It does not look at source. Measured at 49d1176 - the commit that MOVED the
+// module count and the id count - four claims about those same numbers were
+// left stale, all of them in prose sitting next to the code:
+//
+//   sw.js:29                "js/*.js  all 51 modules" while the tree held 50
+//   test/dom-contract.js:55 "every one of the 71 uses a double-quoted literal"
+//                           while EXPECTED_ID_COUNT in the same file read 70
+//   ANALYSIS.md §8.2 / HANDOFF.md §0   dated correction chains, both ending 71
+//
+// The last two are dated history and belong to the append-a-new-entry
+// discipline those chains already have. The first two are live claims about
+// today's tree, and they are exactly as authoritative-looking as §0's fact
+// table while being gated by nothing at all. A number gated in markdown and
+// ungated in the source file beside it will drift, and did, in the same commit
+// that moved it.
+//
+// HOW THIS DIFFERS FROM CHECK 1, deliberately. CHECK 1 scans whole documents
+// for a general phrasing and uses <!-- count-snapshot --> to exempt history.
+// That is right for prose whose whole job is to state counts. Source comments
+// are not like that: there are only a handful of them, each phrased once, and
+// a general number-hunting pattern over .js files would drown in coordinates,
+// thresholds and OCR confidence scores (js/editorObjects.js:511 and
+// test/not-text-warning.js:12 both discuss a word scoring 51). So each claim is
+// named individually, by the sentence it is written in.
+//
+// THE VACUOUS-PASS TRAP, which is the failure mode this check is most exposed
+// to. A `for (const m of matchAll(...))` loop over a pattern that no longer
+// matches anything runs zero times and the check passes green - protecting
+// nothing, while looking exactly like it is working. That is how CHECK 2's
+// subject (a gate with no `run:` line) fails, and it is what CHECK 1 guards
+// against for its own region with the "could not locate the region" failure.
+// So every entry below asserts its pattern matched EXACTLY ONCE and fails
+// loudly otherwise: a reworded comment must be re-pointed here in the same
+// commit, not silently un-gated.
+//
+// THE SELF-MATCH TRAP, per CHECK 6's own lesson that a description of a
+// mechanism is not the mechanism. The scanned set below is an explicit list of
+// files, and this file is NOT in it. It must not be: the patterns are written
+// out here as regex literals, and the failure messages quote the phrasings, so
+// pointing any of this at test/repo-contract.js would match its own
+// explanation and assert nothing. If this check is ever widened from a named
+// list to a glob over test/*.js, exclude this file by name the way CHECK 6
+// excludes browser.js.
+const SOURCE_COUNT_CLAIMS = [
+  {
+    path: "sw.js",
+    label: "the js/ module count",
+    // "js/*.js   all 50 modules - unbundled ES modules, ..." in SHELL_ASSETS'
+    // header inventory.
+    pattern: /\ball (\d+) modules\b/g,
+    actual: () => actualModuleCount,
+    how: "ls js/*.js | wc -l",
+  },
+  {
+    path: "test/dom-contract.js",
+    label: "the resolved-id count",
+    // The DOM_ID_PATTERN comment, restating EXPECTED_ID_COUNT a few lines below
+    // it. Both numbers live in this one file and disagreed at 49d1176.
+    pattern: /every one of the (\d+) uses a double-quoted literal/g,
+    actual: () => expectedIdCount,
+    how: "EXPECTED_ID_COUNT in test/dom-contract.js",
+  },
+];
+
+// The id count is not derived from the tree the way the module count is - it is
+// a hand-edited constant, deliberately (see WEB-COMPLETION-PLAN.md §0). So the
+// truth this check compares against is the constant itself, read out of the
+// same file: the defect being gated is the two disagreeing with each other, not
+// either one being wrong on its own. test/dom-contract.js already proves the
+// constant matches js/dom.js.
+const domContractSource = await readFile(join(ROOT, "test/dom-contract.js"), "utf8");
+const expectedIdMatch = domContractSource.match(/^const EXPECTED_ID_COUNT = (\d+);$/m);
+if (!expectedIdMatch) {
+  failures.push(
+    `test/dom-contract.js: could not read EXPECTED_ID_COUNT. If the declaration was ` +
+      `reformatted, update CHECK 7 in test/repo-contract.js in the same commit - this ` +
+      `check cannot compare a number it cannot find, and must not pass by default.`
+  );
+}
+const expectedIdCount = expectedIdMatch ? Number(expectedIdMatch[1]) : null;
+
+for (const { path: srcPath, label, pattern, actual, how } of SOURCE_COUNT_CLAIMS) {
+  const source = await readFile(join(ROOT, srcPath), "utf8");
+  pattern.lastIndex = 0;
+  const matches = [...source.matchAll(pattern)];
+
+  // Loudly, not vacuously. See the trap note above.
+  if (matches.length !== 1) {
+    failures.push(
+      `${srcPath}: CHECK 7's pattern for ${label} matched ${matches.length} times, expected ` +
+        `exactly 1. ${matches.length === 0
+          ? "The comment it gates was reworded or removed, so that claim is no longer checked."
+          : "A second place now states it, so one of them can drift unnoticed."} ` +
+        `Re-point SOURCE_COUNT_CLAIMS in test/repo-contract.js in the same commit.`
+    );
+    continue;
+  }
+
+  const truth = actual();
+  if (truth === null) continue; // already reported above
+  const stated = Number(matches[0][1]);
+  if (stated !== truth) {
+    const line = source.slice(0, matches[0].index).split("\n").length;
+    failures.push(
+      `${srcPath}:${line} states ${label} as ${stated}; the tree has ${truth}. This is a live ` +
+        `claim in a source comment, not dated history - correct it from the literal output of ` +
+        `\`${how}\` in the same commit that moved the number.`
+    );
+  }
+}
+
+
+// ---------------------------------------------------------------------------
 // CHECK 2: every gate in test/ is wired into the per-push job.
 
 const testEntries = await readdir(join(ROOT, "test"), { withFileTypes: true });
@@ -757,6 +873,7 @@ console.log(
     GATED_DOCS.map((d) => d.path).join(", ") +
     " match the tree (or are marked as snapshots), every gate in test/ is wired into CI,\n" +
     "no gate binds a fixed port, every browser gate can see handled console errors, no gate carries\n" +
-    "a content-type map of its own, and sw.js's record of the vendored tesseract.js version still\n" +
+    "a content-type map of its own, the count claims in sw.js's and test/dom-contract.js's own\n" +
+    "comments agree with the tree, and sw.js's record of the vendored tesseract.js version still\n" +
     "matches the bytes."
 );

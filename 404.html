@@ -25,6 +25,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Page not found - TextScanner</title>
   <meta name="robots" content="noindex" />
+  <!-- Same single value as index.html and manifest.webmanifest, matching --bg
+       below. theme-color is per-DOCUMENT - index.html's does not carry over to
+       this page - so without it a mobile browser paints its address bar with
+       its own default while this page's body is near-black, and a mistyped URL
+       flips the chrome from dark to white on the way in. -->
+  <meta name="theme-color" content="#070a0f" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2222%22 fill=%22%233457d5%22/><g stroke=%22white%22 stroke-width=%225.5%22 stroke-linecap=%22round%22 fill=%22none%22><path d=%22M20,34 L20,22 Q20,20 22,20 L34,20%22/><path d=%22M66,20 L78,20 Q80,20 80,22 L80,34%22/><path d=%22M20,66 L20,78 Q20,80 22,80 L34,80%22/><path d=%22M80,66 L80,78 Q80,80 78,80 L66,80%22/></g><g fill=%22white%22><rect x=%2246%22 y=%2232%22 width=%228%22 height=%2236%22 rx=%222%22/><rect x=%2239%22 y=%2232%22 width=%2222%22 height=%224.5%22 rx=%221.8%22/><rect x=%2239%22 y=%2263.5%22 width=%2222%22 height=%224.5%22 rx=%221.8%22/></g></svg>" />
   <style>
     /* The same single scheme style.css ships, restated here because this page

@@ -41,6 +41,17 @@ jobs:
       # or from the infinite spinner that must NOT be zeroed - so the reasoning
       # lives in the script, next to each exemption.
       - run: node test/motion-contract.js
+      # The colour scheme's contrast floors, browser-free and milliseconds.
+      # 49d1176 removed the theme system, so there is one palette and no light
+      # mode to fall back to when a surface sits over something bright - and
+      # several surfaces here are glass over the USER'S OWN PHOTOGRAPH. Measured
+      # properly, the palette before that commit put --text-muted at 1.49:1 on a
+      # context menu over a white page scan: not "low contrast", gone. This
+      # parses :root out of style.css and carries no colour of its own, for the
+      # same reason contentTypeFor() exists - the version of this that hard-coded
+      # its own copy of the palette was a false green waiting for the original to
+      # move.
+      - run: node test/palette-contrast.js
       # The version stamp (W12), also browser-free and also seconds:
       # js/state.js's APP_VERSION is the one source of truth, and this fails
       # if the footer's rendered value drifts from it.

@@ -80,7 +80,7 @@ Checked today rather than carried forward from `HANDOFF.md`:
 | The newest browser gate passes | `node test/font-match.js` — all 7 checks green |
 | Last CI run on `main` green | run `34673998815`, 3m30s |
 | 50 modules, 17,905 lines in `js/` | `wc -l js/*.js`, `ls js/*.js \| wc -l` |
-| 34 gates in `ci.yml`'s per-push `test:` job | `awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml \| grep -c '^      - run: node'` |
+| 35 gates in `ci.yml`'s per-push `test:` job | `awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml \| grep -c '^      - run: node'` |
 | Tracked repo 8.87 MiB; `vendor/tesseract` is 11 MB of it on disk | `git count-objects -vH`, `du` |
 
 **Jekyll is not eating anything.** Its default excludes cover `vendor/bundle`,
@@ -140,7 +140,7 @@ have meant hoisting a scan-doc-local control into `js/dom.js` purely to make a
 number change, which is the opposite of what that gate is for. The figure that
 moved is the total: 154 → 160.
 
-### The 34 CI gates, and which ones a change can actually break
+### The 35 CI gates, and which ones a change can actually break
 
 `.github/workflows/ci.yml` runs gates 1-4 immediately (none of them needs a
 browser or an `npm install` - see their own comments), then `npm ci` +
@@ -151,50 +151,57 @@ file actually runs them:
 |---|---|---|
 | 1 | `dom-contract.js` — **added by W3** | It *is* the id contract |
 | 2 | `motion-contract.js` | No — also browser-free, greps `style.css` |
-| 3 | `site-metadata.js` — **added by W12/W11** | No — also browser-free, checks the version stamp and og:/404 metadata as text |
-| 4 | `repo-contract.js` — **added by this change** | No — browser-free. Parses this section's own counts out of the markdown and checks every `test/*.js` gate is wired into the workflow |
-| 5 | `node --test test/unit/*.test.js` | No — pure functions |
-| 6 | `run-benchmark.js --check-regression --baseline test/baseline-2026-08-28.json --tolerance 2.0` | Yes, the scan flow |
-| 7 | `region-coverage.js` | Yes, the same scan flow, scored area by area |
-| 8 | `touch-interactions.js` | Yes — **and CDP-only, see W2** |
-| 9 | `malformed-input.js` | Yes |
-| 10 | `exif-orientation.js` | Yes |
-| 11 | `move-inpaint.js` | Yes |
-| 12 | `guided-path.js` | Yes — the buttons the UI itself points people at, not the raw mode toggles |
-| 13 | `editor-delete.js` | Yes |
-| 14 | `replacement-size.js` | Yes |
-| 15 | `font-match.js` — **added by the per-word font-matching change** | Yes — draws words in a known face, hands the pixels to the real matcher and scores what comes back |
-| 16 | `chrome-reorganization.js` — **added by F4, and gated nothing for a full commit cycle** | Yes — the filter row's Text-mode-only inertness, the corner download menu's anchoring under scroll, and the move handle |
-| 17 | `paste-placement.js` — **written in `b823567`, wired into CI by this change** | Yes — Ctrl/Cmd+C/V clone a word's resolved font/size/colour, in-place editing is left to the browser, and a touch long-press reaches the same two actions |
-| 18 | `not-text-warning.js` | Yes |
-| 19 | `render-fidelity.js` | Yes, plus `import("/js/dom.js")` directly |
-| 20 | `non-latin-limitation.js` | Yes |
-| 21 | `heic-input.js` | Yes |
-| 22 | `web-tier-smoke.js` | Yes, plus `import("/js/dom.js")` |
-| 23 | `pdf-export.js` | Partly; `qlmanage` leg is macOS-only and skipped on CI |
-| 24 | `library-documents.js` | **Mostly no** — imports `/js/documents.js` and drives the model |
-| 25 | `document-creation.js` | Yes, through the real nav/action sheet |
-| 26 | `interaction-layer.js` | Yes |
-| 27 | `destructive-actions.js` | Yes, through the real dialog-gated controls |
-| 28 | `redaction-destroys-original.js` — **added by the redaction change** | Yes — the real Redact button, a real drag, and both confirms; asserts against `STORES.BLOBS` directly |
-| 29 | `pii-redaction.js` — **added by the PII-detection change** | Yes — the real "Find PII"/"Redact selected" buttons, plus one real OCR pass on the corpus and two on synthetic-but-real-OCR fixtures |
-| 30 | `radial-call-sites.js` | Yes |
-| 31 | `inpaint-fidelity.js` | No — imports `/js/inpaint.js` and drives the algorithm directly |
-| 32 | `backup-roundtrip.js` | Partly - mostly imports `/js/store.js`, `/js/documents.js` and `/js/backup.js` directly, but "Delete all local data" goes through the real `#settings-delete-all` button |
-| 33 | `offline.js` — **added by W1** | Partly — drives the real `#file-input`/`#scan-btn` and reads the rendered Library, but its subject is `sw.js`: the two cache buckets, the precache manifest against `ls js/*.js` in both directions, and the registration escape hatch |
-| 34 | `offline-recognition.js` — **added by W1's user-facing follow-up** | Yes — the real `#settings-offline-recognition` control in each of its cache states, plus the status text an offline first scan produces. Its hardest assertion warms the cache with no prior scan and then scans offline, which is what proves the wasm core it chose is the one the worker asks for |
+| 3 | `palette-contrast.js` — **added by this change** | No — browser-free. Parses `:root` out of `style.css` and asserts every text-over-surface pair's WCAG floor, including the glass composites over a white page scan and a night photo |
+| 4 | `site-metadata.js` — **added by W12/W11** | No — also browser-free, checks the version stamp and og:/404 metadata as text |
+| 5 | `repo-contract.js` — **added by this change** | No — browser-free. Parses this section's own counts out of the markdown and checks every `test/*.js` gate is wired into the workflow |
+| 6 | `node --test test/unit/*.test.js` | No — pure functions |
+| 7 | `run-benchmark.js --check-regression --baseline test/baseline-2026-08-28.json --tolerance 2.0` | Yes, the scan flow |
+| 8 | `region-coverage.js` | Yes, the same scan flow, scored area by area |
+| 9 | `touch-interactions.js` | Yes — **and CDP-only, see W2** |
+| 10 | `malformed-input.js` | Yes |
+| 11 | `exif-orientation.js` | Yes |
+| 12 | `move-inpaint.js` | Yes |
+| 13 | `guided-path.js` | Yes — the buttons the UI itself points people at, not the raw mode toggles |
+| 14 | `editor-delete.js` | Yes |
+| 15 | `replacement-size.js` | Yes |
+| 16 | `font-match.js` — **added by the per-word font-matching change** | Yes — draws words in a known face, hands the pixels to the real matcher and scores what comes back |
+| 17 | `chrome-reorganization.js` — **added by F4, and gated nothing for a full commit cycle** | Yes — the filter row's Text-mode-only inertness, the corner download menu's anchoring under scroll, and the move handle |
+| 18 | `paste-placement.js` — **written in `b823567`, wired into CI by this change** | Yes — Ctrl/Cmd+C/V clone a word's resolved font/size/colour, in-place editing is left to the browser, and a touch long-press reaches the same two actions |
+| 19 | `not-text-warning.js` | Yes |
+| 20 | `render-fidelity.js` | Yes, plus `import("/js/dom.js")` directly |
+| 21 | `non-latin-limitation.js` | Yes |
+| 22 | `heic-input.js` | Yes |
+| 23 | `web-tier-smoke.js` | Yes, plus `import("/js/dom.js")` |
+| 24 | `pdf-export.js` | Partly; `qlmanage` leg is macOS-only and skipped on CI |
+| 25 | `library-documents.js` | **Mostly no** — imports `/js/documents.js` and drives the model |
+| 26 | `document-creation.js` | Yes, through the real nav/action sheet |
+| 27 | `interaction-layer.js` | Yes |
+| 28 | `destructive-actions.js` | Yes, through the real dialog-gated controls |
+| 29 | `redaction-destroys-original.js` — **added by the redaction change** | Yes — the real Redact button, a real drag, and both confirms; asserts against `STORES.BLOBS` directly |
+| 30 | `pii-redaction.js` — **added by the PII-detection change** | Yes — the real "Find PII"/"Redact selected" buttons, plus one real OCR pass on the corpus and two on synthetic-but-real-OCR fixtures |
+| 31 | `radial-call-sites.js` | Yes |
+| 32 | `inpaint-fidelity.js` | No — imports `/js/inpaint.js` and drives the algorithm directly |
+| 33 | `backup-roundtrip.js` | Partly - mostly imports `/js/store.js`, `/js/documents.js` and `/js/backup.js` directly, but "Delete all local data" goes through the real `#settings-delete-all` button |
+| 34 | `offline.js` — **added by W1** | Partly — drives the real `#file-input`/`#scan-btn` and reads the rendered Library, but its subject is `sw.js`: the two cache buckets, the precache manifest against `ls js/*.js` in both directions, and the registration escape hatch |
+| 35 | `offline-recognition.js` — **added by W1's user-facing follow-up** | Yes — the real `#settings-offline-recognition` control in each of its cache states, plus the status text an offline first scan produces. Its hardest assertion warms the cache with no prior scan and then scans offline, which is what proves the wasm core it chose is the one the worker asks for |
 
 This table drifted every time a gate was added, and it moved six times in
-six sessions before the count became a gate. The 34 above is the literal
+six sessions before the count became a gate. The 35 above is the literal
 output of
 (`awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml | grep -c
-'^      - run: node'`), not 30 plus two, and gate 4 now fails if it is ever
+'^      - run: node'`), not 30 plus two, and gate 5 now fails if it is ever
 anything else - including if someone edits this heading without touching the
-workflow. It counts gate 5 (`node --test test/unit/*.test.js`) as a gate,
+workflow. It counts gate 6 (`node --test test/unit/*.test.js`) as a gate,
 which is what this table has always done.
 
+**Inserting gate 3 renumbered every row below it, which is the cost this
+table pays for being ordered by execution rather than by name.** That is why
+§1's risk notes name gate FILES rather than table positions - see the note
+further down this section, which was written after those notes had drifted
+seven places for exactly this reason.
+
 **The ROWS are still hand-maintained, and the gate does not check them.** It
-pins the count, not the descriptions, so a 33rd gate added without a row here
+pins the count, not the descriptions, so a new gate added without a row here
 fails the count and tells you to write one - but a row whose description goes
 stale is still only caught by reading it. Two rows were missing entirely when
 the count was gated: `font-match.js` and `chrome-reorganization.js` had been
@@ -616,6 +623,21 @@ assertions: every `getElementById("…")` literal in `js/dom.js` exists as an
 resolved twice in `dom.js`; no id is declared twice in `index.html` (a duplicate
 makes `getElementById` silently take the first, which is its own class of bug).
 Failures name the exact `js/dom.js` line, not just the id.
+
+> **The `= 71` above is HISTORY, not a live claim, and is deliberately left at
+> 71.** It records what W3 built and what the constant held when it was built.
+> `EXPECTED_ID_COUNT` is **70** today (`49d1176` deleted `theme-btn` with the
+> theme system); the live figure is in §0's id section, which is the one place
+> that number is stated as current. Two reasons not to edit it here. The
+> transcript a few lines below is real captured output reading `expected 71` —
+> changing the prose and not the transcript makes them contradict each other,
+> and changing the transcript falsifies evidence. And §1's task write-ups
+> quote counts as they stood when each task was specified, which is exactly why
+> `test/repo-contract.js` CHECK 1 scopes `WEB-COMPLETION-PLAN.md` to §0 and
+> never looks here. No `<!-- count-snapshot -->` marker is used: that marker is
+> read by CHECK 1, CHECK 1 does not scan §1, and the id count is not one of the
+> three claims CHECK 1 covers — a marker nothing reads would imply a protection
+> that does not exist.
 
 **Proved it gates, both halves:**
 

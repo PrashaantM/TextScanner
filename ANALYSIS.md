@@ -270,12 +270,24 @@ from `#8291a8` to `#9fb0c8`, and the glass fill from `rgba(16,22,31,0.6)` to
 `rgba(6,9,13,0.8)`. 20% of the backdrop plus a 20px blur still reads
 unmistakably as frosted glass.
 
-The arithmetic lives in [`test/research/palette/`](test/research/palette/) —
-deliberately research rather than a gate, since this repo puts a measurement
-that gates nothing under `test/research/`. **That is a disclosed gap:** the
-contrast floors are checked by running a script, not on every push, so a future
-palette edit can reintroduce exactly this defect and CI will stay green. Making
-it a gate would add a 35th CI step, which was out of scope here.
+**That gap is now closed, and closing it found more surfaces than the hand
+measurement had.** `49d1176` left the arithmetic in
+[`test/research/palette/`](test/research/palette/) as research, with the
+disclosed gap that the floors were checked by running a script rather than on
+every push — so a later palette edit could reintroduce this exact defect and CI
+would stay green. It is now [`test/palette-contrast.js`](test/palette-contrast.js),
+CI's third step. The design point is that it **parses `:root` out of
+`style.css` and carries no colour of its own**: the research version hard-coded
+a 16-token copy of the palette, which was correct the day it was written, and
+that is precisely the shape of the 30 test servers that each carried their own
+MIME map (§CHECK 6 in `test/repo-contract.js`). It also finds the
+`color-mix()` tinted surfaces by reading the stylesheet rather than from a
+list — which immediately turned up two the hand measurement had missed,
+`style.css:1556` and `:1561`, the editor's hover and modified-word backgrounds,
+both sitting directly on the user's photograph. 45 pairs asserted, up from the
+27 measured by hand. `measure.mjs` now imports the same parsed tokens, so the
+dependency points research → gate and no hard-coded palette copy remains
+anywhere in the repo.
 
 **Not verified on hardware.** Every ratio above is computed from the token
 values, not sampled from a screen. `backdrop-filter` compositing in real Safari
@@ -525,6 +537,27 @@ all.
 > `EXPECTED_ID_COUNT` needed no edit, since the number it pins didn't change -
 > confirmed by `node test/dom-contract.js`, not assumed from the arithmetic
 > above balancing out. Phases 1, 4 and 5 touched no ids at all.
+>
+> **Update, 2026-09-20.** `49d1176` removed the theme system entirely - no
+> switcher, no light/dark, one fixed colour scheme - and `theme-btn` went with
+> it, deleted outright rather than merged or gestured away. It was in
+> `js/dom.js`'s resolved set, so this is the first of these updates where the
+> number actually moves rather than landing back where it started by
+> coincidence: **`js/dom.js` now resolves 70 ids**, and `index.html`'s total
+> declared id count moved **164 → 163**, all still unique. `EXPECTED_ID_COUNT`
+> in `test/dom-contract.js` was edited to 70 in that same commit, per that
+> file's own header, and `node test/dom-contract.js` confirms both figures.
+>
+> **A discrepancy in the entry above, recorded rather than resolved.** The
+> 2026-09-17 update says `index.html`'s total moved "163 → 161", while
+> `WEB-COMPLETION-PLAN.md` §0 has it at 164 immediately before `49d1176`.
+> Both cannot be right, and nothing in the tree settles which revision the
+> 161 was measured at. What *is* verifiable, by counting rather than by
+> reading: `git show f341f34:index.html` yields **164** and today's tree
+> yields **163**. The 161 is left standing rather than quietly corrected -
+> these are dated records and overwriting one to agree with a later count is
+> exactly what this chain exists to prevent - but it should not be trusted as
+> a starting point for arithmetic.
 
 Two tests needed one line each: `render-fidelity.js` and `web-tier-smoke.js`
 drive the editor directly rather than through `loadFile`, so they now switch to

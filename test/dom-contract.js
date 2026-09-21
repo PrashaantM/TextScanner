@@ -52,7 +52,7 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const EXPECTED_ID_COUNT = 70;
 
 // Matches `document.getElementById("some-id")` as it is written in js/dom.js -
-// every one of the 71 uses a double-quoted literal. A computed id would not
+// every one of the 70 uses a double-quoted literal. A computed id would not
 // match, which is intentional: this gate can only assert what it can read
 // statically, and dom.js deliberately contains nothing dynamic.
 const DOM_ID_PATTERN = /getElementById\(\s*"([^"]+)"\s*\)/g;

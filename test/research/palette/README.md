@@ -1,34 +1,47 @@
-# Palette contrast — the single scheme, measured
+# Palette contrast — a readable report
 
-**Not a gate.** This is a measurement, and this repo's rule is that a
-measurement which gates nothing lives under `test/research/` rather than in
-`test/`, where `test/repo-contract.js`'s CHECK 2 would require a `run:` line for
-it in `.github/workflows/ci.yml`.
+**The gate is [`test/palette-contrast.js`](../../palette-contrast.js), not this
+directory.** It runs in CI (per-push step 3), parses `:root` out of `style.css`,
+and fails the build if any text-over-surface pair drops below its WCAG floor.
+
+`measure.mjs` here is the same numbers laid out to look at, for when you are
+comparing a candidate token against what ships or writing up why a value is what
+it is. It asserts nothing.
 
 ```
-node test/research/palette/measure.mjs
+node test/research/palette/measure.mjs     # the report
+node test/palette-contrast.js              # the gate
 ```
 
-## Why it exists
+## What changed, and why it matters more than the numbers
 
-The theme system was removed in favour of one fixed colour scheme. With two
-palettes there was always a fallback; with one there is none — and several of
-this app's surfaces are **glass**, a translucent fill plus `backdrop-filter`,
-whose backdrop is *the user's own photograph*. That can be a blown-out white
-page scan or a night shot, and nothing in the app controls which.
+This started as a research harness that **hard-coded its own 16-token copy of
+the palette**, with a header saying so and a "keeping it true" section
+explaining how to cross-check it by hand. Every value in that copy was correct.
+That is exactly the property that makes it dangerous: it was an honest local
+copy of a value that lives somewhere else, which is the same shape as the 30
+test servers that each carried their own MIME map (CHECK 6 in
+`test/repo-contract.js`). As research it was an honest report that could go
+wrong. As a gate it would have been a false green waiting for `style.css` to
+move.
 
-Nobody had measured that. `contrast.mjs` composites the alpha the way the
-browser does and computes WCAG 2.1 ratios; `measure.mjs` runs every
-text-over-surface pair in the scheme against both ends of that range.
+So the tokens and the WCAG arithmetic both moved into the gate, and this file
+imports them. **The dependency points research → gate and never the other way**:
+a gate that imported a research harness could be disabled by editing something
+nothing runs.
 
-**The backdrop model.** `backdrop-filter`'s blur redistributes the backdrop's
-pixels but preserves their mean, so the mean is what the text has to survive.
-Pure white and near-black bracket it.
+Parsing rather than listing paid off immediately. The hand-written version
+checked three `color-mix()` tinted surfaces; reading the stylesheet found
+**five** — `style.css:1556` and `:1561`, the editor's hover and modified-word
+backgrounds, are text sitting directly on the user's photograph and had been
+missed. 27 pairs measured by hand became 45 asserted.
 
-## What it found
+## The finding this exists because of
 
-Run against the palette as it stood *before* the single-scheme change, over a
-white page scan:
+Removing the theme system left one scheme and no light mode to fall back to when
+a surface sits over something bright — and several surfaces here are glass, a
+translucent fill plus `backdrop-filter`, whose backdrop is the user's own
+photograph. Over a white page scan, the palette before `49d1176` measured:
 
 | Pair | Before | After |
 |---|---|---|
@@ -36,26 +49,17 @@ white page scan:
 | `--text-muted` on the same | **1.49:1** — not "low contrast", gone | 5.17:1 |
 | `--accent` on the same | 3.05:1 — clearing 3.0 by 0.05 | 7.32:1 |
 
-Two tokens moved because of those numbers and for no other reason:
-`--text-muted` from `#8291a8` to `#9fb0c8`, and the glass fill from
-`rgba(16,22,31,0.6)` to `rgba(6,9,13,0.8)`.
+`node test/palette-contrast.js` reproduces both of those reds if you revert
+`--text-muted` and `--surface-glass` in `style.css`.
 
-## Two honest limits
+**The backdrop model:** `backdrop-filter`'s blur redistributes the backdrop's
+pixels but preserves their mean, so the mean is what the text has to survive.
+Pure white and near-black bracket it.
 
-1. **It is not enforced.** Running a script is not a gate. A future palette edit
-   can reintroduce exactly the defect above and CI will stay green. Making it a
-   gate means a 35th step in `ci.yml`'s per-push job and a row in
-   WEB-COMPLETION-PLAN.md §0's table.
-2. **Nothing here is observed.** Every ratio is computed from the token values.
-   Real `backdrop-filter` compositing in Safari and in WKWebView on a device is
-   unverified — see ANALYSIS.md §3.10 and §6.
+## The limit that remains
 
-## Keeping it true
-
-`measure.mjs`'s `T` table is kept in sync with `style.css`'s `:root` **by hand**.
-This file reports, it does not gate, so a drift there is a wrong report rather
-than a false green — but it is still a drift. Cross-check with:
-
-```
-awk '/^:root \{/,/^\}/' style.css | grep -oE '\-\-[a-z0-9-]+: *#[0-9a-f]{6}'
-```
+**Nothing here is observed.** Every ratio is computed from the token values.
+Real `backdrop-filter` compositing in Safari and in WKWebView on a device is
+unverified — see `ANALYSIS.md` §3.10 and §6. A real photograph also has local
+structure a mean does not capture; pure white is the worst-case bound, so the
+numbers hold, but no real image has been sampled.

@@ -79,6 +79,17 @@ benchmark is **+0.00pts** — recognition was not touched.
 > from the two non-contract deletions - see `WEB-COMPLETION-PLAN.md`'s own id
 > table for the full per-phase breakdown. Phases 1, 4 and 5 added or removed
 > no ids at all.
+>
+> **Updated 2026-09-20: 70, and this time the number really moved.** `49d1176`
+> deleted the theme system outright - no switcher, no light/dark, no stored
+> preference, one fixed colour scheme - taking `theme-btn` with it. Unlike the
+> three updates above, which each landed back on 71 by coincidence of
+> arithmetic, this one is a plain -1: **`js/dom.js` resolves 70 ids**, and
+> `index.html`'s total moved **164 → 163**, all still unique.
+> `EXPECTED_ID_COUNT` moved to 70 in that same commit. See `ANALYSIS.md` §8.2,
+> which carries the same update plus a note on a "163 → 161" figure in the
+> 2026-09-17 entry above that disagrees with `WEB-COMPLETION-PLAN.md` §0 and is
+> left standing rather than rewritten.
 
 `ANALYSIS.md` §8 is the addendum covering this, including the four bugs found
 while building it. `js/app.js` is the shell; `js/main.js` still owns the scan

@@ -1,109 +1,77 @@
-// measure.mjs: every text-over-surface pair in the single "Instrument" scheme,
-// as a computed WCAG 2.1 contrast ratio.
+// measure.mjs: a readable contrast report for the single colour scheme.
 //
-// NOT A GATE. It is a measurement, and this repo puts a measurement that does
-// not gate anything under test/research/ rather than test/, where
-// test/repo-contract.js's CHECK 2 would require a `run:` line for it in
-// .github/workflows/ci.yml.
+// NOT THE GATE. test/palette-contrast.js is the gate; it runs in CI and fails
+// the build. This file exists for the times you want the numbers laid out to
+// look at - comparing a candidate token against what ships, or writing up why
+// a value is what it is - without reading them out of a pass/fail log.
 //
-// WHY IT EXISTS, and what it found. Removing the theme system left the app with
-// one scheme and therefore no light mode to fall back to. Several surfaces here
-// are glass - a translucent fill plus backdrop-filter - and their backdrop is
-// the user's own photograph, which spans a white page scan to a night shot.
-// Run against the palette as it stood BEFORE this change, this script found
-// --text-muted at 1.49:1 on a context menu over a white scan and --text at
-// 4.26:1, i.e. body text below the 4.5:1 floor and secondary text effectively
-// invisible. That is what moved --text-muted and the glass fill/alpha below;
-// the numbers are the argument, not the taste.
-//
-// The backdrop model: backdrop-filter's blur redistributes the backdrop's
-// pixels but preserves their mean, so the mean is what text has to survive. A
-// pure-white page scan and a near-black night photo bracket it.
+// IT CARRIES NO COLOURS AND NO ARITHMETIC OF ITS OWN. Both come from
+// ../../palette-contrast.js, which parses them out of style.css. An earlier
+// version of this file hard-coded a 16-token copy of the palette and said so in
+// its header; that copy was correct the day it was written, which is exactly
+// the property that makes it dangerous later. The dependency points research ->
+// gate and never the other way: a gate that imported a research harness could
+// be disabled by editing something nothing runs.
 //
 // Usage: node test/research/palette/measure.mjs
 
-import { ratio, over, toHex, fmt } from "./contrast.mjs";
+import {
+  readStylesheet, parseTokens, requireHex, requireRgba, findSurfaceTints,
+  ratio, over, toHex, WHITE_SCAN, NIGHT_PHOTO, AA_BODY, AA_LARGE,
+} from "../../palette-contrast.js";
 
-// The shipped tokens. Kept in sync by hand with style.css's :root - this file
-// reports, it does not gate, so a drift here is a wrong report rather than a
-// false green.
-const T = {
-  bg: "#070a0f",
-  surface: "#0e141d",
-  "surface-2": "#141c27",
-  "surface-3": "#1b2431",
-  border: "#26303f",
-  text: "#eef3f8",
-  "text-muted": "#9fb0c8",
-  accent: "#34e2ff",
-  "accent-hover": "#6eecff",
-  "accent-contrast": "#04222c",
-  success: "#35e0a1",
-  error: "#ff5c76",
-  warning: "#ffb020",
-  danger: "#ff5c76",
-  "danger-contrast": "#070a0f",
-};
+const css = await readStylesheet();
+const tokens = parseTokens(css);
+const hex = (n) => requireHex(tokens, n);
+const fmt = (n) => n.toFixed(2);
 
-// The two photographs that bracket everything a scanner app is pointed at.
-const BACKDROPS = [["a white page scan", "#ffffff"], ["a night photo", "#0b0b0d"]];
+const TEXT = hex("--text");
+const MUTED = hex("--text-muted");
+const ACCENT = hex("--accent");
 
-const AA_BODY = 4.5;   // WCAG 1.4.3, normal text
-const AA_LARGE = 3.0;  // WCAG 1.4.3 large text / 1.4.11 UI components
-
-let worst = Infinity;
-const row = (label, r, floor) => {
-  const ok = r >= floor ? "ok  " : "FAIL";
-  if (r < floor) worst = Math.min(worst, r);
-  console.log(`  ${ok} ${label.padEnd(52)} ${fmt(r).padStart(6)}:1   (floor ${floor})`);
-};
-
-console.log("OPAQUE SURFACES");
-for (const [fg, bg, floor] of [
-  ["text", "bg", AA_BODY], ["text", "surface", AA_BODY],
-  ["text", "surface-2", AA_BODY], ["text", "surface-3", AA_BODY],
-  ["text-muted", "bg", AA_BODY], ["text-muted", "surface", AA_BODY],
-  ["text-muted", "surface-2", AA_BODY], ["text-muted", "surface-3", AA_BODY],
-  ["accent", "bg", AA_LARGE], ["accent", "surface", AA_LARGE],
-  ["accent-hover", "surface", AA_LARGE],
-  ["accent-contrast", "accent", AA_BODY],
-  ["danger-contrast", "danger", AA_BODY],
-  ["success", "surface", AA_LARGE], ["error", "surface", AA_BODY],
-  ["warning", "surface", AA_BODY], ["danger", "surface", AA_BODY],
-  ["border", "bg", 1.0], ["border", "surface", 1.0],
-]) row(`--${fg} on --${bg}`, ratio(T[fg], T[bg]), floor);
-
-// --surface-glass: rgba(6, 9, 13, 0.8). Stated as fill+alpha so the composite
-// below is the same arithmetic the browser does.
-const GLASS_FILL = "#06090d", GLASS_ALPHA = 0.8;
-
-console.log("\nGLASS SURFACES over a photograph  (.context-menu, .library-sidebar)");
-console.log(`  --surface-glass = rgba(6, 9, 13, ${GLASS_ALPHA})`);
-for (const [name, bd] of BACKDROPS) {
-  const c = over(GLASS_FILL, GLASS_ALPHA, bd);
-  console.log(`  over ${name} -> composites to ${toHex(c)}`);
-  row(`--text on glass over ${name}`, ratio(T.text, c), AA_BODY);
-  row(`--text-muted on glass over ${name}`, ratio(T["text-muted"], c), AA_BODY);
-  row(`--accent on glass over ${name}`, ratio(T.accent, c), AA_LARGE);
+console.log("Palette read from style.css's :root\n");
+for (const [name, value] of [...tokens].filter(([, v]) => /^#|^rgba\(/.test(v))) {
+  console.log(`  ${name.padEnd(20)} ${value}`);
 }
 
-// The structural bars tint --surface with color-mix() rather than using
-// --surface-glass, at their own percentages. Same arithmetic, different alpha.
-console.log("\nTINTED BARS over a photograph  (color-mix(in srgb, --surface N%, transparent))");
-for (const [label, pct] of [[".app-bar", 0.86], [".note-toolbar", 0.92], [".scan-busy", 0.82]]) {
-  for (const [name, bd] of BACKDROPS) {
-    const c = over(T.surface, pct, bd);
-    row(`${label} ${pct * 100}%: --text over ${name}`, ratio(T.text, c), AA_BODY);
-    row(`${label} ${pct * 100}%: --text-muted over ${name}`, ratio(T["text-muted"], c), AA_BODY);
+const row = (label, r, floor) =>
+  console.log(`  ${r >= floor ? "    " : "LOW "}${label.padEnd(52)} ${fmt(r).padStart(6)}:1   (floor ${floor})`);
+
+console.log("\nOpaque surfaces");
+for (const surface of ["--bg", "--surface", "--surface-2", "--surface-3"]) {
+  row(`--text on ${surface}`, ratio(TEXT, hex(surface)), AA_BODY);
+  row(`--text-muted on ${surface}`, ratio(MUTED, hex(surface)), AA_BODY);
+}
+for (const surface of ["--bg", "--surface"]) {
+  row(`--accent on ${surface}`, ratio(ACCENT, hex(surface)), AA_LARGE);
+}
+row("--accent-contrast on --accent", ratio(hex("--accent-contrast"), ACCENT), AA_BODY);
+row("--danger-contrast on --danger", ratio(hex("--danger-contrast"), hex("--danger")), AA_BODY);
+for (const token of ["--success", "--error", "--warning", "--danger"]) {
+  row(`${token} on --surface`, ratio(hex(token), hex("--surface")), token === "--success" ? AA_LARGE : AA_BODY);
+}
+
+// The backdrop model: backdrop-filter's blur redistributes the backdrop's
+// pixels but preserves their mean, so the mean is what text has to survive.
+// Pure white and near-black bracket what a camera can hand this app.
+console.log("\nGlass over a photograph (--surface-glass)");
+const glass = requireRgba(tokens, "--surface-glass");
+for (const [name, backdrop] of [["a white page scan", WHITE_SCAN], ["a night photo", NIGHT_PHOTO]]) {
+  const c = over(glass.fill, glass.alpha, backdrop);
+  console.log(`  over ${name} -> ${toHex(c)}`);
+  row(`--text on glass over ${name}`, ratio(TEXT, c), AA_BODY);
+  row(`--text-muted on glass over ${name}`, ratio(MUTED, c), AA_BODY);
+  row(`--accent on glass over ${name}`, ratio(ACCENT, c), AA_LARGE);
+}
+
+console.log("\nTinted surfaces, found by reading style.css rather than listed here");
+const SURFACE = hex("--surface");
+for (const { percent, line } of findSurfaceTints(css)) {
+  for (const [name, backdrop] of [["a white page scan", WHITE_SCAN], ["a night photo", NIGHT_PHOTO]]) {
+    const c = over(SURFACE, percent, backdrop);
+    row(`style.css:${line} ${Math.round(percent * 100)}%: --text over ${name}`, ratio(TEXT, c), AA_BODY);
+    row(`style.css:${line} ${Math.round(percent * 100)}%: --text-muted over ${name}`, ratio(MUTED, c), AA_BODY);
   }
 }
 
-console.log("\nREDUCED TRANSPARENCY (:root.reduced-transparency resolves glass to --surface)");
-row("--text on --surface", ratio(T.text, T.surface), AA_BODY);
-row("--text-muted on --surface", ratio(T["text-muted"], T.surface), AA_BODY);
-
-console.log(
-  worst === Infinity
-    ? "\nEvery pair above clears its floor."
-    : `\nSOMETHING IS BELOW ITS FLOOR (worst ${fmt(worst)}:1).`
-);
+console.log("\nFloors are asserted by node test/palette-contrast.js, not by this file.");
