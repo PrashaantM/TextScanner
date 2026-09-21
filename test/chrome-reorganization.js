@@ -225,8 +225,8 @@ check(
 // but round - so on a selected word showing both, the only thing separating
 // "drag me to move this" from "drag me to resize this" was a corner radius.
 // It is a four-way arrow now, drawn as a mask over an --accent background so
-// it follows the theme (a baked-in SVG fill would be the light theme's teal in
-// dark mode).
+// it follows the --accent token (a baked-in SVG fill would be frozen at
+// whatever the accent happened to be the day it was written).
 // Selected through a real click, not by writing to state: section 5 above set
 // selectedObjectIds directly (it only needed getActiveResultText to see a
 // selection) and never told the view, so the handles were still hidden. Going

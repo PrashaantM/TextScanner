@@ -44,7 +44,6 @@ import {
   coherenceUnavailable,
   confidenceNote,
   editorKeyboardHint,
-  themeBtn,
   translateControls,
   translateTarget,
   translateBtn,
@@ -100,11 +99,9 @@ import { exportDiagnosticReport } from "./diagnostics.js";
 import { hapticLight, hapticMedium } from "./haptics.js";
 import { computeInpaintedPatch } from "./inpaint.js";
 import { wordsToFilteredText } from "./filter.js";
-import { getTheme, setTheme, cycleTheme, themeLabel } from "./theme.js";
 // Side-effect only (Phase 5): applies and live-updates the
 // prefers-reduced-transparency root class. No exports to pull in.
 import "./reducedTransparency.js";
-import { openRadialMenu } from "./radialMenu.js";
 // The application shell - library, documents, routing. main.js owns the scan
 // flow; app.js owns everything around it. The dependency runs one way: main.js
 // reaches the document model through `bridge`, and app.js never reaches back
@@ -1145,61 +1142,6 @@ function updateKeyboardHintVisibility() {
 }
 
 document.addEventListener("mode-changed", updateKeyboardHintVisibility);
-
-// ---- Theme (Phase 6) ----
-//
-// Cycles system -> light -> dark. js/theme.js applies the stored choice at
-// module load, so this only has to keep the button's label truthful.
-
-if (themeBtn) {
-  themeBtn.textContent = themeLabel(getTheme());
-  themeBtn.addEventListener("click", () => {
-    themeBtn.textContent = themeLabel(cycleTheme());
-  });
-
-  // Long-press turns the same button into a direct three-way radial pick
-  // (06-INTERACTION-MODEL-SPEC.md, call site 3) - a plain click still cycles
-  // exactly as it does today, unchanged; this is additive, and a good test
-  // of whether the primitive generalizes since this button is nothing like a
-  // card or a create button. radialMenu.js's own originEl swallow is what
-  // stops a fired selection from also re-triggering the cycle-click above -
-  // not preventDefault, which would be a no-op by the time a 420ms timer
-  // fires, long after the pointerdown event that started it finished
-  // dispatching.
-  let pressTimer = null;
-  const setThemeAndLabel = (theme) => {
-    themeBtn.textContent = themeLabel(setTheme(theme));
-  };
-  themeBtn.addEventListener("pointerdown", (event) => {
-    // Gated to touch/pen, exactly as call site 1 (#nav-add) in js/app.js is.
-    // This used to accept any pointer, so a 420ms mouse press-and-hold opened a
-    // radial menu here while the identical gesture on "+ New" correctly gave the
-    // flat action sheet - one primitive, two different answers to "is this
-    // gesture for a mouse?". A desktop user who happened to hold the button got
-    // a gesture menu they did not ask for and could not discover, and the
-    // inconsistency is the kind that makes an interaction model feel arbitrary.
-    // The plain click below still cycles the theme for everyone.
-    if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
-    pressTimer = setTimeout(() => {
-      pressTimer = null;
-      const rect = themeBtn.getBoundingClientRect();
-      openRadialMenu({
-        originX: rect.left + rect.width / 2,
-        originY: rect.top + rect.height / 2,
-        originEl: themeBtn,
-        arcCenter: 180,
-        arcSpan: 90,
-        items: [
-          { id: "system", label: "System", onSelect: () => setThemeAndLabel("system") },
-          { id: "light", label: "Light", onSelect: () => setThemeAndLabel("light") },
-          { id: "dark", label: "Dark", onSelect: () => setThemeAndLabel("dark") },
-        ],
-      });
-    }, 420);
-  });
-  themeBtn.addEventListener("pointerup", () => clearTimeout(pressTimer));
-  themeBtn.addEventListener("pointerleave", () => clearTimeout(pressTimer));
-}
 
 document.addEventListener("mode-changed", updateTTSVisibility);
 

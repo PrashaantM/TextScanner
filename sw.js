@@ -286,7 +286,6 @@ const SHELL_ASSETS = [
   "js/serviceWorkerRegistration.js",
   "js/state.js",
   "js/store.js",
-  "js/theme.js",
   "js/toast.js",
   "js/translate.js",
   "js/translateClaude.js",

@@ -57,11 +57,10 @@ export const imageFormatHint = document.getElementById("image-format-hint");
 // Shown only on an engine with no per-word confidence signal (see
 // engineProvidesConfidence() in js/recognize.js).
 export const confidenceNote = document.getElementById("confidence-note");
-// Phase 6 accessibility: a live region for selection changes, the editor's
-// keyboard hint, and the manual theme toggle.
+// Phase 6 accessibility: a live region for selection changes and the editor's
+// keyboard hint.
 export const selectionStatus = document.getElementById("selection-status");
 export const editorKeyboardHint = document.getElementById("editor-keyboard-hint");
-export const themeBtn = document.getElementById("theme-btn");
 export const editorToolbar = document.getElementById("editor-toolbar");
 export const deleteBtn = document.getElementById("delete-btn");
 export const undoRedoGroup = document.getElementById("undo-redo-group");

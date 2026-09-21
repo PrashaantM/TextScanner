@@ -3,72 +3,101 @@
   DOM nodes the js/ modules query and manipulate. Layout is a single centered column
   (body is a flex column, main caps out at max-width) holding the drop zone, action
   buttons, preview, progress bar, status message, and results toolbar/panel in
-  document order. Colors are defined as CSS custom properties on :root and swapped
-  for a dark palette under prefers-color-scheme, so components below just reference
-  the variables rather than hardcoding colors.
+  document order. Every colour is a CSS custom property on :root and nothing below
+  hardcodes one, so components just reference the variables.
 */
 
 /*
-  Theme resolution has three states, and the selectors below implement all three:
-  no choice made (follow the OS), explicitly light, explicitly dark. js/theme.js
-  writes data-theme on <html> for the latter two; with nothing written, only the
-  media query applies. Every colour is defined here on bare :root first, so no
-  colour has its ONLY definition inside a media query or an attribute selector.
+  ONE colour scheme. There is no switcher, no light mode, no OS-preference
+  branch and no attribute selector: every colour below is defined once, on bare
+  :root, and that is the whole palette.
 
-  color-scheme matters as much as the custom properties: without it the browser
-  keeps painting form controls, scrollbars and focus rings from the OS setting,
-  so a manual override would leave the page dark and its <select> light.
+  Why a dark instrument register rather than a neutral default. This app's
+  subject is the user's own photograph, and a light chrome competes with the
+  white page it frames - the brightest thing on screen should be the document,
+  not the toolbar around it. A near-black ground with a single emissive cyan
+  accent makes the UI read as a bezel around the work, which is the same reason
+  every tool that edits images professionally ships dark. It is also, bluntly, a
+  genre signal: saturated accent on near-black is the grammar of software people
+  pay for, and grey-on-white is the grammar of an internal utility.
+
+  The cost of having no light mode is that nothing falls back when a surface
+  sits over something bright, and several surfaces here are glass over the
+  user's photograph. That is measured, not eyeballed -
+  test/research/palette/measure.mjs composites every translucent surface over
+  both a white page scan and a night photo and reports the contrast ratio. The
+  previous palette failed that check at 1.49:1 for --text-muted on a context
+  menu over a white scan; --text-muted and the glass fill/alpha below are what
+  they are because of those numbers.
+
+  color-scheme still matters even with one palette: without it the browser
+  paints form controls, scrollbars and focus rings from the OS setting, so a
+  dark page could carry a light <select>.
 */
 :root {
-  color-scheme: light;
-  /* UI-REDESIGN-PLAN.md §3.1: sci-fi token system, dark-first. Light stays
-     genuinely usable outdoors (this app is often used to photograph a
-     document in daylight), so it's a real on-brand palette here, not a
-     generic light-mode grey reversion. */
-  --bg: #f4f6f9;
-  --surface: #ffffff;
-  --border: #d3dae3;
-  --text: #10151d;
-  --text-muted: #5c5c66;
-  --accent: #0091b3;
-  /* Not in §3.1's table (it only gives the dark accent-hover) - darkened
-     from --accent by roughly the same proportion the old light accent's own
-     hover already used, since leaving the previous blue hover here would
-     flash an unrelated color against the new teal accent on every hover. */
-  --accent-hover: #00748f;
-  --accent-contrast: #ffffff;
-  --success: #128a56;
-  --error: #d02847;
-  --warning: #b5720a;
+  color-scheme: dark;
+  /* The ground. Deliberately deeper and cooler than a charcoal grey: a true
+     near-black black point is what makes the accent read as emissive rather
+     than painted on, and it is what makes a photograph dropped into the middle
+     of it look lit. */
+  --bg: #070a0f;
+  --surface: #0e141d;
+  /* A second and third surface level, for cards sitting ON a surface (a page
+     thumbnail in the strip, a sidebar item). Without them, nested panels all
+     read as one flat plane and the hierarchy disappears. */
+  --surface-2: #141c27;
+  --surface-3: #1b2431;
+  --border: #26303f;
+  --text: #eef3f8;
+  /* Lifted from the #8291a8 this palette used while there was still a light
+     mode to fall back to. At that value, secondary text on a glass context
+     menu over a white page scan measured 1.49:1 - not "low contrast", gone.
+     #9fb0c8 is the value that clears 4.5:1 against the WORST backdrop this app
+     can put behind glass, which is a blown-out white document. See
+     test/research/palette/measure.mjs. */
+  --text-muted: #9fb0c8;
+  /* The signature. Cyan, not blue or violet: it is the viewfinder/laser cue a
+     scanner earns literally, and it is the one hue that still reads at 1px on
+     near-black, which the glass edges below depend on. */
+  --accent: #34e2ff;
+  --accent-hover: #6eecff;
+  --accent-contrast: #04222c;
+  --success: #35e0a1;
+  --error: #ff5c76;
+  --warning: #ffb020;
+  --danger: #ff5c76;
+  --danger-contrast: #070a0f;
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 18px;
   /* The four-way move arrow drawn on #move-handle. Geometry only - no fill is
      baked in, because it is used as a MASK over an --accent background so the
-     mark follows the theme (see .move-handle::after). One declaration covers
-     both themes for exactly that reason. */
+     mark follows the palette (see .move-handle::after). */
   --move-glyph: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 1.5 15.6 6H13.2v5.2h5.2V8.8L22.5 12l-4.1 3.2v-2.4h-5.2v5.2h2.4L12 22.5 8.4 18h2.4v-5.2H5.6v2.4L1.5 12l4.1-3.2v2.4h5.2V6H8.4Z" fill="black"/></svg>');
-  /* A second surface level, for cards sitting ON a surface (a page thumbnail in
-     the strip, a sidebar item). Without it, nested panels all read as one flat
-     plane and the hierarchy disappears. */
-  --surface-2: #f1f1f5;
-  --surface-3: #e8e8ee;
-  --danger: #d02847;
-  --danger-contrast: #ffffff;
-  /* Glass and glow (§3.1): additive, connects to the liquid-glass roadmap
-     item (§3.5). --glass-blur/--glass-saturate aren't color, so one
-     declaration covers both themes; --surface-glass/--glass-edge/
-     --glow-accent are restated per theme below since they ARE color. */
+  /* Glass. The fill is stated as a literal rgba rather than a colour-mix of
+     --bg because the ALPHA is the load-bearing number, not the hue: it is what
+     decides whether text survives over the user's photograph. 0.8, not the 0.6
+     this carried before - at 0.6 over a white page scan the composite lands on
+     #707379 and --text measures 4.26:1, below the body-text floor, with
+     --text-muted at 1.49:1. At 0.8 the same composite is #383a3d: --text
+     10.22:1, --text-muted 5.17:1, --accent 7.32:1. 20% of the backdrop plus a
+     20px blur still reads unmistakably as frosted glass.
+     --glass-blur/--glass-saturate are not colour and are unchanged. */
   --glass-blur: 20px;
   --glass-saturate: 160%;
-  --surface-glass: rgba(255, 255, 255, 0.6);
-  --glass-edge: rgba(255, 255, 255, 0.5);
-  --glow-accent: 0 0 0 3px rgba(0, 145, 179, 0.25), 0 0 16px rgba(0, 145, 179, 0.35);
-  /* Shadows are defined as tokens because they have to invert for dark mode -
-     a dark UI needs a lighter, tighter shadow or elements look like holes. */
-  --shadow-sm: 0 1px 2px rgba(16, 16, 24, 0.06), 0 1px 3px rgba(16, 16, 24, 0.04);
-  --shadow-md: 0 2px 6px rgba(16, 16, 24, 0.07), 0 8px 24px rgba(16, 16, 24, 0.06);
-  --shadow-lg: 0 12px 40px rgba(16, 16, 24, 0.16);
+  --surface-glass: rgba(6, 9, 13, 0.8);
+  /* Faintly cyan rather than plain white, so a panel edge reads as a machined
+     bezel tied to the accent rather than a generic frosted rim. A 1px
+     translucent hairline over an arbitrary photograph cannot be guaranteed to
+     clear 3:1 and is not asked to: these panels are identified by their fill's
+     luminance step and --shadow-lg, with the edge as refinement on top. */
+  --glass-edge: rgba(120, 214, 235, 0.16);
+  --glow-accent: 0 0 0 3px rgba(52, 226, 255, 0.28), 0 0 18px rgba(52, 226, 255, 0.4);
+  /* Shadows are tokens because a dark UI needs a darker, tighter shadow than a
+     light one or elements read as holes rather than as lifted. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.55);
   --motion-fast: 120ms;
   --motion-medium: 200ms;
   --motion-slow: 320ms;
@@ -81,9 +110,9 @@
   --motion-bloom: 140ms;
   --ease-bloom: cubic-bezier(0.2, 0.8, 0.3, 1.2);
 
-  /* Type scale (§3.2): additive, none of this existed before. --text-2xl
-     matches the drop-zone icon's existing 2.25rem exactly, so it isn't
-     invented from nothing. */
+  /* Type scale (UI-REDESIGN-PLAN.md §3.2): additive, none of this existed
+     before. --text-2xl matches the drop-zone icon's existing 2.25rem exactly,
+     so it isn't invented from nothing. */
   --text-2xs: 0.6875rem;
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
@@ -129,100 +158,15 @@
   }
 }
 
-/* Dark palette, defined once and applied from two places: the OS preference
-   (unless the user has explicitly chosen light), and an explicit dark choice. */
-@media (prefers-color-scheme: dark) {
-  /* UI-REDESIGN-PLAN.md §3.1: sci-fi dark palette, the primary register - a
-     HUD/viewfinder feel fits a scanner app literally, not just aesthetically. */
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #0a0e14;
-    --surface: #10161f;
-    --border: #26303f;
-    --text: #eef3f8;
-    --text-muted: #8291a8;
-    --accent: #34e2ff;
-    --accent-hover: #6eecff;
-    --accent-contrast: #06222b;
-    --success: #35e0a1;
-    --error: #ff4d6a;
-    --warning: #ffb020;
-    --surface-2: #161d29;
-    --surface-3: #1c2532;
-    --danger: #ff4d6a;
-    --danger-contrast: #0a0e14;
-    --surface-glass: rgba(16, 22, 31, 0.6);
-    --glass-edge: rgba(255, 255, 255, 0.08);
-    --glow-accent: 0 0 0 3px rgba(52, 226, 255, 0.25), 0 0 16px rgba(52, 226, 255, 0.35);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.55);
-  }
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #0a0e14;
-  --surface: #10161f;
-  --border: #26303f;
-  --text: #eef3f8;
-  --text-muted: #8291a8;
-  --accent: #34e2ff;
-  --accent-hover: #6eecff;
-  --accent-contrast: #06222b;
-  --success: #35e0a1;
-  --error: #ff4d6a;
-  --warning: #ffb020;
-  --surface-2: #161d29;
-  --surface-3: #1c2532;
-  --danger: #ff4d6a;
-  --danger-contrast: #0a0e14;
-  --surface-glass: rgba(16, 22, 31, 0.6);
-  --glass-edge: rgba(255, 255, 255, 0.08);
-  --glow-accent: 0 0 0 3px rgba(52, 226, 255, 0.25), 0 0 16px rgba(52, 226, 255, 0.35);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.55);
-}
-
-/* An explicit light choice has to win over a dark OS setting, which means
-   restating the light palette rather than relying on :root alone. */
-:root[data-theme="light"] {
-  color-scheme: light;
-  --bg: #f4f6f9;
-  --surface: #ffffff;
-  --border: #d3dae3;
-  --text: #10151d;
-  --text-muted: #5c5c66;
-  --accent: #0091b3;
-  --accent-hover: #00748f;
-  --accent-contrast: #ffffff;
-  --success: #128a56;
-  --error: #d02847;
-  --warning: #b5720a;
-  --surface-2: #f1f1f5;
-  --surface-3: #e8e8ee;
-  --danger: #d02847;
-  --danger-contrast: #ffffff;
-  --surface-glass: rgba(255, 255, 255, 0.6);
-  --glass-edge: rgba(255, 255, 255, 0.5);
-  --glow-accent: 0 0 0 3px rgba(0, 145, 179, 0.25), 0 0 16px rgba(0, 145, 179, 0.35);
-  --shadow-sm: 0 1px 2px rgba(16, 16, 24, 0.06), 0 1px 3px rgba(16, 16, 24, 0.04);
-  --shadow-md: 0 2px 6px rgba(16, 16, 24, 0.07), 0 8px 24px rgba(16, 16, 24, 0.06);
-  --shadow-lg: 0 12px 40px rgba(16, 16, 24, 0.16);
-}
-
 /* Phase 5: prefers-reduced-transparency, applied live for the life of the
    page - see js/reducedTransparency.js, which queries the media feature
    fresh on every check rather than caching it (the same WebKit staleness
    bug js/radialMenu.js already found and fixed for prefers-reduced-motion -
-   see that file's header comment). Placed after both theme blocks above so
-   it wins regardless of which is active (equal :root-level specificity,
-   later in the cascade wins) - a person who asked their OS to reduce
-   transparency gets that regardless of which color theme they also chose.
-   --surface-glass/--glass-edge resolve to each theme's own already-opaque
-   --surface/--border rather than a hardcoded color, so this stays correct
-   under light OR dark instead of only one of them. */
+   see that file's header comment). Placed after the :root block above so it
+   wins (equal :root-level specificity, later in the cascade wins).
+   --surface-glass/--glass-edge resolve to the palette's own already-opaque
+   --surface/--border rather than a hardcoded colour, so the opaque fallback
+   stays in the scheme rather than reverting to a browser default. */
 :root.reduced-transparency {
   --glass-blur: 0px;
   --glass-saturate: 100%;
@@ -1481,7 +1425,7 @@ kbd {
    properties rather than an inline `color` on purpose: the rules further down
    decide WHEN a word is visible (an untouched word over a photo is deliberately
    transparent), and an inline colour would override that. These decide only what
-   colour it is once shown, and fall back to the theme for user-added words,
+   colour it is once shown, and fall back to the palette for user-added words,
    which have no source pixels to sample. */
 .image-format-word {
   position: absolute;
@@ -1624,7 +1568,7 @@ kbd {
 }
 
 .image-format-view.show-bg .image-format-word.is-selected {
-  /* Was color: var(--text) - hardcoded to the theme's default text colour
+  /* Was color: var(--text) - hardcoded to the palette's default text colour
      instead of falling back through the matched --word-color like every
      sibling rule above (:hover, :modified, :focus) already does. Live
      whenever a word was selected in Full image mode, under the old model
@@ -1727,10 +1671,10 @@ kbd {
    The arrow says it outright.
 
    Drawn as a MASK over `background: var(--accent)` rather than as an <img> or
-   an SVG data URI with baked-in fill, because the accent colour is a theme
-   token: an SVG carrying `fill="#0091b3"` would still be the light theme's
-   teal on a dark background. The mask is pure geometry and the colour comes
-   from CSS, so both themes get it right by construction.
+   an SVG data URI with baked-in fill, because the accent colour is a token:
+   an SVG carrying `fill="#34e2ff"` would be frozen at whatever the accent
+   happened to be the day it was written. The mask is pure geometry and the
+   colour comes from CSS, so it follows the token by construction.
 
    Same 11px visible footprint as before (and as .resize-handle's square) - the
    affordance got clearer, not bigger. ::before is the contrast halo, playing
@@ -3222,14 +3166,13 @@ kbd {
     padding-right: 0.9rem;
   }
 
-  /* On a phone the bar cannot hold four controls and a title. Theme is the one
-     that drops out - Library, the single "+" creation action, and Settings are
-     what matter. (Scan and Note used to be two separate always-lit buttons here;
-     collapsing them into one "+" action sheet is what made room to keep BOTH
-     reachable on a phone, where "Note" used to disappear entirely.) */
-  .app-bar__actions #theme-btn {
-    display: none;
-  }
+  /* The bar carries a title plus Library, the single "+" creation action and
+     Settings, and that fits. It used to carry a fourth control (the theme
+     cycle) which had to be hidden here; the theme system is gone, so nothing
+     needs hiding at this width any more. Scan and Note used to be two separate
+     always-lit buttons too - collapsing them into one "+" action sheet is what
+     made room to keep BOTH reachable on a phone, where "Note" used to
+     disappear entirely. */
 
   .note-toolbar {
     top: calc(3.3rem + env(safe-area-inset-top, 0px));

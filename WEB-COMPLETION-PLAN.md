@@ -79,7 +79,7 @@ Checked today rather than carried forward from `HANDOFF.md`:
 | 81 unit tests pass | `node --test test/unit/*.test.js` — 81 pass, 0 fail |
 | The newest browser gate passes | `node test/font-match.js` — all 7 checks green |
 | Last CI run on `main` green | run `34673998815`, 3m30s |
-| 51 modules, 18,036 lines in `js/` | `wc -l js/*.js`, `ls js/*.js \| wc -l` |
+| 50 modules, 17,905 lines in `js/` | `wc -l js/*.js`, `ls js/*.js \| wc -l` |
 | 34 gates in `ci.yml`'s per-push `test:` job | `awk '/^  test:/,/^  cross-browser:/' .github/workflows/ci.yml \| grep -c '^      - run: node'` |
 | Tracked repo 8.87 MiB; `vendor/tesseract` is 11 MB of it on disk | `git count-objects -vH`, `du` |
 
@@ -94,13 +94,13 @@ empirically by the 200s above, so no `.nojekyll` is needed.
 > to 49/17,394 in the same commit that added `js/fontMatch.js` — the rule
 > applied, one commit late for the module before it.
 
-**51 unbundled ES modules over HTTP/2 is not a load problem.** 752 KB raw across
+**50 unbundled ES modules over HTTP/2 is not a load problem.** 752 KB raw across
 `js/`, gzipped per-file, multiplexed on one connection. Don't add a bundler; the
 no-build-step property is worth more than the milliseconds.
 
-### The "72 DOM ids" number is stale — it is **71**
+### The "72 DOM ids" number is stale — it is **70**
 
-`js/dom.js` resolves 71 ids today, and all 71 exist in `index.html` (verified by
+`js/dom.js` resolves 70 ids today, and all 70 exist in `index.html` (verified by
 `node test/dom-contract.js`, not by eye).
 
 | Commit | ids in `dom.js` | What moved |
@@ -111,9 +111,11 @@ no-build-step property is worth more than the milliseconds.
 | `a511ac0` | 72 | `footer-version` (W12) |
 | UI-REDESIGN-PLAN.md §2.1-§2.5 | 71 | removed `download-image-btn`, `clean-up-text-btn`, `view-on-photo-btn`, `select-multi-btn`, `editor-mode-btn` (merged into other controls or converted to gestures); added `paste-btn`, `download-menu`, `download-menu-backdrop`, `move-handle`. Net −1. |
 | F4 interaction-model rewrite (this session), Phases 1-3 | 71 | Phase 2 removed `copy-btn`, `paste-btn` (deleted outright - Ctrl/Cmd+C/V and a touch long-press menu trigger copy/paste now) and added `text-clipboard-menu`, `text-clipboard-menu-backdrop` (the touch menu's own markup). Phase 3 removed `new-text-btn` (deleted outright, along with the addTextMode plumbing only it drove) and added `filter-toggle-row` (Text-mode-only visibility needed an id to hide/inert as a unit). Net −3, +3 = 0, landing back on 71 again - a third coincidence of arithmetic, not a third instance of nothing changing. Phases 4 and 5 added/removed no ids at all (drag-and-drop and the glass-token migration are both markup-id-neutral). |
+| Theme-system removal | 70 | `theme-btn` deleted outright with the switcher it drove: one fixed colour scheme now, so there is no preference to expose. Net −1, and the first time in five entries this number has actually moved. |
 
-Treat **71** as the invariant from here on. `index.html` carries **164** ids in
-total (163 before this session's Phase 3, which additionally deleted
+Treat **70** as the invariant from here on. `index.html` carries **163** ids in
+total (164 before the theme-system removal deleted `theme-btn`; 163 before this
+session's Phase 3, which additionally deleted
 `add-to-doc-btn` and `save-note-btn` outright rather than moving them - both
 actions live only inside `#download-menu` now, addressed by `data-menu-action`
 rather than an id each, so neither is a "behaves like the contract in
@@ -633,7 +635,7 @@ exit=1
 
 Both restorations returned to green with a clean `git diff`.
 
-**Scope, deliberately narrow.** `js/dom.js` only. `index.html` carries 164 ids;
+**Scope, deliberately narrow.** `js/dom.js` only. `index.html` carries 163 ids;
 widening this to all of them trades a precise contract for a noisy one. The gate's
 header names `add-to-doc-btn` and `save-note-btn` (`js/main.js:1141-1142`) as
 honourable mentions — `main.js` queries them directly and treats them like the
@@ -798,16 +800,22 @@ API KEY SURVIVES: YES -> sk-ant-canary-value
 of every `localStorage` key the app persists — the API key, the theme choice and
 the command palette's usage counts — because a module cannot honestly promise to
 delete "all local data" from a position where it does not know what "all" is. The
-three owning modules (`coherenceClaude.js`, `theme.js`, `commandPalette.js`) import
-those names from there, so there is one definition and it cannot drift from what
-gets cleared. `clearAll()` clears them before the IndexedDB transaction,
+owning modules (`coherenceClaude.js`, `commandPalette.js`, and at the time
+`theme.js`) import those names from there, so there is one definition and it
+cannot drift from what gets cleared. `clearAll()` clears them before the IndexedDB transaction,
 deliberately: the synchronous part cannot fail in a way worth aborting over, so an
 interrupted wipe leaves documents behind rather than a secret.
 
-All three are cleared, not just the key. The theme and the usage counts are not
-secrets, but the alert says **ALL**, and a half-true version of that sentence is
-what this whole finding was about. The cost is re-picking light/dark after an
-action that was double-confirmed as "delete everything".
+All three are cleared, not just the key. The theme choice and the usage counts
+are not secrets, but the alert says **ALL**, and a half-true version of that
+sentence is what this whole finding was about.
+
+> **Still three, but one is now an orphan.** The theme system was deleted, so
+> nothing reads or writes `textscanner.theme` any more - but every user who ever
+> used the switcher still has the key, and this app wrote it, so `js/store.js`
+> keeps sweeping it as `LOCAL_KEY_LEGACY_THEME`. `test/destructive-actions.js`
+> is now the only thing proving that sweep still happens, since no app code
+> touches the key at all.
 
 The gate's tripwire is **inverted from what it pinned before**: it now asserts the
 key is GONE, that the other two are gone, and that no `textscanner.*` key survives
@@ -822,8 +830,8 @@ are both true now that the code does what they say.
 ### W6 — Replace the native dialogs with in-app UI *(product polish — real, but optional)*
 
 **The problem.** Same 19 call sites. `window.prompt` is how you name a folder,
-rename a folder and insert a link. It is unstyled, it ignores the app's theme and
-safe areas, it blocks the main thread, and it looks like 2004 next to a radial menu
+rename a folder and insert a link. It is unstyled, it ignores the app's palette
+and safe areas, it blocks the main thread, and it looks like 2004 next to a radial menu
 and a command palette. This is a quality gap, not a correctness one.
 
 **Files.** `index.html` (a dialog/prompt component next to the existing
@@ -1018,6 +1026,18 @@ visual judgement; pinning font sizes in CI would gate styling, not behaviour.
 
 #### F2 — Check 13: the theme radial menu does not exist on any phone
 
+> **RESOLVED by deletion, and by neither of the two ways out below.** The theme
+> system is gone - no switcher, no light/dark, one fixed colour scheme - so
+> `#theme-btn` no longer exists at any width and call site 3 with it. F2 asked
+> which of "accept a desktop-only gesture" or "find the button a home on
+> phones" to pick; the answer turned out to be that the button had no reason to
+> exist. `test/radial-call-sites.js` did not shrink: the phone-width coverage
+> and the pointerType guard it was carrying are re-homed onto call site 2
+> (library cards), which now runs at BOTH widths, which it never did before.
+> The record below is left as written - it is what was true and it is the
+> reasoning that made the deletion obviously right.
+
+
 `style.css`'s `@media (max-width: 600px)` block sets `.app-bar__actions #theme-btn
 { display: none }`, with a comment explaining the trade honestly: the bar cannot
 hold four controls and a title, and Theme is the one that drops.
@@ -1057,7 +1077,25 @@ not discover.
 Call site 3 now carries the identical guard. The plain click still cycles the
 theme for everyone.
 
-#### F2 — The theme radial does not exist on any phone — **YOUR DECISION, not auto-fixed**
+> **Superseded: call site 3 no longer exists.** The theme system was deleted, so
+> the handler this paragraph describes went with it. The guard it is about is
+> still gated - `test/radial-call-sites.js` re-homed that assertion onto call
+> site 2 (library cards), which gates `pointerType` the same way, so the
+> surviving call sites still cannot drift apart on this question.
+
+#### F2 — The theme radial does not exist on any phone — **RESOLVED BY DELETION**
+
+> **RESOLVED by deletion, and by neither of the two ways out below.** The theme
+> system is gone - no switcher, no light/dark, one fixed colour scheme - so
+> `#theme-btn` no longer exists at any width and call site 3 with it. F2 asked
+> which of "accept a desktop-only gesture" or "find the button a home on
+> phones" to pick; the answer turned out to be that the button had no reason to
+> exist. `test/radial-call-sites.js` did not shrink: the phone-width coverage
+> and the pointerType guard it was carrying are re-homed onto call site 2
+> (library cards), which now runs at BOTH widths, which it never did before.
+> The record below is left as written - it is what was true and it is the
+> reasoning that made the deletion obviously right.
+
 
 `style.css`'s `@media (max-width: 600px)` sets
 `.app-bar__actions #theme-btn { display: none }`, with an honest comment: the bar
@@ -1081,15 +1119,16 @@ that mostly do not have one.
    Moving it into Settings-as-a-row, or into the "+" sheet, are both real
    options and both change the nav design.
 
-`test/radial-call-sites.js` **pins the current behaviour rather than demanding
-either**: it asserts `#theme-btn` is hidden below the breakpoint and prints the
-decision alongside. If it ever becomes visible on a phone the gate fails and
-names this section, so the choice gets made deliberately instead of drifting.
+`test/radial-call-sites.js` **pinned the current behaviour rather than demanding
+either**: it asserted `#theme-btn` was hidden below the breakpoint and printed
+the decision alongside. That assertion is gone with the button - a decision that
+no longer exists cannot be pinned - and what replaced it is call site 2 being
+driven below the breakpoint, which is the coverage the pin was standing in for.
 
 #### The gate that closes both — **BUILT**
 
-`test/radial-call-sites.js`, in both CI jobs. Drives all three call sites at
-430px and 1280px — the two sides of the 600px breakpoint `interaction-layer.js`
+`test/radial-call-sites.js`, in both CI jobs. Drives every call site at
+430px and 1280px (three when written, two since the theme system was deleted) — the two sides of the 600px breakpoint `interaction-layer.js`
 had never seen, because it sets no viewport and runs at Playwright's 1280x720
 default. Green on chromium, webkit and firefox.
 

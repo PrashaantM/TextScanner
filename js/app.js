@@ -48,7 +48,6 @@ import { canvasFromSource } from "./scanFilters.js";
 import { clearHistory, historyStats } from "./translateHistory.js";
 import { recognitionCacheState, warmRecognitionCache, RECOGNITION_PAYLOAD_LABEL } from "./offlineRecognition.js";
 import { hapticLight, hapticMedium } from "./haptics.js";
-import { cycleTheme, themeLabel } from "./theme.js";
 import { initCommandPalette, openCommandPalette, closeCommandPalette, isCommandPaletteOpen } from "./commandPalette.js";
 import { openRadialMenu } from "./radialMenu.js";
 
@@ -546,10 +545,6 @@ export async function initApp() {
   initCommandPalette({
     createAndOpenScan,
     createAndOpenNote,
-    toggleTheme: () => {
-      const btn = document.getElementById("theme-btn");
-      if (btn) btn.textContent = themeLabel(cycleTheme());
-    },
     openShortcutSheet,
   });
 

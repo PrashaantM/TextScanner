@@ -13,7 +13,7 @@
 
 ## 0. Executive summary
 
-TextScanner is a **zero-build, dependency-light, local-first OCR and image-text-editing app**: 18,036 lines of vanilla ES-module JavaScript across 51 modules, deployed straight to GitHub Pages, wrapped in a Capacitor iOS shell that dispatches between Tesseract.js and native Google ML Kit, plus two features (Coherence Filter, translate-in-place) that dispatch between Apple's on-device Foundation Models and a BYOK Claude fallback.
+TextScanner is a **zero-build, dependency-light, local-first OCR and image-text-editing app**: 17,905 lines of vanilla ES-module JavaScript across 50 modules, deployed straight to GitHub Pages, wrapped in a Capacitor iOS shell that dispatches between Tesseract.js and native Google ML Kit, plus two features (Coherence Filter, translate-in-place) that dispatch between Apple's on-device Foundation Models and a BYOK Claude fallback.
 
 The headline of this revision is not a feature. It is that **the oldest open bug in the project is closed, and was closed without a device** — by generating recognition fixtures with exact ground truth rather than waiting for a device dump that would have had none.
 
@@ -241,6 +241,47 @@ The design decision worth naming: haptics are **fire-and-forget and never awaite
 ### 3.9 Rotated words — a visual improvement that came free
 
 §2.4's fix changes what the editor looks like on tilted source text: words now sit *over* the text they were read from, at the right size and angle, instead of oversized and axis-aligned. Because rotation is a CSS transform and every gesture measures through `getBoundingClientRect()` ([`js/editorInteractions.js`](js/editorInteractions.js) — drag, resize and marquee hit-testing all do), **the interaction model needed no changes at all**: the browser accounts for the transform. `obj.x`/`obj.y` remain the word's own anchor, so dragging still moves it and resizing still scales it.
+
+### 3.10 One colour scheme — and the contrast defect that found
+
+The theme system is gone: no switcher, no light mode, no OS-preference branch,
+no `data-theme` attribute, no stored preference. The app ships a single dark
+"instrument" palette — near-black ground, one emissive cyan accent — on the
+argument that this app's subject is the user's own photograph, and a light
+chrome competes with the white page it frames. `style.css`'s header carries the
+full reasoning.
+
+**The finding is what the removal exposed, not the removal itself.** With two
+palettes there was always a fallback; with one there is none, and several of
+this app's surfaces are glass — a translucent fill plus `backdrop-filter` —
+whose backdrop is an arbitrary photograph. Nobody had measured that. Composited
+properly (`backdrop-filter`'s blur redistributes the backdrop's pixels but
+preserves their mean, so the mean is what text has to survive), the palette as
+it stood failed over a white page scan:
+
+| Pair | Before | After |
+|---|---|---|
+| `--text` on `--surface-glass` over a white scan | **4.26:1** — below the 4.5 body floor | 10.22:1 |
+| `--text-muted` on the same | **1.49:1** — not "low contrast", gone | 5.17:1 |
+| `--accent` on the same | 3.05:1 — clearing 3.0 by 0.05 | 7.32:1 |
+
+Two tokens moved because of those numbers and not for taste: `--text-muted`
+from `#8291a8` to `#9fb0c8`, and the glass fill from `rgba(16,22,31,0.6)` to
+`rgba(6,9,13,0.8)`. 20% of the backdrop plus a 20px blur still reads
+unmistakably as frosted glass.
+
+The arithmetic lives in [`test/research/palette/`](test/research/palette/) —
+deliberately research rather than a gate, since this repo puts a measurement
+that gates nothing under `test/research/`. **That is a disclosed gap:** the
+contrast floors are checked by running a script, not on every push, so a future
+palette edit can reintroduce exactly this defect and CI will stay green. Making
+it a gate would add a 35th CI step, which was out of scope here.
+
+**Not verified on hardware.** Every ratio above is computed from the token
+values, not sampled from a screen. `backdrop-filter` compositing in real Safari
+and in WKWebView on a real iPhone is unobserved — see §6.
+
+---
 
 ---
 

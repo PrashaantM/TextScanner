@@ -86,7 +86,7 @@ What this doesn't claim: better raw recognition accuracy than those tools on har
 - Copy the extracted text to your clipboard or download it as a `.txt` file, from any view. Paste works the other way: in Text mode it replaces the whole result with your clipboard's contents (with a confirm, since it discards the OCR result); in Image format/Full image it drops the clipboard's text as a new object wherever you tap next
 - A built-in sample image so you can try it out with no image of your own
 - Everything runs on-device, and **recognition needs no network at all, ever** - not even the first time: Tesseract.js, its worker, its WebAssembly core and its English language data are all served from this repository rather than a CDN, so nothing is fetched from a third party at scan time. Since the service worker landed this is true of the *page* as well: `sw.js` precaches the app shell on first visit and the recognition payload on your first successful scan, so opening the app with no connection at all renders your Library and scans an image end to end - asserted in CI by `test/offline.js`, with the network genuinely gone rather than mocked. Two honest limits on that. The 11 MB of wasm core and language data are cached on the first scan rather than up front, deliberately, so a first visit is not made hostile - which means your **first** scan still needs the network, and every one after it does not. And it has been verified on Chromium in CI and reasoned about for Safari, not confirmed on a real iPhone with Wi-Fi switched off. Settings › “Make recognition work offline” fills that cache on demand if you would rather not wait for a lucky online scan, and says what is actually stored rather than assuming. **On iOS Safari there is a further limit worth knowing**: WebKit deletes a site's script-writable storage — and its own documentation lists “Service Worker registrations and cache” among what that covers — after seven days of *Safari use* without user interaction on the site. Not seven calendar days, and merely loading the page does not reset it. A web app added to the Home Screen gets its own counter tied to actually using the app, which is the practical reason to install it rather than leave it in a tab. So on iOS the offline claim holds for a site you keep using, and an app you have not opened in a while may quietly need one connected scan again. The precise, honest claim is that **your image is never uploaded** - recognition happens on the device and the picture itself goes nowhere. The app is not, however, wholly silent on the network: Coherence Filter makes an opt-in call to Claude's API with your extracted text (disclosed every time the panel is open), and the iOS build links Google's ML Kit, which performs its own usage logging (see `ios/` notes and the App Store readiness work)
-- Responsive layout with automatic light and dark themes
+- Responsive layout in one signature dark colour scheme, tuned so text stays readable over your own photographs rather than only over the app's own surfaces
 
 ## How it works
 
@@ -110,13 +110,14 @@ Then open `http://localhost:8000` in your browser.
 ## Project structure
 
 The web app has no build step: `index.html` loads `js/main.js` as an ES module and
-the browser resolves the rest. 51 modules, grouped by what they own.
+the browser resolves the rest. 50 modules, grouped by what they own.
 
 ```
 index.html            Markup and layout. Every view's markup is present at all
                       times, hidden with a class - see js/views.js for why
-style.css             Styling, light/dark themes, and the --motion-* tokens a
-                      single prefers-reduced-motion block zeroes
+style.css             Styling: one colour scheme, every colour a custom
+                      property on :root, and the --motion-* tokens a single
+                      prefers-reduced-motion block zeroes
 sw.js                 The service worker: app shell precached eagerly, the 11 MB
                       Tesseract payload cached on the first successful scan.
                       Network-first for everything in the shell, on purpose -
@@ -128,7 +129,6 @@ Shell and navigation
   js/dom.js           Every shared DOM element reference, looked up once.
                       Its ids are a contract - test/dom-contract.js gates them
   js/state.js         Shared app/editor state and tunable constants
-  js/theme.js         System / light / dark, remembered in localStorage
   js/toast.js         Transient messages, including delete-with-Undo
   js/serviceWorkerRegistration.js
                       Registers sw.js over https: (or an explicit ?sw), and the

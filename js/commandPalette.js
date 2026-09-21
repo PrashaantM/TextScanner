@@ -15,8 +15,8 @@ import { LOCAL_KEY_COMMAND_FRECENCY } from "./store.js";
 import { getAllDocuments, deriveTitle } from "./documents.js";
 import { showView, VIEWS } from "./views.js";
 
-// From js/store.js's localStorage inventory (same try/catch pattern as
-// theme.js), so "Delete all local data" clears these usage counts too.
+// From js/store.js's localStorage inventory, so "Delete all local data" clears
+// these usage counts too.
 const FRECENCY_KEY = LOCAL_KEY_COMMAND_FRECENCY;
 
 function readFrecency() {
@@ -41,13 +41,12 @@ function bumpFrecency(id) {
 // this app already does routing (js/coherenceRouter.js's keyword classifier
 // is the same philosophy: a rule that's transparent and good enough beats a
 // model for a problem this small).
-export function buildCommands({ createAndOpenScan, createAndOpenNote, toggleTheme, openShortcutSheet }) {
+export function buildCommands({ createAndOpenScan, createAndOpenNote, openShortcutSheet }) {
   return [
     { id: "scan", label: "Scan a document", shortcut: "⌘N", run: createAndOpenScan },
     { id: "note", label: "New note", shortcut: "⌘⇧N", run: createAndOpenNote },
     { id: "library", label: "Go to Library", shortcut: "⌘L", run: () => showView(VIEWS.LIBRARY) },
     { id: "settings", label: "Open Settings", shortcut: "⌘,", run: () => showView(VIEWS.SETTINGS) },
-    { id: "theme", label: "Toggle theme", run: toggleTheme },
     { id: "shortcuts", label: "Show keyboard shortcuts", shortcut: "?", run: openShortcutSheet },
   ];
 }

@@ -5,8 +5,9 @@
 // doesn't know about documents, scans, or notes, only about items with a
 // label and an onSelect.
 //
-// One primitive, several call sites (js/app.js's "+" button and theme button,
-// js/library.js's card long-press) - see 06-INTERACTION-MODEL-SPEC.md. Building
+// One primitive, two call sites (js/app.js's "+" button, js/library.js's card
+// long-press) - see 06-INTERACTION-MODEL-SPEC.md. There was a third, on the
+// app bar's theme button; it went when the theme system did. Building
 // the viewport-edge flip, the reduced-motion fallback, and the keyboard
 // arrow-key navigation once here means every call site inherits them for
 // free instead of risking a slightly-different, slightly-wrong copy at each.

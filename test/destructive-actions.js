@@ -581,12 +581,20 @@ check("it returns you to the library", (await ev(() => document.body.dataset.act
 // owning modules import those names from there, so there is one definition and
 // it cannot drift from what gets cleared.
 //
-// All three are asserted below, not just the key: the theme and the command
-// palette's usage counts are not secrets, but the alert says ALL, and a
-// half-true version of that sentence is what this whole check exists to stop.
+// All three are asserted below, not just the key: the command palette's usage
+// counts are not a secret, but the alert says ALL, and a half-true version of
+// that sentence is what this whole check exists to stop.
+//
+// The third is "textscanner.theme", and it is now an ORPHAN. The theme switcher
+// that wrote it is gone - one fixed scheme, no preference to store - but the
+// key is still sitting in the localStorage of everyone who ever used that
+// switcher, so js/store.js keeps sweeping it (LOCAL_KEY_LEGACY_THEME, with the
+// reasoning at its definition). This assertion is now the ONLY thing proving
+// that sweep still happens: nothing else in the app touches the key, so a
+// removal of the entry from CLEARABLE_LOCAL_KEYS would otherwise be invisible.
 const localAfter = await ev(() => ({
   apiKey: localStorage.getItem("textscanner.anthropicApiKey"),
-  theme: localStorage.getItem("textscanner.theme"),
+  legacyTheme: localStorage.getItem("textscanner.theme"),
   frecency: localStorage.getItem("textscanner.command-frecency"),
   anyTextscannerKey: Object.keys(localStorage).filter((k) => k.startsWith("textscanner.")),
 }));
@@ -594,7 +602,7 @@ const localAfter = await ev(() => ({
 check('the Anthropic API key is GONE after "Delete all local data"',
       localAfter.apiKey === null,
       `key is still ${JSON.stringify(localAfter.apiKey)} - clearAll() is not reaching localStorage`);
-check("the remembered theme is gone too", localAfter.theme === null, JSON.stringify(localAfter.theme));
+check("the orphaned theme key from the deleted switcher is swept too", localAfter.legacyTheme === null, JSON.stringify(localAfter.legacyTheme));
 check("the command palette's usage counts are gone too", localAfter.frecency === null, JSON.stringify(localAfter.frecency));
 check('so "All local data deleted." is now literally true',
       localAfter.anyTextscannerKey.length === 0,

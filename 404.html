@@ -27,15 +27,18 @@
   <meta name="robots" content="noindex" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2222%22 fill=%22%233457d5%22/><g stroke=%22white%22 stroke-width=%225.5%22 stroke-linecap=%22round%22 fill=%22none%22><path d=%22M20,34 L20,22 Q20,20 22,20 L34,20%22/><path d=%22M66,20 L78,20 Q80,20 80,22 L80,34%22/><path d=%22M20,66 L20,78 Q20,80 22,80 L34,80%22/><path d=%22M80,66 L80,78 Q80,80 78,80 L66,80%22/></g><g fill=%22white%22><rect x=%2246%22 y=%2232%22 width=%228%22 height=%2236%22 rx=%222%22/><rect x=%2239%22 y=%2232%22 width=%2222%22 height=%224.5%22 rx=%221.8%22/><rect x=%2239%22 y=%2263.5%22 width=%2222%22 height=%224.5%22 rx=%221.8%22/></g></svg>" />
   <style>
+    /* The same single scheme style.css ships, restated here because this page
+       is standalone and deliberately loads no stylesheet - see the header. One
+       palette, no OS-preference branch, for the same reason the app has one:
+       a 404 that flashes white while the app is a dark instrument is a seam a
+       stranger sees. Ratios: --text on --bg 17.76:1, --muted on --bg 8.99:1,
+       --accent on --bg 12.71:1. */
     :root {
-      color-scheme: light dark;
-      --bg: #f7f7f9;
-      --text: #14141a;
-      --muted: #5b5b66;
-      --accent: #3457d5;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root { --bg: #14141a; --text: #f7f7f9; --muted: #a6a6b3; }
+      color-scheme: dark;
+      --bg: #070a0f;
+      --text: #eef3f8;
+      --muted: #9fb0c8;
+      --accent: #34e2ff;
     }
     * { box-sizing: border-box; }
     body {

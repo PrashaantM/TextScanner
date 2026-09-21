@@ -477,7 +477,7 @@ console.log("5. UNDO after touch gestures:", (await page.$eval("#undo-btn", (el)
 // ---- 6. Phase 1: single tap selects only (never edits); a double tap
 // enters edit mode; dragging works from the word's own body once it's
 // already selected, not only from move-handle; color stays the matched
-// colour (never black/the theme default) through both states.
+// colour (never black/the palette default) through both states.
 //
 // Runs last and picks its own word: everything above already dragged/
 // resized/selected other objects, and this section's own body-drag moves

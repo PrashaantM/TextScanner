@@ -290,7 +290,16 @@ const COUNT_CLAIMS = [
   },
   {
     label: "the js/ line count",
-    pattern: /\b([\d,]+)\s+(?:lines in `js\/`|lines of vanilla ES-module JavaScript|LOC)\b/g,
+    // The trailing \b lives INSIDE the alternation, on the only branch that
+    // ends in a word character. It used to sit after the group, where it could
+    // never match "lines in `js/`" at all - both `/` and the backtick are
+    // non-word characters, so there is no boundary there to assert. Effect: the
+    // line count in WEB-COMPLETION-PLAN.md §0's own fact table, the single
+    // source this whole gate exists to protect, was the one statement of it
+    // that went unchecked, while the identical claim in ANALYSIS.md (which
+    // ends in "JavaScript") was caught. Found by seeding the §0 table with a
+    // stale number and watching the gate stay green.
+    pattern: /\b([\d,]+)\s+(?:lines in `js\/`|lines of vanilla ES-module JavaScript|LOC\b)/g,
     actual: () => actualLineCount,
     how: "wc -l js/*.js",
   },

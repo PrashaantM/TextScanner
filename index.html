@@ -70,8 +70,11 @@
   <meta name="twitter:title" content="TextScanner" />
   <meta name="twitter:description" content="Scan documents, take notes, and translate text - all on your device. No upload, no server, no account." />
   <meta name="twitter:image" content="https://prashaantm.github.io/TextScanner/icons/icon-512.png" />
-  <meta name="theme-color" content="#f7f7f9" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#14141a" media="(prefers-color-scheme: dark)" />
+  <!-- One value, matching --bg in style.css. theme-color is a standards meta
+       name (it tints the browser/OS chrome around the page) and is unrelated to
+       the deleted theme switcher; it was media-keyed only because the app used
+       to have two palettes. -->
+  <meta name="theme-color" content="#070a0f" />
   <!-- Matches the app icon concept (ios/App/App/Assets.xcassets/AppIcon.appiconset):
        a viewfinder frame for "scan", a text cursor for "edit the text in place". -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2222%22 fill=%22%233457d5%22/><g stroke=%22white%22 stroke-width=%225.5%22 stroke-linecap=%22round%22 fill=%22none%22><path d=%22M20,34 L20,22 Q20,20 22,20 L34,20%22/><path d=%22M66,20 L78,20 Q80,20 80,22 L80,34%22/><path d=%22M20,66 L20,78 Q20,80 22,80 L34,80%22/><path d=%22M80,66 L80,78 Q80,80 78,80 L66,80%22/></g><g fill=%22white%22><rect x=%2246%22 y=%2232%22 width=%228%22 height=%2236%22 rx=%222%22/><rect x=%2239%22 y=%2232%22 width=%2222%22 height=%224.5%22 rx=%221.8%22/><rect x=%2239%22 y=%2263.5%22 width=%2222%22 height=%224.5%22 rx=%221.8%22/></g></svg>" />
@@ -130,10 +133,6 @@
       <button id="nav-settings" class="btn btn--ghost btn--small" type="button" aria-label="Settings">
         <span aria-hidden="true">&#9881;</span>
       </button>
-      <!-- Cycles system / light / dark. The app followed prefers-color-scheme with
-           no way to disagree, which matters most to the people most likely to need
-           to. See js/theme.js. -->
-      <button id="theme-btn" class="btn btn--ghost btn--small" type="button">Theme: system</button>
     </nav>
   </header>
 

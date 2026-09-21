@@ -455,7 +455,7 @@ async function main() {
     console.log(`width ratio: min ${Math.min(...ratios)}  max ${Math.max(...ratios)}  mean ${(ratios.reduce((a, b) => a + b, 0) / ratios.length).toFixed(2)}`);
 
     // Colour/weight fidelity (Phase 4b). Before colour sampling existed, every
-    // word rendered in one theme colour, so inkError was simply the distance
+    // word rendered in one palette colour, so inkError was simply the distance
     // from that colour to each word's real one - the number to beat.
     const inkErrors = report.map((r) => r.inkError).filter((n) => n != null);
     if (inkErrors.length) {

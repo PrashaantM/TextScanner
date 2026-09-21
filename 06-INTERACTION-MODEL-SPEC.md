@@ -310,6 +310,15 @@ a working control in favor of a gesture that has no visible fallback.
 
 ## Call site 3 (new) — long-press the theme button for a radial picker
 
+> **Built, then deleted.** This call site shipped as specified and is gone: the
+> theme system it existed to drive was removed in favour of one fixed colour
+> scheme, so there is no `#theme-btn` and no System/Light/Dark to pick between.
+> The two assertions it was carrying in `test/radial-call-sites.js` - a
+> press-and-hold radial exercised below the 600px breakpoint, and a mouse hold
+> being refused the way call site 1 refuses one - were re-homed onto call site 2
+> (library cards) rather than dropped. The rollout reasoning below is left as
+> written; it was right about the primitive, which now has two call sites.
+
 Small, and a good proof that the primitive is worth having: today
 `#theme-btn` is a three-way *cycle* button — click it enough times and you'll
 land on the theme you want, eventually. A long-press turns the same button
@@ -490,7 +499,7 @@ accidentally trigger something while typing in the wrong field.
 | `js/radialMenu.js` | new |
 | `js/commandPalette.js` | new |
 | `index.html` | add command palette markup, shortcut-sheet markup, `data-needs-pages`-style hooks unaffected |
-| `js/app.js` | wire `pointerdown` on `#nav-add` and `#theme-btn`, add the global `keydown` dispatcher |
+| `js/app.js` | wire `pointerdown` on `#nav-add` (and, at the time, `#theme-btn` — since deleted), add the global `keydown` dispatcher |
 | `js/library.js` | add `attachCardGestures`, `openFolderPicker`, `openCardContextMenu` |
 | `style.css` | `.radial-menu*`, `.swipe-armed-*`, command palette + shortcut sheet styles |
 

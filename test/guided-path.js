@@ -195,7 +195,7 @@ for (const viewport of [
     // ---- 3. Phase 1, mouse input: single click selects only (never edits);
     // dragging works from the word's own body once selected, not only from
     // move-handle; double click enters edit mode; colour stays the matched
-    // colour (never the theme default/black) through both states.
+    // colour (never the palette default/black) through both states.
     //
     // Picks a DIFFERENT word than section 2's (window.__target, set there):
     // section 2 already dragged that one by a fixed pixel delta, which on a

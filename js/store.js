@@ -55,15 +55,25 @@ const STORE_HISTORY = "history";
 // who presses "Delete all local data" on a shared machine and is told "All local
 // data deleted." must not be leaving their Anthropic key behind.
 export const LOCAL_KEY_ANTHROPIC_API = "textscanner.anthropicApiKey";
-// The theme choice and the command palette's usage counts are not secrets, but
-// they are still things this device remembers about the person using it, and the
-// alert says ALL. Clearing them costs a re-pick of light/dark on an action that
-// was double-confirmed as "delete everything"; leaving them would make the copy
-// a half-truth, which is the thing this list exists to prevent.
-export const LOCAL_KEY_THEME = "textscanner.theme";
+// The command palette's usage counts are not a secret, but they are still
+// something this device remembers about the person using it, and the alert says
+// ALL. Leaving them would make the copy a half-truth, which is the thing this
+// list exists to prevent.
 export const LOCAL_KEY_COMMAND_FRECENCY = "textscanner.command-frecency";
+// ORPHANED, ON PURPOSE, AND STILL SWEPT. Nothing writes or reads this any more:
+// the theme switcher it belonged to is gone and the app has one fixed scheme.
+// It stays in the clear list because every user who ever touched that switcher
+// still has the key sitting in their localStorage, and this app wrote it, so
+// this app is what should remove it. The alternative - purging it at load -
+// means a module and a side effect that run on every launch forever to delete
+// one string most profiles never had. Deleting the entry outright was the third
+// option and is the wrong one: it would silently orphan the key for exactly the
+// people who used the feature most, under a button whose copy says ALL.
+// test/destructive-actions.js asserts it is still cleared, which is now the
+// only thing proving the sweep still happens.
+export const LOCAL_KEY_LEGACY_THEME = "textscanner.theme";
 
-const CLEARABLE_LOCAL_KEYS = [LOCAL_KEY_ANTHROPIC_API, LOCAL_KEY_THEME, LOCAL_KEY_COMMAND_FRECENCY];
+const CLEARABLE_LOCAL_KEYS = [LOCAL_KEY_ANTHROPIC_API, LOCAL_KEY_COMMAND_FRECENCY, LOCAL_KEY_LEGACY_THEME];
 
 export const STORES = {
   DOCUMENTS: STORE_DOCUMENTS,

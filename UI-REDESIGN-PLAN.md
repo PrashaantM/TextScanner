@@ -116,7 +116,7 @@ Persistent chrome (present on every view, so listed once):
 | Library | `#nav-library`, `index.html:121` | Navigates to library | keep |
 | + New | `#nav-add`, `index.html:127` | Opens the action sheet (Scan / Note), creates nothing itself | keep |
 | Settings (gear) | `#nav-settings`, `index.html:130` | Navigates to settings | keep |
-| Theme | `#theme-btn`, `index.html:136` | Cycles system → light → dark | keep |
+| ~~Theme~~ | ~~`#theme-btn`~~ | ~~Cycles system → light → dark~~ | **deleted** — the theme system is gone; the app ships one fixed colour scheme |
 | Action sheet: Scan a document | `#action-sheet-scan`, `index.html:148` | Opens the scan view empty | keep |
 | Action sheet: New note | `#action-sheet-note`, `index.html:155` | Opens a blank note draft | keep |
 | Command palette | `#command-palette*`, `index.html:167-173` | Cmd/Ctrl+K search over commands and documents | keep |

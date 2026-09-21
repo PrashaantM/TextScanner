@@ -27,7 +27,7 @@
 // that "Delete all local data" used to have (js/store.js's localStorage
 // inventory, added when clearAll stopped leaving the key behind) - just with a
 // wider blast radius, because this file is meant to travel. So the export walks
-// the four document stores and nothing else: no credentials, no theme.
+// the four document stores and nothing else: no credentials, no preferences.
 // test/backup-roundtrip.js asserts that with a canary key, by searching the
 // serialized text for it.
 //

@@ -201,13 +201,15 @@ jobs:
       # a plain pixel-darkness scan - not merely the code checked against
       # itself.
       - run: node test/pii-redaction.js
-      # All three radial call sites, at both sides of the 600px breakpoint.
-      # interaction-layer.js covers call sites 1 and 2 and never touches call
-      # site 3 (#theme-btn) - the one the interaction spec's own rollout order
-      # puts first - and sets no viewport, so it had never seen the breakpoint
-      # where style.css hides controls. That combination hid two things: the
-      # theme radial being absent on every phone, and call site 3 accepting a
-      # mouse press-and-hold while call site 1 correctly refused one.
+      # Both radial call sites, at both sides of the 600px breakpoint.
+      # interaction-layer.js covers call sites 1 and 2 but sets no viewport, so
+      # it has never seen the breakpoint where style.css re-lays-out controls;
+      # this is the only gate that drives either call site on a phone-sized
+      # screen. There was a third call site (#theme-btn) and it went with the
+      # theme system; the two assertions it carried - a press-and-hold radial
+      # below the breakpoint, and a mouse hold being refused the way call site 1
+      # refuses one - are re-homed onto call site 2, which now runs at both
+      # widths. See that file's header.
       - run: node test/radial-call-sites.js
       # Inpaint reconstruction quality, against ground truth the test holds (the
       # background captured before text was drawn over it). Two metrics, because
